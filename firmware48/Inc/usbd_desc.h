@@ -53,6 +53,8 @@
 
 #define         USB_SIZ_STRING_SERIAL       0x1A
 
+#define         USB_SIZ_BOS_DESC            0x0C
+
 /* USER CODE BEGIN EXPORTED_CONSTANTS */
 
 /* USER CODE END EXPORTED_CONSTANTS */
