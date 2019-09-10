@@ -432,23 +432,48 @@ drivers:
       domain_group: null
   TIMER_0:
     user_label: TIMER_0
-    definition: Atmel:SAMD21_Drivers:0.0.1::SAMD21G18A-AF::TC3::driver_config_definition::Timer::HAL:Driver:Timer
+    definition: Atmel:SAMD21_Drivers:0.0.1::SAMD21G18A-AF::TC4::driver_config_definition::32-bit.Counter.Mode::Lite:TC:Timer
     functionality: Timer
-    api: HAL:Driver:Timer
+    api: Lite:TC:Timer
     configuration:
-      tc_arch_dbgrun: false
-      tc_arch_evact: Event action disabled
-      tc_arch_mceo0: false
-      tc_arch_mceo1: false
-      tc_arch_ovfeo: false
-      tc_arch_presync: Reload or reset counter on next GCLK
-      tc_arch_runstdby: false
-      tc_arch_tcei: false
-      tc_arch_tceinv: false
-      timer_advanced_configuration: false
-      timer_event_control: false
-      timer_prescaler: No division
-      timer_tick: 1000
+      cc_cc0: 0
+      cc_cc1: 0
+      cc_control: false
+      count_control: false
+      count_count: 0
+      ctrla_control: true
+      ctrla_enable: true
+      ctrla_mode: 2
+      ctrla_prescaler: DIV1
+      ctrla_prescsync: GCLK
+      ctrla_runstdby: false
+      ctrla_wavegen: NFRQ
+      ctrlbset_cmd: NONE
+      ctrlbset_control: false
+      ctrlbset_dir: false
+      ctrlbset_oneshot: false
+      ctrlc_control: false
+      ctrlc_cpten0: false
+      ctrlc_cpten1: false
+      dbgctrl_control: false
+      dbgctrl_dbgrun: false
+      evctrl_control: false
+      evctrl_evact: 'OFF'
+      evctrl_mceo0: false
+      evctrl_mceo1: false
+      evctrl_ovfeo: false
+      evctrl_tcei: false
+      evctrl_tcinv: false
+      intenset_control: false
+      intenset_err: false
+      intenset_mc0: false
+      intenset_mc1: false
+      intenset_ovf: false
+      intenset_syncrdy: false
+      readreq_addr: 0
+      readreq_control: false
+      readreq_rcont: false
+      readreq_rreq: false
     optional_signals: []
     variant: null
     clocks:
@@ -460,33 +485,6 @@ drivers:
           external_frequency: 0
         configuration:
           tc_gclk_selection: Generic clock generator 0
-  DAC_0:
-    user_label: DAC_0
-    definition: Atmel:SAMD21_Drivers:0.0.1::SAMD21G18A-AF::DAC::driver_config_definition::DAC::HAL:Driver:DAC.Sync
-    functionality: DAC
-    api: HAL:Driver:DAC_Sync
-    configuration:
-      dac_advanced_settings: false
-      dac_arch_bdwp: false
-      dac_arch_emptyeo: false
-      dac_arch_eoen: true
-      dac_arch_ioen: false
-      dac_arch_leftadj: false
-      dac_arch_refsel: Internal 1.0v reference
-      dac_arch_runstdby: false
-      dac_arch_startei: false
-      dac_arch_vpd: false
-    optional_signals: []
-    variant: null
-    clocks:
-      domain_group:
-        nodes:
-        - name: DAC
-          input: Generic clock generator 0
-          external: false
-          external_frequency: 0
-        configuration:
-          dac_gclk_selection: Generic clock generator 0
   DMAC:
     user_label: DMAC
     definition: Atmel:SAMD21_Drivers:0.0.1::SAMD21G18A-AF::DMAC::driver_config_definition::DMAC::HAL:HPL:DMAC
@@ -847,48 +845,145 @@ drivers:
       domain_group: null
   PWM_0:
     user_label: PWM_0
-    definition: Atmel:SAMD21_Drivers:0.0.1::SAMD21G18A-AF::TCC0::driver_config_definition::PWM::HAL:Driver:PWM
+    definition: Atmel:SAMD21_Drivers:0.0.1::SAMD21G18A-AF::TCC0::driver_config_definition::PWM.Mode::Lite:TCC:PWM
     functionality: PWM
-    api: HAL:Driver:PWM
+    api: Lite:TCC:PWM
     configuration:
-      tcc_arch_alock: false
-      tcc_arch_cc0: 0
-      tcc_arch_cc1: 0
-      tcc_arch_cc2: 0
-      tcc_arch_cc3: 0
-      tcc_arch_cnteo: false
-      tcc_arch_cntsel: An interrupt/event is generated when a new counter cycle starts
-      tcc_arch_cpten0: false
-      tcc_arch_cpten1: false
-      tcc_arch_cpten2: false
-      tcc_arch_cpten3: false
-      tcc_arch_dbgrun: false
-      tcc_arch_evact0: Event action disabled
-      tcc_arch_evact1: Event action disabled
-      tcc_arch_lupd: true
-      tcc_arch_mcei0: false
-      tcc_arch_mcei1: false
-      tcc_arch_mcei2: false
-      tcc_arch_mcei3: false
-      tcc_arch_mceo0: false
-      tcc_arch_mceo1: false
-      tcc_arch_mceo2: false
-      tcc_arch_mceo3: false
-      tcc_arch_ovfeo: false
-      tcc_arch_prescsync: Reload or reset counter on next GCLK
-      tcc_arch_runstdby: false
-      tcc_arch_sel_ch: 1
-      tcc_arch_tcei0: false
-      tcc_arch_tcei1: false
-      tcc_arch_tceinv0: false
-      tcc_arch_tceinv1: false
-      tcc_arch_trgeo: false
-      tcc_arch_wave_duty_val: 500
-      tcc_arch_wave_per_val: 1000
-      tcc_arch_wavegen: Single-slope PWM
-      tcc_per: 10000
-      tcc_prescaler: No division
-      timer_event_control: false
+      cc_cc0: 0
+      cc_cc1: 0
+      cc_cc2: 0
+      cc_cc3: 0
+      cc_control: false
+      ctrla_alock: false
+      ctrla_control: false
+      ctrla_enable: true
+      ctrla_prescaler: DIV1
+      ctrla_prescsync: GCLK
+      ctrla_runstdby: false
+      ctrlbset_cmd: NONE
+      ctrlbset_control: false
+      ctrlbset_dir: false
+      ctrlbset_idxcmd: DISABLE
+      ctrlbset_lupd: false
+      ctrlbset_oneshot: false
+      dbgctrl_control: false
+      dbgctrl_dbgrun: false
+      dbgctrl_fddbd: false
+      drvctrl_control: false
+      drvctrl_filterval0: 0
+      drvctrl_filterval1: 0
+      drvctrl_inven0: false
+      drvctrl_inven1: false
+      drvctrl_inven2: false
+      drvctrl_inven3: false
+      drvctrl_inven4: false
+      drvctrl_inven5: false
+      drvctrl_inven6: false
+      drvctrl_inven7: false
+      drvctrl_nre0: false
+      drvctrl_nre1: false
+      drvctrl_nre2: false
+      drvctrl_nre3: false
+      drvctrl_nre4: false
+      drvctrl_nre5: false
+      drvctrl_nre6: false
+      drvctrl_nre7: false
+      drvctrl_nrv0: false
+      drvctrl_nrv1: false
+      drvctrl_nrv2: false
+      drvctrl_nrv3: false
+      drvctrl_nrv4: false
+      drvctrl_nrv5: false
+      drvctrl_nrv6: false
+      drvctrl_nrv7: false
+      evctrl_cnteo: false
+      evctrl_cntsel: START
+      evctrl_control: false
+      evctrl_evact0: 'OFF'
+      evctrl_evact1: 'OFF'
+      evctrl_mcei0: false
+      evctrl_mcei1: false
+      evctrl_mcei2: false
+      evctrl_mcei3: false
+      evctrl_mceo0: false
+      evctrl_mceo1: false
+      evctrl_mceo2: false
+      evctrl_mceo3: false
+      evctrl_ovfeo: false
+      evctrl_tcei0: false
+      evctrl_tcei1: false
+      evctrl_tcinv0: false
+      evctrl_tcinv1: false
+      evctrl_trgeo: false
+      fctrla_blank: NONE
+      fctrla_blankval: 0
+      fctrla_chsel: CC0
+      fctrla_control: false
+      fctrla_filterval: 0
+      fctrla_halt: DISABLE
+      fctrla_keep: false
+      fctrla_qual: false
+      fctrla_restart: false
+      fctrla_src: DISABLE
+      fctrlb_blank: NONE
+      fctrlb_blankval: 0
+      fctrlb_chsel: CC0
+      fctrlb_control: false
+      fctrlb_filterval: 0
+      fctrlb_halt: DISABLE
+      fctrlb_keep: false
+      fctrlb_qual: false
+      fctrlb_restart: false
+      fctrlb_src: DISABLE
+      intenset_cnt: false
+      intenset_control: false
+      intenset_dfs: false
+      intenset_err: false
+      intenset_fault0: false
+      intenset_fault1: false
+      intenset_faulta: false
+      intenset_faultb: false
+      intenset_mc0: false
+      intenset_mc1: false
+      intenset_mc2: false
+      intenset_mc3: false
+      intenset_ovf: false
+      intenset_trg: false
+      patt_control: true
+      patt_pge0: false
+      patt_pge1: false
+      patt_pge2: false
+      patt_pge3: false
+      patt_pgv0: true
+      patt_pgv1: false
+      patt_pgv2: false
+      patt_pgv3: false
+      per_control: true
+      per_per: 65535
+      wave_ciccen0: false
+      wave_ciccen1: false
+      wave_ciccen2: false
+      wave_ciccen3: false
+      wave_ciperen: false
+      wave_control: true
+      wave_pol0: false
+      wave_pol1: false
+      wave_pol2: false
+      wave_pol3: false
+      wave_ramp: RAMP1
+      wave_swap0: false
+      wave_swap1: false
+      wave_swap2: false
+      wave_swap3: false
+      wave_wavegen: NPWM
+      wexctrl_control: true
+      wexctrl_dths: 0
+      wexctrl_dtien0: false
+      wexctrl_dtien1: false
+      wexctrl_dtien2: false
+      wexctrl_dtien3: false
+      wexctrl_dtls: 0
+      wexctrl_otmx: 0
     optional_signals:
     - identifier: PWM_0:WO/0
       pad: PA08
@@ -897,6 +992,27 @@ drivers:
       definition: Atmel:SAMD21_Drivers:0.0.1::SAMD21G18A-AF::optional_signal_definition::TCC0.WO.0
       name: TCC0/WO/0
       label: WO/0
+    - identifier: PWM_0:WO/5
+      pad: PA15
+      mode: PWM output
+      configuration: null
+      definition: Atmel:SAMD21_Drivers:0.0.1::SAMD21G18A-AF::optional_signal_definition::TCC0.WO.5
+      name: TCC0/WO/5
+      label: WO/5
+    - identifier: PWM_0:WO/6
+      pad: PA20
+      mode: PWM output
+      configuration: null
+      definition: Atmel:SAMD21_Drivers:0.0.1::SAMD21G18A-AF::optional_signal_definition::TCC0.WO.6
+      name: TCC0/WO/6
+      label: WO/6
+    - identifier: PWM_0:WO/7
+      pad: PA21
+      mode: PWM output
+      configuration: null
+      definition: Atmel:SAMD21_Drivers:0.0.1::SAMD21G18A-AF::optional_signal_definition::TCC0.WO.7
+      name: TCC0/WO/7
+      label: WO/7
     variant: null
     clocks:
       domain_group:
@@ -909,49 +1025,153 @@ drivers:
           tcc_gclk_selection: Generic clock generator 0
   PWM_1:
     user_label: PWM_1
-    definition: Atmel:SAMD21_Drivers:0.0.1::SAMD21G18A-AF::TCC1::driver_config_definition::PWM::HAL:Driver:PWM
+    definition: Atmel:SAMD21_Drivers:0.0.1::SAMD21G18A-AF::TCC1::driver_config_definition::PWM.Mode::Lite:TCC:PWM
     functionality: PWM
-    api: HAL:Driver:PWM
+    api: Lite:TCC:PWM
     configuration:
-      tcc_arch_alock: false
-      tcc_arch_cc0: 0
-      tcc_arch_cc1: 0
-      tcc_arch_cc2: 0
-      tcc_arch_cc3: 0
-      tcc_arch_cnteo: false
-      tcc_arch_cntsel: An interrupt/event is generated when a new counter cycle starts
-      tcc_arch_cpten0: false
-      tcc_arch_cpten1: false
-      tcc_arch_cpten2: false
-      tcc_arch_cpten3: false
-      tcc_arch_dbgrun: false
-      tcc_arch_evact0: Event action disabled
-      tcc_arch_evact1: Event action disabled
-      tcc_arch_lupd: true
-      tcc_arch_mcei0: false
-      tcc_arch_mcei1: false
-      tcc_arch_mcei2: false
-      tcc_arch_mcei3: false
-      tcc_arch_mceo0: false
-      tcc_arch_mceo1: false
-      tcc_arch_mceo2: false
-      tcc_arch_mceo3: false
-      tcc_arch_ovfeo: false
-      tcc_arch_prescsync: Reload or reset counter on next GCLK
-      tcc_arch_runstdby: false
-      tcc_arch_sel_ch: 1
-      tcc_arch_tcei0: false
-      tcc_arch_tcei1: false
-      tcc_arch_tceinv0: false
-      tcc_arch_tceinv1: false
-      tcc_arch_trgeo: false
-      tcc_arch_wave_duty_val: 500
-      tcc_arch_wave_per_val: 1000
-      tcc_arch_wavegen: Single-slope PWM
-      tcc_per: 10000
-      tcc_prescaler: No division
-      timer_event_control: false
+      cc_cc0: 0
+      cc_cc1: 0
+      cc_cc2: 0
+      cc_cc3: 0
+      cc_control: false
+      ctrla_alock: false
+      ctrla_control: false
+      ctrla_enable: true
+      ctrla_prescaler: DIV1
+      ctrla_prescsync: GCLK
+      ctrla_runstdby: false
+      ctrlbset_cmd: NONE
+      ctrlbset_control: false
+      ctrlbset_dir: false
+      ctrlbset_idxcmd: DISABLE
+      ctrlbset_lupd: false
+      ctrlbset_oneshot: false
+      dbgctrl_control: false
+      dbgctrl_dbgrun: false
+      dbgctrl_fddbd: false
+      drvctrl_control: false
+      drvctrl_filterval0: 0
+      drvctrl_filterval1: 0
+      drvctrl_inven0: false
+      drvctrl_inven1: false
+      drvctrl_inven2: false
+      drvctrl_inven3: false
+      drvctrl_inven4: false
+      drvctrl_inven5: false
+      drvctrl_inven6: false
+      drvctrl_inven7: false
+      drvctrl_nre0: false
+      drvctrl_nre1: false
+      drvctrl_nre2: false
+      drvctrl_nre3: false
+      drvctrl_nre4: false
+      drvctrl_nre5: false
+      drvctrl_nre6: false
+      drvctrl_nre7: false
+      drvctrl_nrv0: false
+      drvctrl_nrv1: false
+      drvctrl_nrv2: false
+      drvctrl_nrv3: false
+      drvctrl_nrv4: false
+      drvctrl_nrv5: false
+      drvctrl_nrv6: false
+      drvctrl_nrv7: false
+      evctrl_cnteo: false
+      evctrl_cntsel: START
+      evctrl_control: false
+      evctrl_evact0: 'OFF'
+      evctrl_evact1: 'OFF'
+      evctrl_mcei0: false
+      evctrl_mcei1: false
+      evctrl_mcei2: false
+      evctrl_mcei3: false
+      evctrl_mceo0: false
+      evctrl_mceo1: false
+      evctrl_mceo2: false
+      evctrl_mceo3: false
+      evctrl_ovfeo: false
+      evctrl_tcei0: false
+      evctrl_tcei1: false
+      evctrl_tcinv0: false
+      evctrl_tcinv1: false
+      evctrl_trgeo: false
+      fctrla_blank: NONE
+      fctrla_blankval: 0
+      fctrla_chsel: CC0
+      fctrla_control: false
+      fctrla_filterval: 0
+      fctrla_halt: DISABLE
+      fctrla_keep: false
+      fctrla_qual: false
+      fctrla_restart: false
+      fctrla_src: DISABLE
+      fctrlb_blank: NONE
+      fctrlb_blankval: 0
+      fctrlb_chsel: CC0
+      fctrlb_control: false
+      fctrlb_filterval: 0
+      fctrlb_halt: DISABLE
+      fctrlb_keep: false
+      fctrlb_qual: false
+      fctrlb_restart: false
+      fctrlb_src: DISABLE
+      intenset_cnt: false
+      intenset_control: false
+      intenset_dfs: false
+      intenset_err: false
+      intenset_fault0: false
+      intenset_fault1: false
+      intenset_faulta: false
+      intenset_faultb: false
+      intenset_mc0: false
+      intenset_mc1: false
+      intenset_mc2: false
+      intenset_mc3: false
+      intenset_ovf: false
+      intenset_trg: false
+      patt_control: false
+      patt_pge0: false
+      patt_pge1: false
+      patt_pge2: false
+      patt_pge3: false
+      patt_pgv0: false
+      patt_pgv1: false
+      patt_pgv2: false
+      patt_pgv3: false
+      per_control: true
+      per_per: 65535
+      wave_ciccen0: false
+      wave_ciccen1: false
+      wave_ciccen2: false
+      wave_ciccen3: false
+      wave_ciperen: false
+      wave_control: true
+      wave_pol0: false
+      wave_pol1: false
+      wave_pol2: false
+      wave_pol3: false
+      wave_ramp: RAMP1
+      wave_swap0: false
+      wave_swap1: false
+      wave_swap2: false
+      wave_swap3: false
+      wave_wavegen: NPWM
+      wexctrl_control: false
+      wexctrl_dths: 0
+      wexctrl_dtien0: false
+      wexctrl_dtien1: false
+      wexctrl_dtien2: false
+      wexctrl_dtien3: false
+      wexctrl_dtls: 0
+      wexctrl_otmx: 0
     optional_signals:
+    - identifier: PWM_1:WO/0
+      pad: PA06
+      mode: PWM output
+      configuration: null
+      definition: Atmel:SAMD21_Drivers:0.0.1::SAMD21G18A-AF::optional_signal_definition::TCC1.WO.0
+      name: TCC1/WO/0
+      label: WO/0
     - identifier: PWM_1:WO/1
       pad: PA07
       mode: PWM output
@@ -1043,6 +1263,12 @@ pads:
     mode: Analog
     user_label: PA05
     configuration: null
+  MOT_IN1:
+    name: PA06
+    definition: Atmel:SAMD21_Drivers:0.0.1::SAMD21G18A-AF::pad::PA06
+    mode: Peripheral IO
+    user_label: MOT_IN1
+    configuration: null
   VREF1:
     name: PA07
     definition: Atmel:SAMD21_Drivers:0.0.1::SAMD21G18A-AF::pad::PA07
@@ -1073,6 +1299,12 @@ pads:
     mode: Digital input
     user_label: PA12
     configuration: null
+  MOT_IN3:
+    name: PA15
+    definition: Atmel:SAMD21_Drivers:0.0.1::SAMD21G18A-AF::pad::PA15
+    mode: Peripheral IO
+    user_label: MOT_IN3
+    configuration: null
   MECH_LED:
     name: PA17
     definition: Atmel:SAMD21_Drivers:0.0.1::SAMD21G18A-AF::pad::PA17
@@ -1080,6 +1312,18 @@ pads:
     user_label: MECH_LED
     configuration:
       pad_initial_level: High
+  MOT_IN4:
+    name: PA20
+    definition: Atmel:SAMD21_Drivers:0.0.1::SAMD21G18A-AF::pad::PA20
+    mode: Peripheral IO
+    user_label: MOT_IN4
+    configuration: null
+  MOT_IN2:
+    name: PA21
+    definition: Atmel:SAMD21_Drivers:0.0.1::SAMD21G18A-AF::pad::PA21
+    mode: Peripheral IO
+    user_label: MOT_IN2
+    configuration: null
   PA22:
     name: PA22
     definition: Atmel:SAMD21_Drivers:0.0.1::SAMD21G18A-AF::pad::PA22

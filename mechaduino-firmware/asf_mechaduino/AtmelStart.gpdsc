@@ -43,16 +43,12 @@
       <RTE_Components_h>#define ATMEL_START</RTE_Components_h>
       <files>
         <file category="doc" condition="ARMCC, GCC, IAR" name="hal/documentation/adc_sync.rst"/>
-        <file category="doc" condition="ARMCC, GCC, IAR" name="hal/documentation/dac_sync.rst"/>
         <file category="doc" condition="ARMCC, GCC, IAR" name="hal/documentation/flash.rst"/>
         <file category="doc" condition="ARMCC, GCC, IAR" name="hal/documentation/i2c_master_sync.rst"/>
-        <file category="doc" condition="ARMCC, GCC, IAR" name="hal/documentation/pwm.rst"/>
         <file category="doc" condition="ARMCC, GCC, IAR" name="hal/documentation/spi_master_sync.rst"/>
-        <file category="doc" condition="ARMCC, GCC, IAR" name="hal/documentation/timer.rst"/>
         <file category="doc" condition="ARMCC, GCC, IAR" name="hal/documentation/usart_sync.rst"/>
         <file category="doc" condition="ARMCC, GCC, IAR" name="hal/documentation/usb_device_async.rst"/>
         <file category="header" condition="ARMCC, GCC, IAR" name="hal/include/hal_atomic.h"/>
-        <file category="header" condition="ARMCC, GCC, IAR" name="hal/include/hal_dac_sync.h"/>
         <file category="header" condition="ARMCC, GCC, IAR" name="hal/include/hal_delay.h"/>
         <file category="header" condition="ARMCC, GCC, IAR" name="hal/include/hal_flash.h"/>
         <file category="header" condition="ARMCC, GCC, IAR" name="hal/include/hal_gpio.h"/>
@@ -86,7 +82,6 @@
         <file category="header" condition="ARMCC, GCC, IAR" name="hal/include/hpl_usb_host.h"/>
         <file category="header" condition="ARMCC, GCC, IAR" name="hal/include/hpl_user_area.h"/>
         <file category="source" condition="ARMCC, GCC, IAR" name="hal/src/hal_atomic.c"/>
-        <file category="source" condition="ARMCC, GCC, IAR" name="hal/src/hal_dac_sync.c"/>
         <file category="source" condition="ARMCC, GCC, IAR" name="hal/src/hal_delay.c"/>
         <file category="source" condition="ARMCC, GCC, IAR" name="hal/src/hal_flash.c"/>
         <file category="source" condition="ARMCC, GCC, IAR" name="hal/src/hal_gpio.c"/>
@@ -108,6 +103,8 @@
         <file category="source" condition="ARMCC, GCC, IAR" name="hal/utils/src/utils_event.c"/>
         <file category="source" condition="ARMCC, GCC, IAR" name="hal/utils/src/utils_list.c"/>
         <file category="source" condition="GCC" name="hal/utils/src/utils_syscalls.c"/>
+        <file category="doc" condition="ARMCC, GCC, IAR" name="hpl/doc_lite/tc.rst"/>
+        <file category="doc" condition="ARMCC, GCC, IAR" name="hpl/doc_lite/tcc.rst"/>
         <file category="header" condition="ARMCC, GCC, IAR" name="hri/hri_ac_d21.h"/>
         <file category="header" condition="ARMCC, GCC, IAR" name="hri/hri_adc_d21.h"/>
         <file category="header" condition="ARMCC, GCC, IAR" name="hri/hri_d21.h"/>
@@ -163,28 +160,20 @@
         <file category="header" condition="ARMCC, GCC, IAR" name="examples/driver_examples.h"/>
         <file category="source" condition="ARMCC, GCC, IAR" name="examples/driver_examples.c"/>
         <file category="header" condition="ARMCC, GCC, IAR" name="hal/include/hal_adc_sync.h"/>
-        <file category="header" condition="ARMCC, GCC, IAR" name="hal/include/hal_pwm.h"/>
-        <file category="header" condition="ARMCC, GCC, IAR" name="hal/include/hal_timer.h"/>
         <file category="header" condition="ARMCC, GCC, IAR" name="hal/include/hal_usart_sync.h"/>
         <file category="header" condition="ARMCC, GCC, IAR" name="hal/include/hpl_adc_async.h"/>
         <file category="header" condition="ARMCC, GCC, IAR" name="hal/include/hpl_adc_sync.h"/>
-        <file category="header" condition="ARMCC, GCC, IAR" name="hal/include/hpl_dac_async.h"/>
-        <file category="header" condition="ARMCC, GCC, IAR" name="hal/include/hpl_dac_sync.h"/>
         <file category="header" condition="ARMCC, GCC, IAR" name="hal/include/hpl_missing_features.h"/>
-        <file category="header" condition="ARMCC, GCC, IAR" name="hal/include/hpl_pwm.h"/>
         <file category="header" condition="ARMCC, GCC, IAR" name="hal/include/hpl_reset.h"/>
         <file category="header" condition="ARMCC, GCC, IAR" name="hal/include/hpl_spi_m_async.h"/>
         <file category="header" condition="ARMCC, GCC, IAR" name="hal/include/hpl_spi_m_dma.h"/>
         <file category="header" condition="ARMCC, GCC, IAR" name="hal/include/hpl_spi_m_sync.h"/>
         <file category="header" condition="ARMCC, GCC, IAR" name="hal/include/hpl_spi_s_async.h"/>
         <file category="header" condition="ARMCC, GCC, IAR" name="hal/include/hpl_spi_s_sync.h"/>
-        <file category="header" condition="ARMCC, GCC, IAR" name="hal/include/hpl_timer.h"/>
         <file category="header" condition="ARMCC, GCC, IAR" name="hal/include/hpl_usart_async.h"/>
         <file category="header" condition="ARMCC, GCC, IAR" name="hal/include/hpl_usart_sync.h"/>
         <file category="source" condition="ARMCC, GCC, IAR" name="hal/src/hal_adc_sync.c"/>
-        <file category="source" condition="ARMCC, GCC, IAR" name="hal/src/hal_pwm.c"/>
         <file category="source" condition="ARMCC, GCC, IAR" name="hal/src/hal_spi_m_sync.c"/>
-        <file category="source" condition="ARMCC, GCC, IAR" name="hal/src/hal_timer.c"/>
         <file category="source" condition="ARMCC, GCC, IAR" name="hal/src/hal_usart_sync.c"/>
         <file category="header" condition="ARMCC, GCC, IAR" name="hal/utils/include/parts.h"/>
         <file category="source" condition="ARMCC, GCC, IAR" name="hpl/adc/hpl_adc.c"/>
@@ -192,7 +181,6 @@
         <file category="source" condition="ARMCC, GCC, IAR" name="hpl/core/hpl_core_m0plus_base.c"/>
         <file category="header" condition="ARMCC, GCC, IAR" name="hpl/core/hpl_core_port.h"/>
         <file category="source" condition="ARMCC, GCC, IAR" name="hpl/core/hpl_init.c"/>
-        <file category="source" condition="ARMCC, GCC, IAR" name="hpl/dac/hpl_dac.c"/>
         <file category="source" condition="ARMCC, GCC, IAR" name="hpl/dmac/hpl_dmac.c"/>
         <file category="source" condition="ARMCC, GCC, IAR" name="hpl/gclk/hpl_gclk.c"/>
         <file category="header" condition="ARMCC, GCC, IAR" name="hpl/gclk/hpl_gclk_base.h"/>
@@ -203,10 +191,10 @@
         <file category="source" condition="ARMCC, GCC, IAR" name="hpl/sercom/hpl_sercom.c"/>
         <file category="source" condition="ARMCC, GCC, IAR" name="hpl/sysctrl/hpl_sysctrl.c"/>
         <file category="source" condition="ARMCC, GCC, IAR" name="hpl/systick/hpl_systick.c"/>
-        <file category="source" condition="ARMCC, GCC, IAR" name="hpl/tc/hpl_tc.c"/>
-        <file category="header" condition="ARMCC, GCC, IAR" name="hpl/tc/hpl_tc_base.h"/>
-        <file category="source" condition="ARMCC, GCC, IAR" name="hpl/tcc/hpl_tcc.c"/>
-        <file category="header" condition="ARMCC, GCC, IAR" name="hpl/tcc/hpl_tcc.h"/>
+        <file category="source" condition="ARMCC, GCC, IAR" name="hpl/tc/tc_lite.c"/>
+        <file category="header" condition="ARMCC, GCC, IAR" name="hpl/tc/tc_lite.h"/>
+        <file category="source" condition="ARMCC, GCC, IAR" name="hpl/tcc/tcc_lite.c"/>
+        <file category="header" condition="ARMCC, GCC, IAR" name="hpl/tcc/tcc_lite.h"/>
         <file category="source" condition="ARMCC, GCC, IAR" name="hpl/usb/hpl_usb.c"/>
         <file category="source" condition="ARMCC, GCC, IAR" name="persistent_storage_start.c"/>
         <file category="header" condition="ARMCC, GCC, IAR" name="persistent_storage_start.h"/>
@@ -215,7 +203,6 @@
         <file category="header" condition="ARMCC, GCC, IAR" name="atmel_start.h"/>
         <file category="source" condition="ARMCC, GCC, IAR" name="atmel_start.c"/>
         <file attr="config" category="header" condition="ARMCC, GCC, IAR" name="config/hpl_adc_config.h"/>
-        <file attr="config" category="header" condition="ARMCC, GCC, IAR" name="config/hpl_dac_config.h"/>
         <file attr="config" category="header" condition="ARMCC, GCC, IAR" name="config/hpl_dmac_config.h"/>
         <file attr="config" category="header" condition="ARMCC, GCC, IAR" name="config/hpl_gclk_config.h"/>
         <file attr="config" category="header" condition="ARMCC, GCC, IAR" name="config/hpl_nvmctrl_config.h"/>
@@ -223,8 +210,6 @@
         <file attr="config" category="header" condition="ARMCC, GCC, IAR" name="config/hpl_sercom_config.h"/>
         <file attr="config" category="header" condition="ARMCC, GCC, IAR" name="config/hpl_sysctrl_config.h"/>
         <file attr="config" category="header" condition="ARMCC, GCC, IAR" name="config/hpl_systick_config.h"/>
-        <file attr="config" category="header" condition="ARMCC, GCC, IAR" name="config/hpl_tc_config.h"/>
-        <file attr="config" category="header" condition="ARMCC, GCC, IAR" name="config/hpl_tcc_config.h"/>
         <file attr="config" category="header" condition="ARMCC, GCC, IAR" name="config/hpl_usb_config.h"/>
         <file attr="config" category="header" condition="ARMCC, GCC, IAR" name="config/peripheral_clk_config.h"/>
         <file attr="config" category="header" condition="ARMCC, GCC, IAR" name="persistent_storage/nv_storage_config.h"/>
@@ -236,7 +221,6 @@
         <file category="include" condition="ARMCC, GCC, IAR" name="hal/utils/include"/>
         <file category="include" condition="ARMCC, GCC, IAR" name="hpl/adc"/>
         <file category="include" condition="ARMCC, GCC, IAR" name="hpl/core"/>
-        <file category="include" condition="ARMCC, GCC, IAR" name="hpl/dac"/>
         <file category="include" condition="ARMCC, GCC, IAR" name="hpl/dmac"/>
         <file category="include" condition="ARMCC, GCC, IAR" name="hpl/gclk"/>
         <file category="include" condition="ARMCC, GCC, IAR" name="hpl/nvmctrl"/>

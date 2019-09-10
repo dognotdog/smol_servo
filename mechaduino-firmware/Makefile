@@ -69,10 +69,11 @@ CPPFLAGS += -D__SAMD21G18A__
 CPPFLAGS += -DDEBUG
 # CPPFLAGS += -DSYSTICK_MODE
 # make sure clock setup done by bootloader is not undone 
+# looks like everything is ok as long as we don't touch XOSC32K
 CPPFLAGS += -DCONF_XOSC32K_CONFIG=0
-CPPFLAGS += -DCONF_DFLL_CONFIG=0
-CPPFLAGS += -DCONF_GCLK_GENERATOR_0_CONFIG=0
-CPPFLAGS += -DCONF_GCLK_GENERATOR_1_CONFIG=0
+# CPPFLAGS += -DCONF_DFLL_CONFIG=0
+# CPPFLAGS += -DCONF_GCLK_GENERATOR_0_CONFIG=0
+# CPPFLAGS += -DCONF_GCLK_GENERATOR_1_CONFIG=0
 
 CFLAGS += $(CPPFLAGS)
 CFLAGS += -mcpu=cortex-m0plus
@@ -81,7 +82,7 @@ CFLAGS += -mfloat-abi=soft
 
 # C flags common to all targets
 CFLAGS +=  -Wall -Os -g3
-CFLAGS +=  -std=gnu99
+CFLAGS +=  -std=gnu11
 # keep every function in separate section, this allows linker to discard unused ones
 CFLAGS += -ffunction-sections -fdata-sections -fno-strict-aliasing
 CFLAGS += -fno-builtin 
@@ -173,7 +174,7 @@ program: $(BIN_DIR)/$(APPL).hex openocd.cfg
 	$(OPENOCD) --file openocd.cfg --command "program $(BIN_DIR)/$(APPL).hex verify reset exit"
 
 bossa: $(BIN_DIR)/$(APPL).bin
-	/Users/dog/Documents/embedded/projects/BOSSA/bin/bossac -w -v -b --offset 0x2000 -p /dev/tty.usbmodem14101 $(BIN_DIR)/$(APPL).bin
+	/Users/dog/Documents/embedded/projects/BOSSA/bin/bossac -w -v -b --offset 0x2000 -p /dev/tty.usbmodem14201 $(BIN_DIR)/$(APPL).bin
 
 .PHONY: rst
 rst: 
@@ -201,7 +202,7 @@ gdb: $(GDB_COMMAND_SCRIPT)
 # debug:
 # 	$(GDB) --eval-command="target remote localhost:3333" --eval-command="monitor reset halt" $(BIN_DIR)/$(APPL).out
 debug:
-	$(GDB) --eval-command="target extended-remote /dev/tty.usbmodem79A760B81" --eval-command="monitor swdp_scan"  --eval-command="attach 1" $(BIN_DIR)/$(APPL).out
+	$(GDB) --eval-command="target extended-remote /dev/tty.usbmodem79A760B81" --eval-command="monitor swdp_scan"  --eval-command="attach 1" --eval-command="set mem inaccessible-by-default off" $(BIN_DIR)/$(APPL).out
 
 flashboot:
 	$(GDB) --eval-command="target extended-remote /dev/tty.usbmodem79A760B81" --eval-command="monitor swdp_scan"  --eval-command="attach 1"   --eval-command="load sam_ba_bootloader.elf"

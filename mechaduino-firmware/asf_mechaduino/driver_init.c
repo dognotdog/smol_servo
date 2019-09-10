@@ -16,7 +16,6 @@
 #include <hpl_adc_base.h>
 
 struct spi_m_sync_descriptor SPI_0;
-struct timer_descriptor      TIMER_0;
 
 struct adc_sync_descriptor ADC_0;
 
@@ -25,12 +24,6 @@ struct flash_descriptor FLASH_0;
 struct i2c_m_sync_desc I2C_0;
 
 struct usart_sync_descriptor USART_0;
-
-struct dac_sync_descriptor DAC_0;
-
-struct pwm_descriptor PWM_0;
-
-struct pwm_descriptor PWM_1;
 
 void ADC_0_PORT_init(void)
 {
@@ -199,41 +192,22 @@ void delay_driver_init(void)
 	delay_init(SysTick);
 }
 
-/**
- * \brief Timer initialization function
- *
- * Enables Timer peripheral, clocks and initializes Timer driver
- */
-static void TIMER_0_init(void)
+void TIMER_0_CLOCK_init(void)
 {
-	_pm_enable_bus_clock(PM_BUS_APBC, TC3);
-	_gclk_enable_channel(TC3_GCLK_ID, CONF_GCLK_TC3_SRC);
-
-	timer_init(&TIMER_0, TC3, _tc_get_timer());
-}
-
-void DAC_0_PORT_init(void)
-{
-}
-
-void DAC_0_CLOCK_init(void)
-{
-
-	_pm_enable_bus_clock(PM_BUS_APBC, DAC);
-	_gclk_enable_channel(DAC_GCLK_ID, CONF_GCLK_DAC_SRC);
-}
-
-void DAC_0_init(void)
-{
-	DAC_0_CLOCK_init();
-	dac_sync_init(&DAC_0, DAC);
-	DAC_0_PORT_init();
+	_pm_enable_bus_clock(PM_BUS_APBC, TC4);
+	_gclk_enable_channel(TC4_GCLK_ID, CONF_GCLK_TC4_SRC);
 }
 
 void PWM_0_PORT_init(void)
 {
 
 	gpio_set_pin_function(VREF2, PINMUX_PA08E_TCC0_WO0);
+
+	gpio_set_pin_function(MOT_IN3, PINMUX_PA15F_TCC0_WO5);
+
+	gpio_set_pin_function(MOT_IN4, PINMUX_PA20F_TCC0_WO6);
+
+	gpio_set_pin_function(MOT_IN2, PINMUX_PA21F_TCC0_WO7);
 }
 
 void PWM_0_CLOCK_init(void)
@@ -242,15 +216,10 @@ void PWM_0_CLOCK_init(void)
 	_gclk_enable_channel(TCC0_GCLK_ID, CONF_GCLK_TCC0_SRC);
 }
 
-void PWM_0_init(void)
-{
-	PWM_0_CLOCK_init();
-	PWM_0_PORT_init();
-	pwm_init(&PWM_0, TCC0, _tcc_get_pwm());
-}
-
 void PWM_1_PORT_init(void)
 {
+
+	gpio_set_pin_function(MOT_IN1, PINMUX_PA06E_TCC1_WO0);
 
 	gpio_set_pin_function(VREF1, PINMUX_PA07E_TCC1_WO1);
 }
@@ -259,13 +228,6 @@ void PWM_1_CLOCK_init(void)
 {
 	_pm_enable_bus_clock(PM_BUS_APBC, TCC1);
 	_gclk_enable_channel(TCC1_GCLK_ID, CONF_GCLK_TCC1_SRC);
-}
-
-void PWM_1_init(void)
-{
-	PWM_1_CLOCK_init();
-	PWM_1_PORT_init();
-	pwm_init(&PWM_1, TCC1, _tcc_get_pwm());
 }
 
 void USB_DEVICE_INSTANCE_PORT_init(void)
@@ -443,10 +405,19 @@ void system_init(void)
 
 	delay_driver_init();
 
+	TIMER_0_CLOCK_init();
+
 	TIMER_0_init();
-	DAC_0_init();
+
+	PWM_0_CLOCK_init();
+
+	PWM_0_PORT_init();
 
 	PWM_0_init();
+
+	PWM_1_CLOCK_init();
+
+	PWM_1_PORT_init();
 
 	PWM_1_init();
 
