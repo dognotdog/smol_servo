@@ -1,3 +1,17 @@
+# Project Layout
+
+## firmware48
+
+Contains files specific to 48pin STM32G431 on the stm32-nema17-servo board.
+
+## mechaduino-firmware
+
+Firmware for Mechaduino's SAMD21G18A Cortex M0+.
+
+## hardware
+
+Hardware design files for Schematic and PCB.
+
 # Stepper Control
 
 A Bipolar hybrid stepper motor typically has 200 steps/rev on 2 phases.
@@ -18,6 +32,41 @@ At 48V, the motor should be able to spin (theoretically, discounting nonlinear e
 
 at 30 rev/s, we have to make 6000 steps per second.
 
+# BLDC Control
+
+A BLDC has 3 phases, which are most simplistically driven with trapezoidal voltage curves instead of sinusoidal ones.
+```
+      _       _
+A   /   \   /
+  -       -
+        _      
+B \   /   \   /
+    -       -
+  _       _      
+C   \   /   \   
+      -       -
+```
+
+A ~ sin(alpha)
+B ~ sin(alpha + 2pi/3)
+C ~ sin(alpha + 4pi/3)
+
+In a typical configuration, the three windings A,B,C are connected in a star pattern, with the endpoints named U,V,W.
+```
+V       U
+B \   / A	    
+    *       
+    | C
+    W
+```
+A = 
+
+U-V 	= A
+V-W 	= B-C = sin(a + 2pi/3) - sin(a + 4pi/3) 
+	= sin(a) cos(2pi/3) + cos(a) sin(2pi/3) - sin(a) cos (4pi/3) - cos(a) sin(4pi/3)
+	= sin(a) - sqrt(3) cos(a)
+W-U = C-A
+
 
 # STM32G431 Setup
 
@@ -34,6 +83,21 @@ Full-Speed USB (12Mbps) has a max. packet size of 64 bytes for regular packets, 
  - increase `APP_RX_DATA_SIZE` and `APP_TX_DATA_SIZE` to at least 64
  - add at least 7 byte persistent buffer to store data from `CDC_SET_LINE_CODING` that can be output on `CDC_GET_LINE_CODING`
 
+## Peripheral usage
+
+ADC1: internal sensors, voltage reference
+ADC2: CH3, CH13, CH17 inputs for current sense resistors, from V0.2 CH14 for VBUS sense
+
+I2C3: I2C for communicating with the outside world
+SPI2: connected to MOSFET driver and encoder ICs
+USART1: external UART
+
+TIM2: CH1 brake resistor, CH2,CH3,CH4 A,B,C PWM outputs for half bridges
+TIM3: external quadrature encoder input
+TIM4: CH1,CH2,CH3 LED RGB PWM output (CH4 connects to SYNC)
+TIM6: Timer for performance counter with PSC=169 to get a 1us count resolution @ 170MHz clock
+
+TIM1,TIM7,TIM8,TIM15,TIM16,TIM17: unused
 
 # Board Revisions
 
@@ -43,6 +107,10 @@ Full-Speed USB (12Mbps) has a max. packet size of 64 bytes for regular packets, 
  - (1): adds bus voltage analog input to PB11, moves DRVSEL to PC6
  - (2): connect B4/B9 pins on USB connector
  - (5): Q8/9/10 changed be GSD in schematic, as they should be for the SSM3K35CTC, resulting in 180deg rotation
+ - (6): moved C3 a nudge further away from DM via
+ - (7): force thermals on J4 and J5
+ - (8) Remove U2 and DRVSCS/ASCS lines and replace them directly with DRVSEL/ASEL
+ - (9) Add R30 as 10K pullup on MISO
 
 ## V0.1
 
@@ -50,5 +118,9 @@ Full-Speed USB (12Mbps) has a max. packet size of 64 bytes for regular packets, 
  - (1) No feedback of bus voltage to measure it, to be able to drive brake resistor accordingly
  - (2) USB B4 and B9 not connected
  - (3) L2 probbaly has too small a footprint (BRL3225T2R2M is too large, though seems to solder ok)
- - (4) stencil cutouts too small for the high density ICs (vreg especially), not enough solder is on pins to make contact on reflow
+ - (4) stencil cutouts too small for the high density IC pins (vreg especially), not enough solder is on pins to make good contact on reflow
  - (5) LED driver transistors Q8/9/10 are pinned wrong, should be GSD for SSM3K35CTC
+ - (6) C3's 3V3 pad too close to DM via, though boards seemed to have come out fine
+ - (7) VBUS pad on J4 and OR pad on J5 connector have no thermals for hand-soldering
+ - (8) SPI hardware is incapable of doing word-wise NSS triggering, thus the whole logic dance with U2 may not be necessary, as we can just do software SS from GPIO
+ - (9) 10K pullup might be required for DRV8323 on MISO line
