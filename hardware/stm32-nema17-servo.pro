@@ -1,4 +1,4 @@
-update=Sunday, August 18, 2019 at 01:08:55 PM
+update=Saturday, September 14, 2019 at 12:10:35 PM
 version=1
 last_client=kicad
 [general]
@@ -12,6 +12,22 @@ NetIExt=net
 version=1
 LibDir=
 [eeschema/libraries]
+[schematic_editor]
+version=1
+PageLayoutDescrFile=
+PlotDirectoryName=
+SubpartIdSeparator=0
+SubpartFirstId=65
+NetFmtName=Pcbnew
+SpiceAjustPassiveValues=0
+LabSize=50
+ERC_WriteFile=0
+ERC_TestSimilarLabels=1
+ERC_CheckUniqueGlobalLabels=1
+ERC_CheckBusDriverConflicts=1
+ERC_CheckBusEntryConflicts=1
+ERC_CheckBusToBusConflicts=1
+ERC_CheckBusToNetConflicts=1
 [pcbnew]
 version=1
 PageLayoutDescrFile=
@@ -28,7 +44,6 @@ MinViaDrill=0.254
 MinMicroViaDiameter=0.2
 MinMicroViaDrill=0.09999999999999999
 MinHoleToHole=0.25
-CopperEdgeClearance=0.01
 TrackWidth1=0.1524
 TrackWidth2=0.1016
 TrackWidth3=0.1524
@@ -41,8 +56,8 @@ dPairWidth1=0.2
 dPairGap1=0.25
 dPairViaGap1=0.25
 SilkLineWidth=0.12
-SilkTextSizeV=0.6
-SilkTextSizeH=0.6
+SilkTextSizeV=1
+SilkTextSizeH=1
 SilkTextSizeThickness=0.15
 SilkTextItalic=0
 SilkTextUpright=1
@@ -62,7 +77,7 @@ OthersTextItalic=0
 OthersTextUpright=1
 SolderMaskClearance=0.0254
 SolderMaskMinWidth=0.1016
-SolderPasteClearance=-0.05
+SolderPasteClearance=0
 SolderPasteRatio=-0
 [pcbnew/Layer.F.Cu]
 Name=F.Cu
@@ -242,19 +257,3 @@ uViaDrill=0.254
 dPairWidth=0.2
 dPairGap=0.25
 dPairViaGap=0.25
-[schematic_editor]
-version=1
-PageLayoutDescrFile=
-PlotDirectoryName=
-SubpartIdSeparator=0
-SubpartFirstId=65
-NetFmtName=Pcbnew
-SpiceAjustPassiveValues=0
-LabSize=50
-ERC_WriteFile=0
-ERC_TestSimilarLabels=1
-ERC_CheckUniqueGlobalLabels=1
-ERC_CheckBusDriverConflicts=1
-ERC_CheckBusEntryConflicts=1
-ERC_CheckBusToBusConflicts=1
-ERC_CheckBusToNetConflicts=1
