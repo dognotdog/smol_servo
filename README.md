@@ -12,6 +12,48 @@ Firmware for Mechaduino's SAMD21G18A Cortex M0+.
 
 Hardware design files for Schematic and PCB.
 
+# Calculations
+
+### Current Sense Shunt Resistor Value
+
+Rated continous current 8A, max. Bus Voltage 50V, min. load 1R
+
+ - 1206 can dissipate 1.5W usually, using a conservative 1W for the rated current: P/I^2 -> Rs < 15.6mOhm
+
+
+With a 1R load on a 50V bus, up to 50A could flow at once, but hopefully motor inductance smoothes that out. Assuming 50kHz, 2mH winding inductance:
+	V = L * di/dt -> di/dt = V/L = 25kA/s @ 50kHz = 0.5 A/cycle
+
+### Gate Drive
+
+The required charge pump current is
+	I_VCP = 3 * Q_G * f_PWM.
+
+DRV8323 charge pump VBUS limits:
+6V -> 10mA
+8V -> 15mA
+10V -> 20mA
+13V -> 25mA
+
+#### NTTFS4937N
+
+Q_G = 35.5 nC
+
+I_VCP = 3.55 mA @ 100kHz
+I_VCP = 1.78 mA @ 50kHz
+
+Charge pump current capacity is well over required charge pump current.
+
+#### FDMC86570L‎
+
+Q_G < 88 nC
+
+I_VCP = 8.8 mA @ 100kHz
+I_VCP = 4.4 mA @ 50kHz
+
+
+
+
 # Stepper Control
 
 A Bipolar hybrid stepper motor typically has 200 steps/rev on 2 phases.
@@ -101,16 +143,46 @@ TIM1,TIM7,TIM8,TIM15,TIM16,TIM17: unused
 
 # Board Revisions
 
-## V0.2
+## V0.3
 
 ### Bugfixes
- - (1): adds bus voltage analog input to PB11, moves DRVSEL to PC6
- - (2): connect B4/B9 pins on USB connector
+ - (10) connects DRV8323 VREF to 3V3 plane
+
+## V0.2
+
+### Known Bugs
+ - (10) VREF pin of DRV8323 not connected to 3V3
+ - (11) VREF pin of STM32G4 not connected to 3V3
+
+### Bugfixes
+ - (1): adds bus voltage analog input to PB11, moves DRVSEL to PB12 (nixing NSS, see (8))
+ - (2): connect B4/B9 pins on USB connectors
  - (5): Q8/9/10 changed be GSD in schematic, as they should be for the SSM3K35CTC, resulting in 180deg rotation
  - (6): moved C3 a nudge further away from DM via
  - (7): force thermals on J4 and J5
  - (8) Remove U2 and DRVSCS/ASCS lines and replace them directly with DRVSEL/ASEL
  - (9) Add R30 as 10K pullup on MISO
+
+
+### Enhancements
+
+#### Additional VBUS Cap
+
+Adds two additional 10uF capacitor to VBUS, for a total of 60uF capacitance. For a 50V bus, and a 1R load, which is 50A max current, and 50kHz PWM, that means a single full PWM cycle can drain `50*20e-6 = 1000 uC`. At 50v, the cap charge is 3000uC, so the bus voltage could still drop by nearly 20V without an external buffer cap.
+
+Same load with 10V, it's a 10A max and thus only a 100uC discharge, which is a 2V drop, or again 20% of bus voltage.
+
+VBUS caps have been relocated so that each FET pair gets one next to it, plus one at the VBUS input.
+
+#### VDD and VBUS sense dividers
+
+Sensing VBUS was added for controlling the brake resistor when the voltage rises too much.
+
+Sensing VDD is for ...?
+
+#### Portruding power connectors
+
+Power connectors have been moved to portrude from the 42x42mm footprint, so that the board can be mounted on the back surface or very close to the back surface of a motor without the through-hole power connectors being in danger of touching the motor casing.
 
 ## V0.1
 
@@ -124,3 +196,14 @@ TIM1,TIM7,TIM8,TIM15,TIM16,TIM17: unused
  - (7) VBUS pad on J4 and OR pad on J5 connector have no thermals for hand-soldering
  - (8) SPI hardware is incapable of doing word-wise NSS triggering, thus the whole logic dance with U2 may not be necessary, as we can just do software SS from GPIO
  - (9) 10K pullup might be required for DRV8323 on MISO line
+ - (10) VREF pin of DRV8323 not connected to 3V3
+ - (11) VREF pin of STM32G4 not connected to 3V3
+
+### Status
+
+ - USB CDC output works
+ - SPI to both AD5047D and DRV8323 work after fixing bug (9)
+ - all power transistors are switched under a no load condition, with DRV8323 in 3xPWM mode
+
+
+

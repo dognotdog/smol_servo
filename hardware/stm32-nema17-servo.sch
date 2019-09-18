@@ -5,10 +5,10 @@ EELAYER END
 $Descr A4 11693 8268
 encoding utf-8
 Sheet 1 1
-Title ""
-Date ""
-Rev ""
-Comp ""
+Title "stm32-nema17-servo"
+Date "2019-09-16"
+Rev "V0.3"
+Comp "InRobCo"
 Comment1 ""
 Comment2 ""
 Comment3 ""
@@ -735,27 +735,23 @@ $EndComp
 $Comp
 L Device:C_Small C18
 U 1 1 5D55DE57
-P 7100 5150
-F 0 "C18" H 6950 5100 50  0000 L CNN
-F 1 "100n" H 6850 5200 50  0000 L CNN
-F 2 "Capacitor_SMD:C_0402_1005Metric" H 7100 5150 50  0001 C CNN
-F 3 "~" H 7100 5150 50  0001 C CNN
-	1    7100 5150
+P 7000 5250
+F 0 "C18" H 6800 5200 50  0000 L CNN
+F 1 "100n" H 6750 5300 50  0000 L CNN
+F 2 "Capacitor_SMD:C_0402_1005Metric" H 7000 5250 50  0001 C CNN
+F 3 "~" H 7000 5250 50  0001 C CNN
+	1    7000 5250
 	1    0    0    -1  
 $EndComp
-Wire Wire Line
-	7100 5050 7450 5050
-Wire Wire Line
-	7450 5050 7450 5150
 $Comp
 L power:GND #PWR039
 U 1 1 5D561343
-P 7100 5250
-F 0 "#PWR039" H 7100 5000 50  0001 C CNN
-F 1 "GND" H 7105 5077 50  0000 C CNN
-F 2 "" H 7100 5250 50  0001 C CNN
-F 3 "" H 7100 5250 50  0001 C CNN
-	1    7100 5250
+P 7000 5350
+F 0 "#PWR039" H 7000 5100 50  0001 C CNN
+F 1 "GND" H 7005 5177 50  0000 C CNN
+F 2 "" H 7000 5350 50  0001 C CNN
+F 3 "" H 7000 5350 50  0001 C CNN
+	1    7000 5350
 	1    0    0    -1  
 $EndComp
 Text GLabel 7450 3900 0    50   Input ~ 0
@@ -2492,4 +2488,30 @@ Connection ~ 5750 2500
 Wire Wire Line
 	5750 2700 5900 2700
 Connection ~ 5750 2700
+$Comp
+L power:+3.3V #PWR0111
+U 1 1 5E0BC78F
+P 7000 5150
+F 0 "#PWR0111" H 7000 5000 50  0001 C CNN
+F 1 "+3.3V" H 6850 5250 50  0000 C CNN
+F 2 "" H 7000 5150 50  0001 C CNN
+F 3 "" H 7000 5150 50  0001 C CNN
+	1    7000 5150
+	1    0    0    -1  
+$EndComp
+Connection ~ 7000 5150
+Wire Wire Line
+	7000 5150 7450 5150
+$Comp
+L power:+3.3VA #PWR?
+U 1 1 5E11C0E0
+P 2650 1100
+F 0 "#PWR?" H 2650 950 50  0001 C CNN
+F 1 "+3.3VA" H 2800 1200 50  0000 C CNN
+F 2 "" H 2650 1100 50  0001 C CNN
+F 3 "" H 2650 1100 50  0001 C CNN
+	1    2650 1100
+	1    0    0    -1  
+$EndComp
+Connection ~ 2650 1100
 $EndSCHEMATC
