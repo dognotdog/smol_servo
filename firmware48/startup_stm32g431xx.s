@@ -258,7 +258,7 @@ g_pfnVectors:
 * this definition.
 *
 *******************************************************************************/
-
+/*
 	.weak	NMI_Handler
 	.thumb_set NMI_Handler,Default_Handler
 
@@ -495,5 +495,5 @@ g_pfnVectors:
 
 	.weak	FMAC_IRQHandler
 	.thumb_set FMAC_IRQHandler,Default_Handler
-
+*/
 /************************ (C) COPYRIGHT STMicroelectronics *****END OF FILE****/

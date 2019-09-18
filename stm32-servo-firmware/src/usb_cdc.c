@@ -9,9 +9,15 @@
 
 void usb_send(const void* const data, size_t len)
 {
-	int err = USBD_BUSY;
-	while (err == USBD_BUSY)
-		err = CDC_Transmit_FS((uint8_t*)data, len);
+    size_t sent = 0;
+    while (sent < len)
+    {
+        size_t plen = len - sent > 64 ? 64 : len - sent;
+        int err = USBD_BUSY;
+        while (err == USBD_BUSY)
+            err = CDC_Transmit_FS(((uint8_t*)data) + sent, plen);
+        sent += plen;
+    }
 }
 
 

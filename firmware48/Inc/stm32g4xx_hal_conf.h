@@ -37,7 +37,7 @@
 
   #define HAL_ADC_MODULE_ENABLED
 /*#define HAL_COMP_MODULE_ENABLED   */
-/*#define HAL_CORDIC_MODULE_ENABLED   */
+#define HAL_CORDIC_MODULE_ENABLED
 /*#define HAL_CRC_MODULE_ENABLED   */
 /*#define HAL_CRYP_MODULE_ENABLED   */
 /*#define HAL_DAC_MODULE_ENABLED   */
@@ -77,7 +77,7 @@
 /**
   * @brief This is the list of modules where register callback can be used
   */
-#define USE_HAL_ADC_REGISTER_CALLBACKS        0U
+#define USE_HAL_ADC_REGISTER_CALLBACKS        1U
 #define USE_HAL_COMP_REGISTER_CALLBACKS       0U
 #define USE_HAL_CORDIC_REGISTER_CALLBACKS     0U
 #define USE_HAL_CRYP_REGISTER_CALLBACKS       0U
@@ -180,7 +180,7 @@ The real value may vary depending on the variations in voltage and temperature.*
   */     
 
 #define  VDD_VALUE                   (3300UL) /*!< Value of VDD in mv */
-#define  TICK_INT_PRIORITY           (0UL)    /*!< tick interrupt priority (lowest by default)  */            
+#define  TICK_INT_PRIORITY           (1UL)    /*!< tick interrupt priority (lowest by default)  */            
 #define  USE_RTOS                     0U
 #define  PREFETCH_ENABLE              0U
 #define  INSTRUCTION_CACHE_ENABLE     1U
