@@ -24,6 +24,7 @@ Rated continous current 8A, max. Bus Voltage 50V, min. load 1R
 With a 1R load on a 50V bus, up to 50A could flow at once, but hopefully motor inductance smoothes that out. Assuming 50kHz, 2mH winding inductance:
 	V = L * di/dt -> di/dt = V/L = 25kA/s @ 50kHz = 0.5 A/cycle
 
+
 ### Gate Drive
 
 The required charge pump current is
@@ -147,6 +148,9 @@ TIM1,TIM7,TIM8,TIM15,TIM16,TIM17: unused
 
 ### Bugfixes
  - (10) connects DRV8323 VREF to 3V3 plane
+
+### Enhancements
+ - Add 500mA polyfuse to USB 5V input to protect the input diode (and host) in case of VDD short to ground
 
 ## V0.2
 
