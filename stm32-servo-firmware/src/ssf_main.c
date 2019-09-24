@@ -72,11 +72,36 @@ void ssf_init(void)
 
 }
 
+char _usbcmd = 0;
+static void _processUsbRx(void)
+{
+	switch (_usbcmd)
+	{
+		case 'i':
+		{
+			mctrl_init();
+			break;
+		}
+	}
+	_usbcmd = 0;
 
+}
+
+void ssf_usbRxCallback(const void* _data, size_t datalen)
+{
+	const char* str = _data;
+	dbg_println("USB RX");
+	if (datalen > 0)
+	{
+		_usbcmd = str[0];
+	}
+}
 
 void ssf_idle(void)
 {
 	ssf_ledIdle();
+
+	_processUsbRx();
 
 	uint32_t now_ms = HAL_GetTick();
 
@@ -132,6 +157,7 @@ void ssf_idle(void)
 	// test_chipSelects();
 
 }
+
 
 
 static volatile int irqDummyCounter;

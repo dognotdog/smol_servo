@@ -46,11 +46,19 @@ PWMing a 2 phase stepper. UVW corresponds to ABC drivers
 */
 
 
-#define DRV_PWM_PERIOD	(1700*16)
-#define DRV_PWM_MOT_MAX		(DRV_PWM_PERIOD-1)*(0.5f+0.2f)
-#define DRV_PWM_MOT_MIN		(DRV_PWM_PERIOD-1)*(0.5f-0.2f)
-#define DRV_PWM_BRK_MAX		(DRV_PWM_PERIOD-1)*(0.1f)
-#define DRV_PWM_BRK_MIN		(DRV_PWM_PERIOD-1)*(0.0f)
+#define DRV_PWM_DITHER	(16)
+#define DRV_PWM_PERIOD	(1700*DRV_PWM_DITHER)
+// #define DRV_PWM_PERIOD	(850*DRV_PWM_DITHER)
+
+#define DRV_PWM_MOT_MAX		(DRV_PWM_PERIOD-DRV_PWM_DITHER)
+#define DRV_PWM_MOT_MIN		0
+#define DRV_PWM_BRK_MAX		(DRV_PWM_PERIOD-DRV_PWM_DITHER)
+#define DRV_PWM_BRK_MIN		0
+
+// #define DRV_PWM_MOT_MAX		(DRV_PWM_PERIOD-DRV_PWM_DITHER)*(0.5f+0.2f)
+// #define DRV_PWM_MOT_MIN		(DRV_PWM_PERIOD-DRV_PWM_DITHER)*(0.5f-0.2f)
+// #define DRV_PWM_BRK_MAX		(DRV_PWM_PERIOD-DRV_PWM_DITHER)*(0.1f)
+// #define DRV_PWM_BRK_MIN		(DRV_PWM_PERIOD-DRV_PWM_DITHER)*(0.0f)
 
 #define SINTAB_COUNT	32
 
@@ -110,6 +118,10 @@ void spwm_init(void)
 	HAL_GPIO_WritePin(PIN_ENB, GPIO_PIN_SET);
 	HAL_GPIO_WritePin(PIN_ENC, GPIO_PIN_SET);
 
+	HAL_TIM_Base_Stop(HTIM_DRV);
+
+	// with dithering, subtract 16
+	__HAL_TIM_SET_AUTORELOAD(HTIM_DRV, (DRV_PWM_PERIOD - DRV_PWM_DITHER));
 
 	__HAL_TIM_SET_COMPARE(HTIM_DRV, HTIM_DRV_CH_R, 0);
 	__HAL_TIM_SET_COMPARE(HTIM_DRV, HTIM_DRV_CH_A, 0);
@@ -128,7 +140,7 @@ void spwm_init(void)
 
 void spwm_setDrvChannel(mctrl_pwmChannelId_t ch, float normValue)
 {
-	float pwmIn = normValue*(DRV_PWM_PERIOD-1);
+	float pwmIn = normValue*(DRV_PWM_PERIOD - DRV_PWM_DITHER);
 	switch (ch)
 	{
 		case HTIM_DRV_CH_R:

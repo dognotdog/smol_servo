@@ -77,6 +77,8 @@ extern void spwm_setDrvChannel(mctrl_pwmChannelId_t ch, float normValue);
 extern void ssf_uiFastTask(uint32_t now_us);
 // void ssf_adc2IrqHandler(ADC_HandleTypeDef *hadc);
 
+extern void ssf_usbRxCallback(const void* data, size_t datalen);
+
 
 extern float sintab(float x);
 

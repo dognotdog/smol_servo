@@ -10,10 +10,13 @@ ADC Setup
 	ADCs are clocked at 170/3 MHz (56.667MHz)
 	So for a single channel, fs = (170/3)/(6.5+12.5) = 2.982MHz, 11.65kHz with 256x oversampling
 
-	Assuming 100kHz PWM, it would make sense to cycle through the channels, with each channel being measured on every 3rd PWM period, for 1/3rd the rate.
+	Assuming 100kHz PWM, it would make sense to cycle through the channels, with each channel being measured on every 3rd PWM period, for 1/3rd the rate. Using centered PWM, measure at the center of each HIGH and LOW cycle.
 
 	channels are 17, 13, 3 for A,B,C respectively
 	ADC is setup to store A,A,B,B,C,C sequence in buffer (PWM on / off center values)
+
+	If the ADC is setup before the PWM timer is started, then ADC is started on the first trigger, which is not the beginning of counting, but the center of the first LOW period.
+
 */
 
 static uint16_t __ALIGNED(4) an0_buf[6];
