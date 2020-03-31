@@ -26,7 +26,7 @@ void test_chipSelects(void)
 {
 	_setPinAsGpioOutput(PIN_DRVSEL);
 	_setPinAsGpioOutput(PIN_ASEL);
-	_setPinAsGpioOutput(PIN_SPI_NSS);
+	// _setPinAsGpioOutput(PIN_SPI_NSS);
 
 	// HAL_GPIO_WritePin(PIN_SPI_NSS, GPIO_PIN_RESET);
 	// HAL_GPIO_WritePin(PIN_DRVSEL, GPIO_PIN_RESET);
@@ -46,7 +46,7 @@ void test_chipSelects(void)
 	// HAL_GPIO_WritePin(PIN_ASEL, GPIO_PIN_SET);
 	// HAL_Delay(250);
 
-	HAL_GPIO_WritePin(PIN_SPI_NSS, GPIO_PIN_RESET);
+	// HAL_GPIO_WritePin(PIN_SPI_NSS, GPIO_PIN_RESET);
 	HAL_GPIO_WritePin(PIN_DRVSEL, GPIO_PIN_SET);
 	HAL_GPIO_WritePin(PIN_ASEL, GPIO_PIN_RESET);
 	HAL_Delay(50);
@@ -131,6 +131,8 @@ void ssf_idle(void)
 
 		// dbg_println("iA = %8.3f %8.3f, iB = %8.3f %8.3f, iC = %8.3f %8.3f", (double)currentSensed[0], (double)currentSensed[1], (double)currentSensed[2], (double)currentSensed[3], (double)currentSensed[4], (double)currentSensed[5]);
 		// dbg_println("iA = %5u %5u, iB = %5u %5u, iC = %5u %5u", (int)an1_buf[0], (int)an1_buf[1], (int)an1_buf[2], (int)an1_buf[3], (int)an1_buf[4], (int)an1_buf[5]);
+
+		dbg_println("VBUS = %.3f, VDDA = %.3f", (double)ssf_getVbus(), (double)ssf_getVdda());
 
 		float* phaseCurrents0 = mctrl_getPhaseTable(2);
 		float* phaseCurrents1 = mctrl_getPhaseTable(3);

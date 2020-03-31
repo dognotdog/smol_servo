@@ -9,6 +9,7 @@ ADC Setup
 
 	ADCs are clocked at 170/3 MHz (56.667MHz)
 	So for a single channel, fs = (170/3)/(6.5+12.5) = 2.982MHz, 11.65kHz with 256x oversampling
+	With 12.5 cycles, fs = (170/3)/(12.5+12.5) - 2.267MHz, or 0.44us. 100kHz PWM means we have a 10us cycle time. 16x oversampling takes 7.06us
 
 	Assuming 100kHz PWM, it would make sense to cycle through the channels, with each channel being measured on every 3rd PWM period, for 1/3rd the rate. Using centered PWM, measure at the center of each HIGH and LOW cycle.
 
@@ -19,7 +20,7 @@ ADC Setup
 
 */
 
-static uint16_t __ALIGNED(4) an0_buf[6];
+static uint16_t __ALIGNED(4) an0_buf[4];
 static uint16_t __ALIGNED(4) an1_buf[6] = {0xF0F0, 0x00F0};
 // float currentSensed[6] = {};
 
@@ -66,6 +67,27 @@ void _adc2ConversionCompleteCallback(ADC_HandleTypeDef *hadc)
 void _adc2DmaCallback(DMA_HandleTypeDef* hdma)
 {
 	_currentSenseConversionCallback();
+}
+
+float ssf_getVdda(void)
+{
+	// Voltage reference calibration
+	// VDDA = 3.0 V x VREFINT_CAL / VREFINT_DATA
+	float vref_count = an0_buf[3];
+	float vref_ncount = vref_count * (1.0f / ADC1_OVERSAMPLING_FACTOR);
+	float vref_cal = (uint32_t)(*VREFINT_CAL_ADDR);
+	float vdda_mV = (vref_cal * (float)VREFINT_CAL_VREF) / (vref_ncount);
+
+	return vdda_mV*0.001f;
+}
+
+
+float ssf_getVbus(void)
+{
+	float vbusCount = an0_buf[0];
+	float vdda = ssf_getVdda();
+
+	return vbusCount*vdda*((120.0f+5.1f)/5.1f/(ADC1_OVERSAMPLING_FACTOR*ADC1_NOMINAL_MAXCOUNT));
 }
 
 

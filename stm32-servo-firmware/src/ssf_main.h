@@ -36,6 +36,16 @@ extern TIM_HandleTypeDef htim3;	// ABI Encoder Input
 extern TIM_HandleTypeDef htim4;	// RGB LED
 
 
+#define ADC1_NOMINAL_MAXCOUNT 		4095
+#define ADC1_SHIFT					4
+#define ADC1_OVERSAMPLING_COUNT		256
+#define ADC1_OVERSAMPLING_FACTOR	(ADC1_OVERSAMPLING_COUNT >> ADC1_SHIFT)
+
+#define ADC2_NOMINAL_MAXCOUNT 		4095
+#define ADC2_SHIFT					2
+#define ADC2_OVERSAMPLING_COUNT		16
+#define ADC2_OVERSAMPLING_FACTOR	(ADC2_OVERSAMPLING_COUNT >> ADC2_SHIFT)
+
 
 #define PIN_DRVEN		GPIOA, GPIO_PIN_7
 #define PIN_ENA			GPIOB, GPIO_PIN_2
@@ -62,6 +72,8 @@ extern void ssf_init(void);
 extern void ssf_idle(void);
 
 extern void ssf_analogInit(void);
+extern float ssf_getVbus(void);
+extern float ssf_getVdda(void);
 
 extern void mctrl_init(void);
 extern void mctrl_fastLoop(const uint16_t adcCounts[6]);

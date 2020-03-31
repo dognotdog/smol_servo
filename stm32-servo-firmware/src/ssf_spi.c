@@ -238,11 +238,12 @@ void ssf_spiInit(void)
 	_setPinAsGpioOutput(PIN_DRVSEL);
 	_setPinAsGpioOutput(PIN_ASEL);
 	// Hardware NSS is garbage (tied to SPI being enabled instead of transfers) so use GPIO
-	_setPinAsGpioOutput(PIN_SPI_NSS);
+	// as OR gate chip expected to be not populated, don't do anything, actually, and leave this pin alone
+	// _setPinAsGpioOutput(PIN_SPI_NSS);
 
 	HAL_GPIO_WritePin(PIN_DRVSEL, GPIO_PIN_SET);
 	HAL_GPIO_WritePin(PIN_ASEL, GPIO_PIN_SET);
-	HAL_GPIO_WritePin(PIN_SPI_NSS, GPIO_PIN_RESET);
+	// HAL_GPIO_WritePin(PIN_SPI_NSS, GPIO_PIN_RESET);
 
 	_setPinAsGpioOutput(PIN_DRVEN);
 	HAL_GPIO_WritePin(PIN_DRVEN, GPIO_PIN_SET);

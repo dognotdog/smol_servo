@@ -53,7 +53,78 @@ I_VCP = 8.8 mA @ 100kHz
 I_VCP = 4.4 mA @ 50kHz
 
 
+# Electrical Motor Driving
 
+## RL Circuit
+The principal equation for an RL circuit, as is assumed for a motor winding, describing the relationship between voltage and current is:
+`V = L * di/dt + R i`
+or in differential form
+```
+	        V - R i
+	di/dt = -------
+	           L
+```
+
+### Discrete Time RL Equation
+
+In discrete time, with n=0,1,2... indices going backward in time, the equation becomes
+`V_0 = L * (i_0 - i_1) / T + R i_0`
+solving for L
+```
+      V_0 - R i_0
+L = T -----------
+       i_0 - i_1
+```
+solving for R
+```
+    V_0 - L * (i_0 - i_1) / T
+R = -------------------------
+               i_0
+```
+assuming a measurement at n=0 for R and n=1 for L, and substituting
+```
+                V_0 - L * (i_0 - i_1) / T
+      V_1 - i_1 -------------------------
+                           i_0
+L = T -----------------------------------
+                 i_1 - i_2
+
+      V_1 i_0 - i_1 V_0     i_1 (i_0 - i_1)
+L = T ----------------- + L ---------------
+       i_0 (i_1 - i_2)      i_0 (i_1 - i_2)        
+
+               V_1 i_0 - i_1 V_0 
+L = T ----------------------------------
+       i_0 (i_1 - i_2) - i_1 (i_0 - i_1)        
+
+      V_1 i_0 - i_1 V_0          i_0 - i_1
+L = T ----------------- = T V ---------------
+       i_1^2 - i_0 i_2        i_1^2 - i_0 i_2
+
+
+
+          V_1 - R i_1
+    V_0 - ----------- (i_0 - i_1)
+           i_1 - i_2
+R = -----------------------------
+                i_0
+
+    V_0 (i_1 - i_2) - V_1 (i_0 - i_1) + R i_1 (i_0 - i_1)
+R = -----------------------------------------------------
+                      i_0 (i_1 - i_2)
+
+    V_0 (i_1 - i_2) - V_1 (i_0 - i_1)
+R = ---------------------------------
+    i_0 (i_1 - i_2) - i_1 (i_0 - i_1)
+
+    V_0 (i_1 - i_2) - V_1 (i_0 - i_1)     2 i_1 - i_2 - i_0
+R = --------------------------------- = V -----------------
+             i_1^2 - i_0 i_2               i_1^2 - i_0 i_2
+
+       L         i_0 - i_1
+tau = --- = T -----------------
+       R      2 i_1 - i_2 - i_0
+```
 
 # Stepper Control
 
@@ -73,7 +144,7 @@ Torque Constant (mech): 0.267 Nm / A [or V / rad s]
 
 At 48V, the motor should be able to spin (theoretically, discounting nonlinear effects) at 179.7 rad/s, about 1716 rpm or 28.6 rev/s.
 
-at 30 rev/s, we have to make 6000 steps per second.
+at 30 rev/s with 200 steps/rev, we have to make 6000 full steps per second.
 
 # BLDC Control
 
@@ -111,12 +182,13 @@ V-W 	= B-C = sin(a + 2pi/3) - sin(a + 4pi/3)
 W-U = C-A
 
 
+
 # STM32G431 Setup
 
 ## USB
 
 Crystal-less USB Setup in MX
- - USB clock source should be `HSI48`
+ - USB clock source should be `HSI48`1
  - set `CRS SYNC` to `USB_FS` in RCC Mode & Config
  - enable `Sof Enable` in USB device settings
 
@@ -147,7 +219,11 @@ TIM1,TIM7,TIM8,TIM15,TIM16,TIM17: unused
 ## V0.3
 
 ### Bugfixes
+ - (3) change footprint of L2 from 0806 to 1005
  - (10) connects DRV8323 VREF to 3V3 plane
+ - (11) connects STM32G4 VREF to 3V3 plane
+ - (12) correct B1/B12 spacing on USB-C receptacle footprint
+ - (13) Change D3 to ABRG and switch B/G channels on STM32G4
 
 ### Enhancements
  - Add 500mA polyfuse to USB 5V input to protect the input diode (and host) in case of VDD short to ground
@@ -157,6 +233,9 @@ TIM1,TIM7,TIM8,TIM15,TIM16,TIM17: unused
 ### Known Bugs
  - (10) VREF pin of DRV8323 not connected to 3V3
  - (11) VREF pin of STM32G4 not connected to 3V3
+ - (12) USB-C receptacle footprint slightly wrong, spacing of B1/B12 pins too narrow for easy fit
+ - (13) Wrong Pinout for D3, was RGBA should be ABRG
+ - (14) sensing VDD connected to PA15 doesn't work as PA15 can only be a trigger input, not an analog channel, PF0 is the only available pin with an analog channel on ADC1
 
 ### Bugfixes
  - (1): adds bus voltage analog input to PB11, moves DRVSEL to PB12 (nixing NSS, see (8))
@@ -202,6 +281,8 @@ Power connectors have been moved to portrude from the 42x42mm footprint, so that
  - (9) 10K pullup might be required for DRV8323 on MISO line
  - (10) VREF pin of DRV8323 not connected to 3V3
  - (11) VREF pin of STM32G4 not connected to 3V3
+ - (12) USB-C receptacle footprint slightly wrong, spacing of B1/B12 pins too narrow for easy fit
+ - (13) Wrong Pinout for D3, was RGBA should be ABRG
 
 ### Status
 

@@ -1,10 +1,8 @@
 
 #include "debug.h"
 
-#include "main.h"
+#include "ssf_main.h"
 
-// extern typedefs from main.c
-extern TIM_HandleTypeDef htim4;
 
 
 void ssf_ledInit(void)
