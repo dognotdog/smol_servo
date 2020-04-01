@@ -62,7 +62,7 @@ void test_chipSelects(void)
 
 void ssf_init(void)
 {
-	do {uart_printf("ssf_init()...\r\n");} while (0);
+	do {dbg_println("ssf_init()...");} while (0);
 	ssf_analogInit();
 	utime_init();
 	ssf_ledInit();
