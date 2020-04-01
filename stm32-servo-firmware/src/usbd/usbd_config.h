@@ -14,4 +14,7 @@
 #define USBD_HID_OUT_SUPPORT        1 // enable HID out support for force feedback
 #define USBD_HID_REPORT_STRINGS     0
 
+#define STDOUT_BUFFER_SIZE 	256
+#define STDIN_BUFFER_SIZE	128
+
 #endif // USBD_CONFIG_H
