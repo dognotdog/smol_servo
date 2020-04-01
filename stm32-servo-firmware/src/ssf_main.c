@@ -62,6 +62,7 @@ void test_chipSelects(void)
 
 void ssf_init(void)
 {
+	do {uart_printf("ssf_init()...\r\n");} while (0);
 	ssf_analogInit();
 	utime_init();
 	ssf_ledInit();
@@ -270,11 +271,11 @@ void DMA1_Channel6_IRQHandler(void)
 // }
 
 
-void USB_HP_IRQHandler(void)
-{
-	// uart_printf("WWDG_IRQHandler!\r\n");
-	while (1) {++irqDummyCounter;};
-}
+// void USB_HP_IRQHandler(void)
+// {
+// 	// uart_printf("WWDG_IRQHandler!\r\n");
+// 	while (1) {++irqDummyCounter;};
+// }
 
 
 // void USB_LP_IRQHandler(void)

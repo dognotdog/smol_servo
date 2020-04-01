@@ -101,7 +101,7 @@ void ssf_analogInit(void)
 
 	uint32_t calibVal2 = HAL_ADCEx_Calibration_GetValue(&hadc2, ADC_SINGLE_ENDED);
 
-	dbg_println("ADCs calibrated to %u,%u!\r\n", calibVal1, calibVal2);
+	dbg_println("ADCs calibrated to %"PRIu32",%"PRIu32"!\r\n", calibVal1, calibVal2);
 
 
 	// callback could be registered here to keep track of ADC ring buffer, but we're only going to look at the latest values for now
