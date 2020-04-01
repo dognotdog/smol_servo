@@ -20,12 +20,12 @@
 
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
-#include "usb_device.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 
 #include "ssf_main.h"
+#include "usb_device.h"
 
 /* USER CODE END Includes */
 
@@ -63,6 +63,8 @@ TIM_HandleTypeDef htim6;
 
 UART_HandleTypeDef huart1;
 
+PCD_HandleTypeDef hpcd_USB_FS;
+
 /* USER CODE BEGIN PV */
 
 /* USER CODE END PV */
@@ -81,6 +83,7 @@ static void MX_TIM4_Init(void);
 static void MX_USART1_UART_Init(void);
 static void MX_TIM6_Init(void);
 static void MX_CORDIC_Init(void);
+static void MX_USB_PCD_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -99,7 +102,6 @@ int main(void)
   /* USER CODE BEGIN 1 */
 
   /* USER CODE END 1 */
-  
 
   /* MCU Configuration--------------------------------------------------------*/
 
@@ -128,10 +130,14 @@ int main(void)
   MX_TIM3_Init();
   MX_TIM4_Init();
   MX_USART1_UART_Init();
-  MX_USB_Device_Init();
   MX_TIM6_Init();
   MX_CORDIC_Init();
+  // MX_USB_PCD_Init();
   /* USER CODE BEGIN 2 */
+
+  HAL_USBD_Setup();
+
+  UsbDevice_Init();
 
   ssf_init();
 
@@ -791,7 +797,7 @@ static void MX_USART1_UART_Init(void)
   /* USER CODE END USART1_Init 1 */
   huart1.Instance = USART1;
   huart1.Init.BaudRate = 115200;
-  huart1.Init.WordLength = UART_WORDLENGTH_7B;
+  huart1.Init.WordLength = UART_WORDLENGTH_8B;
   huart1.Init.StopBits = UART_STOPBITS_1;
   huart1.Init.Parity = UART_PARITY_NONE;
   huart1.Init.Mode = UART_MODE_TX_RX;
@@ -821,6 +827,39 @@ static void MX_USART1_UART_Init(void)
   /* USER CODE END USART1_Init 2 */
 
 }
+
+/**
+  * @brief USB Initialization Function
+  * @param None
+  * @retval None
+  */
+// static void MX_USB_PCD_Init(void)
+// {
+
+//   /* USER CODE BEGIN USB_Init 0 */
+
+//   /* USER CODE END USB_Init 0 */
+
+//   /* USER CODE BEGIN USB_Init 1 */
+
+//   /* USER CODE END USB_Init 1 */
+//   hpcd_USB_FS.Instance = USB;
+//   hpcd_USB_FS.Init.dev_endpoints = 8;
+//   hpcd_USB_FS.Init.speed = PCD_SPEED_FULL;
+//   hpcd_USB_FS.Init.phy_itface = PCD_PHY_EMBEDDED;
+//   hpcd_USB_FS.Init.Sof_enable = ENABLE;
+//   hpcd_USB_FS.Init.low_power_enable = DISABLE;
+//   hpcd_USB_FS.Init.lpm_enable = ENABLE;
+//   hpcd_USB_FS.Init.battery_charging_enable = DISABLE;
+//   if (HAL_PCD_Init(&hpcd_USB_FS) != HAL_OK)
+//   {
+//     Error_Handler();
+//   }
+//   /* USER CODE BEGIN USB_Init 2 */
+
+//   /* USER CODE END USB_Init 2 */
+
+// }
 
 /** 
   * Enable DMA controller clock
