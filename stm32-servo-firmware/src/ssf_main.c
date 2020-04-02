@@ -11,6 +11,8 @@
 #include "utime.h"
 
 #include <stdbool.h>
+#include <stdio.h>
+#include <errno.h>
 
 
 static void _setPinAsGpioOutput(GPIO_TypeDef *gpio, uint32_t GPIO_Pin)
@@ -73,18 +75,45 @@ void ssf_init(void)
 
 }
 
+/*
+	FIXME: for some reason, calling fread() does not work right. _read is called only once, and never again, but calling _read() directly works as expected. This is a hack until it we figure out why stdio functions don't work. Writing, OTOH, appears to work just fine through fprintf().
+*/
+extern int _read(int32_t file, uint8_t *ptr, int32_t len);
+
+static int _usbRead(void *ptr, size_t len)
+{
+	return _read(0, ptr, len);
+}
+
+
 char _usbcmd = 0;
 static void _processUsbRx(void)
 {
-	switch (_usbcmd)
+	// fprintf(stdout, "USB yay %u\r\n", HAL_GetTick());
+	// _usbcmd = myRead();
+	int readResult = _usbRead(&_usbcmd, 1);
+	// dbg_println("fread() = %u, errno = %d", readResult, errno);
+	if (readResult == 1)
 	{
-		case 'i':
+		// fwrite(&_usbcmd,1,1,stdout);
+
+		// dbg_println("received something USB");
+		switch (_usbcmd)
 		{
-			mctrl_init();
-			break;
+			case 'i':
+			{
+				dbg_println("received mctrl reset through USB");
+				mctrl_init();
+				break;
+			}
+			default:
+			{
+				dbg_println("received %u through USB", _usbcmd);
+				break;
+			}
 		}
+		_usbcmd = 0;		
 	}
-	_usbcmd = 0;
 
 }
 
@@ -135,25 +164,25 @@ void ssf_idle(void)
 
 		dbg_println("VBUS = %.3f, VDDA = %.3f", (double)ssf_getVbus(), (double)ssf_getVdda());
 
-		float* phaseCurrents0 = mctrl_getPhaseTable(2);
-		float* phaseCurrents1 = mctrl_getPhaseTable(3);
+		// float* phaseCurrents0 = mctrl_getPhaseTable(2);
+		// float* phaseCurrents1 = mctrl_getPhaseTable(3);
 
-		float maxi = 0.0f;
-		for (size_t i = 0; i < 16; ++i)
-		{
-			maxi = fmaxf(maxi, fabsf(phaseCurrents0[i]));
-		}
+		// float maxi = 0.0f;
+		// for (size_t i = 0; i < 16; ++i)
+		// {
+		// 	maxi = fmaxf(maxi, fabsf(phaseCurrents0[i]));
+		// }
 
-		const char* padding = "                                ";
-		const char* line 	= "--------------------------------";
+		// const char* padding = "                                ";
+		// const char* line 	= "--------------------------------";
 
 
-		for (size_t i = 0; i < 16; ++i)
-		{
-			int lineLen = fminf(32.0f, 32.0f/maxi*fabsf(phaseCurrents0[i]));
-			int padLen = phaseCurrents0[i] > 0.0f ? 32 : 32-lineLen;
-			dbg_println("IB[%2u] = %8.3f, %8.3f %.*s%.*s", i, (double)phaseCurrents0[i], (double)phaseCurrents1[i], padLen, padding, lineLen, line);
-		}
+		// for (size_t i = 0; i < 16; ++i)
+		// {
+		// 	int lineLen = fminf(32.0f, 32.0f/maxi*fabsf(phaseCurrents0[i]));
+		// 	int padLen = phaseCurrents0[i] > 0.0f ? 32 : 32-lineLen;
+		// 	dbg_println("IB[%2u] = %8.3f, %8.3f %.*s%.*s", i, (double)phaseCurrents0[i], (double)phaseCurrents1[i], padLen, padding, lineLen, line);
+		// }
 
 
 	}

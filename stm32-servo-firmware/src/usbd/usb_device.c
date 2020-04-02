@@ -6,6 +6,9 @@
 #include "usbd_cdc.h"
 #include "usbd_hid.h"
 
+#include <fcntl.h>
+#include <stdio.h>
+
 /*
 	We have DFU interface for debugging
 	and a HID interface for sensor values / force-feedback
@@ -55,31 +58,14 @@ static void usbResumeCallback(void * devHandle)
 void UsbDevice_Init(void)
 {
 	USBD_HandleType* const self = &gUsbDevice;
-    // USB_ChargerType usbPort;
 
-
- //    // setup the USB device class
- //    USB_DeviceDescType desc = {
-	//    	.bLength        	= sizeof(USB_DeviceDescType),
-	//     .bDescriptorType    = USB_DESC_TYPE_DEVICE,
-	//     .bcdUSB             = USBD_SPEC_BCD,
-	//     .bDeviceClass       = 239,
-	//     .bDeviceSubClass    = 2,
-	//     .bDeviceProtocol    = 1,
-	//     .bMaxPacketSize     = USBD_EP0_MAX_PACKET_SIZE,
-	//     .idVendor           = 0x0483,
-	//     .idProduct          = 0x5740,
-	//     .bcdDevice          = 0xFFFF,
-	//     .iManufacturer      = USBD_ISTR_VENDOR,
-	//     .iProduct           = USBD_ISTR_PRODUCT,
-	// #if (USBD_SERIAL_BCD_SIZE > 0)
-	//     .iSerialNumber      = USBD_ISTR_SERIAL,
-	// #endif
-	//     .bNumConfigurations = USBD_MAX_CONFIGURATION_COUNT
- //    };
-
- //    USBD_DeviceDesc(self, &desc);
-
+    // configure STDIN to be non-blocking
+    int flags = fcntl(0, F_GETFL, 0);
+    fcntl(0, F_SETFL, flags | O_NONBLOCK);
+    // don't do extra buffering in stdlib
+    setvbuf(stdin, NULL, _IONBF, 0);
+    setvbuf(stdout, NULL, _IONBF, 0);
+    setvbuf(stderr, NULL, _IONBF, 0);
     /* Initialize the device */
     USBD_Init(self, &_deviceConfig);
 
@@ -88,7 +74,7 @@ void UsbDevice_Init(void)
     /* All fields of Config have to be properly set up */
     console_if->Config.InEpNum  = 0x81;
     console_if->Config.OutEpNum = 0x01;
-    console_if->Config.NotEpNum = 0x8F;
+    console_if->Config.NotEpNum = 0x82;
 
     // hid_if->Config.InEpNum = 0x82;
     // hid_if->Config.OutEpNum = 0x02;

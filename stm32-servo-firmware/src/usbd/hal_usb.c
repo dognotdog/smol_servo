@@ -2,7 +2,6 @@
 #include "xpd_usb.h"
 #include "usb_device.h"
 
-
 extern USBD_HandleType gUsbDevice;
 
 
