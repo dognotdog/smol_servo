@@ -227,6 +227,7 @@ TIM1,TIM7,TIM8,TIM15,TIM16,TIM17: unused
 
 ### Enhancements
  - Add 500mA polyfuse to USB 5V input to protect the input diode (and host) in case of VDD short to ground
+ - change D2 to bigger footprint to be able to fit bigger diode with appropriate voltage ratingB
 
 ## V0.2
 
