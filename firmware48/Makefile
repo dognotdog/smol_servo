@@ -154,7 +154,8 @@ C_DEFS += -DSTM32
 C_DEFS += -DPERF_MONITOR_ENABLED
 # Hardware version 0.1.0
 C_DEFS += -DSSF_HARDWARE_VERSION=0x000200
-# C_DEFS += -DDEBUG_UART_PRINTF=1
+# use UART_PRINTF to output debug info through UART instead of stdout
+C_DEFS += -DDEBUG_UART_PRINTF=1
 # use USB_PRINTF when stdio is not USB but you want output on it
 # C_DEFS += -DDEBUG_USB_PRINTF=1
 
