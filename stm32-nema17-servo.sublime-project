@@ -1,0 +1,17 @@
+{
+	"folders":
+	[
+		{
+			"path": "."
+		},
+		{
+			"path": "/Users/dog/Documents/embedded/projects/Mechaduino-Firmware/Mechaduino/Mechaduino"
+		},
+		{
+			"path": "/Users/dog/Library/Arduino15/packages/arduino/hardware/samd/1.8.3/bootloaders/zero"
+		},
+		{
+			"path": "/Users/dog/Applications/ARM-Toolchain/gcc-arm-none-eabi-8-2019-q3-update/arm-none-eabi/include"
+		}
+	]
+}
