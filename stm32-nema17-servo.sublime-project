@@ -13,5 +13,26 @@
 		{
 			"path": "/Users/dog/Applications/ARM-Toolchain/gcc-arm-none-eabi-8-2019-q3-update/arm-none-eabi/include"
 		}
-	]
+	],
+    "build_systems":
+    [
+        {
+            "name": "firmware48",
+        	"working_dir": "${project_path}/firmware48",
+            "cmd": ["make", "-j8", "all"],
+   			"selector" : "source.*",
+			"file_patterns":["*.c", "*.h"],
+			// "file_regex": "^\\s*(\\S[^:]*):(\\d+)(?::(\\d+))?: ([^\\n]+)",
+			// attempt to build regex that also matches included from... messages, 
+			"file_regex": "^(?:[^:]+from\\s|\\s*)(\\S[^:]*):(\\d+)(?::(\\d+))?(?::|,)(:? ([^\\n]+))?",
+			"variants":
+			[
+				{
+					"name": "Clean",
+					"cmd": ["make", "clean"]
+				}
+			]
+        }
+    ]
+
 }
