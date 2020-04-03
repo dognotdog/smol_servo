@@ -10,6 +10,8 @@
 #include "ssf_spi.h"
 #include "utime.h"
 
+#include "servo_hid_if.h"
+
 #include <stdbool.h>
 #include <stdio.h>
 #include <errno.h>
@@ -131,9 +133,12 @@ void ssf_idle(void)
 {
 	ssf_ledIdle();
 
+
 	_processUsbRx();
 
 	uint32_t now_ms = HAL_GetTick();
+
+	servo_hid_interface_run(now_ms);
 
 	// spwm_idle();
 	// HAL_Delay(1);

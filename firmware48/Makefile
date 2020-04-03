@@ -32,6 +32,7 @@ OPT = -Os
 BUILD_DIR = build
 USBD4CUBE_DIR = Middlewares/USBDevice4Cube
 USBD_DIR = Middlewares/USBDevice
+HID_DIR = Middlewares/HidReportDef/include
 
 ######################################
 # source
@@ -83,6 +84,7 @@ C_SOURCES += ../stm32-servo-firmware/src/utime.c
 C_SOURCES += ../stm32-servo-firmware/src/debug_uart.c
 C_SOURCES += ../stm32-servo-firmware/src/ssf_main.c
 C_SOURCES += ../stm32-servo-firmware/src/usbd/usb_device.c
+C_SOURCES += ../stm32-servo-firmware/src/usbd/servo_hid_if.c
 C_SOURCES += ../stm32-servo-firmware/src/usbd/hal_usb.c
 C_SOURCES += $(USBD4CUBE_DIR)/XPD_USB/xpd_usb.c
 C_SOURCES += $(USBD4CUBE_DIR)/XPD_USB/xpd_usb_otg.c
@@ -175,6 +177,7 @@ C_INCLUDES += -I../stm32-servo-firmware/src/usbd
 C_INCLUDES += -I$(USBD4CUBE_DIR)/XPD_USB
 C_INCLUDES += -I$(USBD_DIR)/Include
 C_INCLUDES += -I$(USBD_DIR)/PDs/STM32_XPD
+C_INCLUDES += -I$(HID_DIR)
 
 
 
@@ -197,6 +200,7 @@ CFLAGS += -Werror=discarded-qualifiers
 CFLAGS += -Werror=implicit-function-declaration
 CFLAGS += -Werror=int-conversion
 CFLAGS += -Wno-pointer-sign
+CFLAGS += -Wno-comment
 CFLAGS += -Werror=implicit-int
 # flags for using floats 
 CFLAGS += -Werror=double-promotion

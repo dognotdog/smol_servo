@@ -1,6 +1,7 @@
 
 
 
+#include "servo_hid_if.h"
 
 #include "usb_device.h"
 #include "usbd_cdc.h"
@@ -22,20 +23,20 @@
 static const USBD_DescriptionType _deviceConfig = {
     .Vendor = {
         .Name           = "STMicroelectronics",
-        // .ID             = 0x0483,
-        .ID             = 0x1D50,
+        .ID             = 0x0483,
+        // .ID             = 0x1D50,
     },
     .Product = {
-        .Name           = "STM32 Virtual ComPort",
-        // .ID             = 0x5740,
-        .ID             = 0x6018,
+        .Name           = "STM32 NEMA17 Servo",
+        .ID             = 0x5740,
+        // .ID             = 0x6018,
         .Version.bcd    = 0x0100,
     },
 #if (USBD_SERIAL_BCD_SIZE > 0)
     .SerialNumber       = (USBD_SerialNumberType*)UID_BASE,
 #endif
     .Config = {
-        .Name           = "CDC Config",
+        .Name           = "Default Config",
         .MaxCurrent_mA  = 100,
         .RemoteWakeup   = 0,
         .SelfPowered    = 0,
@@ -45,7 +46,6 @@ static const USBD_DescriptionType _deviceConfig = {
 USBD_HandleType gUsbDevice;
 
 extern USBD_CDC_IfHandleType *const console_if;
-extern USBD_HID_IfHandleType *const hid_if;
 
 static void usbSuspendCallback(void * devHandle)
 {
@@ -76,15 +76,15 @@ void UsbDevice_Init(void)
     console_if->Config.OutEpNum = 0x01;
     console_if->Config.NotEpNum = 0x82;
 
-    // hid_if->Config.InEpNum = 0x82;
-    // hid_if->Config.OutEpNum = 0x02;
+    servo_hid_if->Config.InEpNum = 0x83;
+    // servo_hid_if->Config.OutEpNum = 0x03;
 
     // USBD_DFU_AppInit(dfu_if, 250); /* Detach can be carried out within 250 ms */
 
     /* Mount the interfaces to the device */
     // USBD_DFU_MountInterface(dfu_if, UsbDevice);
     USBD_CDC_MountInterface(console_if, self);
-    // USBD_HID_MountInterface(hid_if, &_usbDevice);
+    USBD_HID_MountInterface(servo_hid_if, self);
 
     self->Callbacks.Suspend = usbSuspendCallback;
     self->Callbacks.Resume = usbResumeCallback;
