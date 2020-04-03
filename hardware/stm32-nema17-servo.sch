@@ -799,9 +799,9 @@ MOSI
 Text GLabel 7450 4850 0    50   Input ~ 0
 SLCK
 Text GLabel 7450 4950 0    50   Input ~ 0
-DRVSEL
-Text GLabel 3600 1600 0    50   Input ~ 0
-ASEL
+DRV_NSS
+Text GLabel 3600 1600 0    50   Output ~ 0
+A_NSS
 Text GLabel 2600 1900 2    50   Input ~ 0
 PWMA
 Text GLabel 2600 1800 2    50   Input ~ 0
@@ -1715,7 +1715,7 @@ Wire Wire Line
 Wire Wire Line
 	3150 6300 3550 6300
 Connection ~ 3150 6300
-Text GLabel 1300 3600 0    50   Input ~ 0
+Text GLabel 2600 3500 2    50   Input ~ 0
 DRVSEL
 Text GLabel 1300 3400 0    50   Input ~ 0
 ASEL
@@ -1728,7 +1728,6 @@ TX1
 Text GLabel 2600 2600 2    50   Output ~ 0
 RX1
 NoConn ~ 1300 2200
-NoConn ~ 1300 2100
 NoConn ~ 1300 1950
 NoConn ~ 1300 1850
 $Comp
@@ -2422,7 +2421,7 @@ Connection ~ 5600 2500
 Wire Wire Line
 	5600 2700 5750 2700
 Connection ~ 5600 2700
-Text GLabel 2600 3100 2    50   Output ~ 0
+Text GLabel 1300 2100 0    50   Output ~ 0
 VDDDIV
 $Comp
 L Device:R_Small R31
@@ -2598,6 +2597,64 @@ F 1 "SSM3K35CTC" H -794 1305 50  0000 L CNN
 F 2 "Package_TO_SOT_SMD:SOT-883" H -800 1450 50  0001 C CNN
 F 3 "~" H -1000 1350 50  0001 C CNN
 	1    -1000 1350
+	1    0    0    -1  
+$EndComp
+Text GLabel 1300 3600 0    50   Input ~ 0
+SPI_NSS
+$Comp
+L 74xGxx:74LVC2G32 U2
+U 1 1 5E9B48D8
+P 4950 4250
+F 0 "U2" H 4925 4517 50  0000 C CNN
+F 1 "74LVC2G32" H 4925 4426 50  0000 C CNN
+F 2 "Package_SON:X2SON-8_1.4x1mm_P0.35mm" H 4950 4250 50  0001 C CNN
+F 3 "http://www.ti.com/lit/sg/scyt129e/scyt129e.pdf" H 4950 4250 50  0001 C CNN
+	1    4950 4250
+	1    0    0    -1  
+$EndComp
+$Comp
+L 74xGxx:74LVC2G32 U2
+U 2 1 5E9B5DA5
+P 4950 4800
+F 0 "U2" H 4925 5067 50  0000 C CNN
+F 1 "74LVC2G32" H 4925 4976 50  0000 C CNN
+F 2 "Package_SON:X2SON-8_1.4x1mm_P0.35mm" H 4950 4800 50  0001 C CNN
+F 3 "http://www.ti.com/lit/sg/scyt129e/scyt129e.pdf" H 4950 4800 50  0001 C CNN
+	2    4950 4800
+	1    0    0    -1  
+$EndComp
+Text GLabel 4650 4200 0    50   Output ~ 0
+ASEL
+Text GLabel 4650 4300 0    50   Output ~ 0
+SPI_NSS
+Text GLabel 4650 4750 0    50   Output ~ 0
+DRVSEL
+Text GLabel 4650 4850 0    50   Output ~ 0
+SPI_NSS
+Text GLabel 5200 4250 2    50   Input ~ 0
+A_NSS
+Text GLabel 5200 4800 2    50   Input ~ 0
+DRV_NSS
+$Comp
+L power:+3.3V #PWR0112
+U 1 1 5EA38885
+P 4950 4150
+F 0 "#PWR0112" H 4950 4000 50  0001 C CNN
+F 1 "+3.3V" H 4965 4323 50  0000 C CNN
+F 2 "" H 4950 4150 50  0001 C CNN
+F 3 "" H 4950 4150 50  0001 C CNN
+	1    4950 4150
+	1    0    0    -1  
+$EndComp
+$Comp
+L power:GND #PWR0113
+U 1 1 5EA4680D
+P 4950 4350
+F 0 "#PWR0113" H 4950 4100 50  0001 C CNN
+F 1 "GND" H 4955 4177 50  0000 C CNN
+F 2 "" H 4950 4350 50  0001 C CNN
+F 3 "" H 4950 4350 50  0001 C CNN
+	1    4950 4350
 	1    0    0    -1  
 $EndComp
 $EndSCHEMATC

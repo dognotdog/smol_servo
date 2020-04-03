@@ -224,6 +224,8 @@ TIM1,TIM7,TIM8,TIM15,TIM16,TIM17: unused
  - (11) connects STM32G4 VREF to 3V3 plane
  - (12) correct B1/B12 spacing on USB-C receptacle footprint
  - (13) Change D3 to ABRG and switch B/G channels on STM32G4
+ - (14) move VDDDIV to PF0-ADC1_IN10
+ - (8) with VDDDIV moved, re-connected hardware NSS, as STM32G4 should be able to pulse it between frames for proper DMA transfers with NSSP enabled (NOT available in Cube config, for some reason, though), and re-added dual OR IC so that chip can be selected.
 
 ### Enhancements
  - Add 500mA polyfuse to USB 5V input to protect the input diode (and host) in case of VDD short to ground
