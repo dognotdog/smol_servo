@@ -1,4 +1,4 @@
-(module VQFN-48_EP_6.8x6.8_Pitch0.5mm (layer F.Cu) (tedit 5E83A1AE)
+(module VQFN-48_EP_6.8x6.8_Pitch0.5mm (layer F.Cu) (tedit 5E874E1B)
   (attr smd)
   (fp_text reference REF** (at 0 -4.95) (layer F.SilkS)
     (effects (font (size 1 1) (thickness 0.15)))
@@ -130,4 +130,9 @@
     (zone_connect 2))
   (pad 49 thru_hole circle (at 1.26 -2.32) (size 0.508 0.508) (drill 0.254) (layers *.Cu)
     (zone_connect 2))
+  (model ${KISYS3DMOD}/Package_DFN_QFN.3dshapes/QFN-48-1EP_7x7mm_P0.5mm_EP5.6x5.6mm.wrl
+    (at (xyz 0 0 0))
+    (scale (xyz 0.9714285714000001 0.9714285714000001 1))
+    (rotate (xyz 0 0 0))
+  )
 )
