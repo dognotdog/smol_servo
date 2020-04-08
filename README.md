@@ -52,6 +52,18 @@ Q_G < 88 nC
 I_VCP = 8.8 mA @ 100kHz
 I_VCP = 4.4 mA @ 50kHz
 
+### Passive NSS OR circuit
+
+3.3V, 5pF gate capacitance, 8mA sink/source per pin -> 412.5 Ohm minimum resistance
+
+f_RC = 1 / 2pi R C
+
+for R=470 that is 67.7MHz
+for R=1k that is 31.8MHz
+for R=2.2k that is 14.4MHz
+
+max SPI frequency is 10MHz. 1k for both lines seems sufficiently fast and will not exceed max current on pin. Only one will be actively pulled high, the other will be in high impedance mode, but 1k is safe even if both are actively driven against the NSS pin.
+
 
 # Electrical Motor Driving
 
@@ -225,11 +237,23 @@ TIM1,TIM7,TIM8,TIM15,TIM16,TIM17: unused
  - (12) correct B1/B12 spacing on USB-C receptacle footprint
  - (13) Change D3 to ABRG and switch B/G channels on STM32G4
  - (14) move VDDDIV to PF0-ADC1_IN10
- - (8) with VDDDIV moved, re-connected hardware NSS, as STM32G4 should be able to pulse it between frames for proper DMA transfers with NSSP enabled (NOT available in Cube config, for some reason, though), and re-added dual OR IC so that chip can be selected.
+ - (8) with VDDDIV moved, re-connected hardware NSS, as STM32G4 should be able to pulse it between frames for proper DMA transfers with NSSP enabled, and add passive OR-ing resistors so that chip can be selected.
 
 ### Enhancements
  - Add 500mA polyfuse to USB 5V input to protect the input diode (and host) in case of VDD short to ground
- - change D2 to bigger footprint to be able to fit bigger diode with appropriate voltage ratingB
+ - change D2 to bigger footprint to be able to fit bigger diode with appropriate voltage rating
+
+### Software Differences
+
+Enable hardware NSS control as master with pulsing between data words
+
+- hspi2.Init.NSS = SPI_NSS_SOFT;
++ hspi2.Init.NSS = SPI_NSS_HARD_OUTPUT;
+
+- hspi2.Init.NSSPMode = SPI_NSS_PULSE_DISABLE
++ hspi2.Init.NSSPMode = SPI_NSS_PULSE_ENABLE
+
+This enables use of DMA transfers for reading data from sensors.
 
 ## V0.2
 
