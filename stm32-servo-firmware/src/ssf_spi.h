@@ -2,6 +2,7 @@
 #define SSF_SPI_H
 
 #include <stdint.h>
+#include <stddef.h>
 
 // SPI chip select mux pins
 // DRV8323 is on PB11 on V0.1
@@ -15,15 +16,11 @@
 #elif SSF_HARDWARE_VERSION == 0x000200
 	#define PIN_DRVSEL	GPIOB, GPIO_PIN_12
 	#define PIN_ASEL 	GPIOB, GPIO_PIN_10
+#elif SSF_HARDWARE_VERSION == 0x000300
+	#define PIN_DRVSEL	GPIOC, GPIO_PIN_6
+	#define PIN_ASEL 	GPIOB, GPIO_PIN_10
+	#define PIN_SPI_NSS	GPIOB, GPIO_PIN_12
 #endif
-
-
-
-
-typedef enum {
-	SSPI_DEVICE_HALL,
-	SSPI_DEVICE_DRV
-} sspi_deviceId_t;
 
 
 typedef struct {
@@ -77,9 +74,14 @@ typedef struct {
 } sspi_drv_state_t;
 
 
+extern int ssf_asyncReadHallSensor(void);
+extern void ssf_asyncReadHallSensorCallback(sspi_as5047_state_t sensorState);
 extern sspi_as5047_state_t ssf_readHallSensor(void);
-extern sspi_drv_state_t ssf_readMotorDriver(void);
-extern void  ssf_printMotorDriverFaults(sspi_drv_state_t state);
+extern sspi_drv_state_t ssf_readMotorDriver();
+
+extern void ssf_printMotorDriverFaults(sspi_drv_state_t state);
+extern void ssf_dbgPrintEncoderStatus(sspi_as5047_state_t state);
+
 extern sspi_drv_state_t ssf_enterMotorDriverCalibrationMode(void);
 extern sspi_drv_state_t ssf_exitMotorDriverCalibrationMode(void);
 

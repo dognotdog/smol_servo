@@ -129,6 +129,13 @@ void ssf_usbRxCallback(const void* _data, size_t datalen)
 	}
 }
 
+static volatile sspi_as5047_state_t _hallState;
+
+void ssf_asyncReadHallSensorCallback(sspi_as5047_state_t sensorState)
+{
+	_hallState = sensorState;
+}
+
 void ssf_idle(void)
 {
 	ssf_ledIdle();
@@ -140,8 +147,11 @@ void ssf_idle(void)
 
 	servo_hid_interface_run(now_ms);
 
+
 	// spwm_idle();
 	// HAL_Delay(1);
+
+	ssf_asyncReadHallSensor();
 
 
 	if (((now_ms) % 1000) == 0)
@@ -149,11 +159,14 @@ void ssf_idle(void)
 		// dbg_println("Hello USB!");
 		// // HAL_Delay(8);
 
-		// sspi_as5047_state_t hallState = ssf_readHallSensor();
-		// dbg_println("HALL %04x, %04x, %04x, %04x", hallState.NOP, hallState.ERRFL, hallState.DIAAGC, hallState.ANGLEUNC);
-		// sspi_drv_state_t drvState = ssf_readMotorDriver();
-		// dbg_println("DRV %04x, %04x, %04x, %04x, %04x, %04x, %04x", drvState.FAULT_STATUS.reg, drvState.VGS_STATUS.reg, drvState.DRV_CTRL.reg, drvState.DRV_HS.reg, drvState.DRV_LS.reg, drvState.OCP_CTRL.reg, drvState.CSA_CTRL.reg);
-		// ssf_printMotorDriverFaults(drvState);
+		// _hallState = ssf_readHallSensor();
+		ssf_dbgPrintEncoderStatus(_hallState);
+		dbg_println("HALL 0x%04x, 0x%04x, 0x%04x, 0x%04x", _hallState.NOP, _hallState.ERRFL, _hallState.DIAAGC, _hallState.ANGLEUNC);
+		sspi_drv_state_t drvState = ssf_readMotorDriver();
+		{
+			// dbg_println("DRV %04x, %04x, %04x, %04x, %04x, %04x, %04x", drvState.FAULT_STATUS.reg, drvState.VGS_STATUS.reg, drvState.DRV_CTRL.reg, drvState.DRV_HS.reg, drvState.DRV_LS.reg, drvState.OCP_CTRL.reg, drvState.CSA_CTRL.reg);
+			ssf_printMotorDriverFaults(drvState);
+		}
 		// // HAL_Delay(8);
 
 		// bool drven = HAL_GPIO_ReadPin(PIN_DRVEN);
@@ -410,17 +423,17 @@ void SPI1_IRQHandler(void)
 	while (1) {++irqDummyCounter;};
 }
 
-void SPI2_IRQHandler(void)
-{
-	// uart_printf("WWDG_IRQHandler!\r\n");
-	while (1) {++irqDummyCounter;};
-}
+// void SPI2_IRQHandler(void)
+// {
+// 	// uart_printf("WWDG_IRQHandler!\r\n");
+// 	while (1) {++irqDummyCounter;};
+// }
 
-void USART1_IRQHandler(void)
-{
-	// uart_printf("WWDG_IRQHandler!\r\n");
-	while (1) {++irqDummyCounter;};
-}
+// void USART1_IRQHandler(void)
+// {
+// 	// uart_printf("WWDG_IRQHandler!\r\n");
+// 	while (1) {++irqDummyCounter;};
+// }
 
 void USART2_IRQHandler(void)
 {
@@ -515,18 +528,18 @@ void TIM7_IRQHandler(void)
 }
 
 
-void DMA2_Channel1_IRQHandler(void)
-{
-	// uart_printf("WWDG_IRQHandler!\r\n");
-	while (1) {++irqDummyCounter;};
-}
+// void DMA2_Channel1_IRQHandler(void)
+// {
+// 	// uart_printf("WWDG_IRQHandler!\r\n");
+// 	while (1) {++irqDummyCounter;};
+// }
 
 
-void DMA2_Channel2_IRQHandler(void)
-{
-	// uart_printf("WWDG_IRQHandler!\r\n");
-	while (1) {++irqDummyCounter;};
-}
+// void DMA2_Channel2_IRQHandler(void)
+// {
+// 	// uart_printf("WWDG_IRQHandler!\r\n");
+// 	while (1) {++irqDummyCounter;};
+// }
 
 
 void DMA2_Channel3_IRQHandler(void)
@@ -606,18 +619,18 @@ void LPUART1_IRQHandler(void)
 }
 
 
-void I2C3_EV_IRQHandler(void)
-{
-	// uart_printf("WWDG_IRQHandler!\r\n");
-	while (1) {++irqDummyCounter;};
-}
+// void I2C3_EV_IRQHandler(void)
+// {
+// 	// uart_printf("WWDG_IRQHandler!\r\n");
+// 	while (1) {++irqDummyCounter;};
+// }
 
 
-void I2C3_ER_IRQHandler(void)
-{
-	// uart_printf("WWDG_IRQHandler!\r\n");
-	while (1) {++irqDummyCounter;};
-}
+// void I2C3_ER_IRQHandler(void)
+// {
+// 	// uart_printf("WWDG_IRQHandler!\r\n");
+// 	while (1) {++irqDummyCounter;};
+// }
 
 
 void DMAMUX_OVR_IRQHandler(void)
