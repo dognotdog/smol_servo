@@ -553,7 +553,7 @@ static void MX_TIM2_Init(void)
   htim2.Instance = TIM2;
   htim2.Init.Prescaler = 0;
   htim2.Init.CounterMode = TIM_COUNTERMODE_CENTERALIGNED3;
-  htim2.Init.Period = 1799;
+  htim2.Init.Period = 1699;
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
@@ -563,7 +563,7 @@ static void MX_TIM2_Init(void)
   HAL_TIMEx_DitheringEnable(&htim2);
 
   /* rewrite ARR register when dither mode active */
-  __HAL_TIM_SET_AUTORELOAD(&htim2, 28784);
+  __HAL_TIM_SET_AUTORELOAD(&htim2, 27184);
   HAL_TIM_GenerateEvent(&htim2, TIM_EVENTSOURCE_UPDATE);
   sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
   if (HAL_TIM_ConfigClockSource(&htim2, &sClockSourceConfig) != HAL_OK)
