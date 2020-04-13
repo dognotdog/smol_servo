@@ -51,15 +51,15 @@ typedef void (*spi_transferCallback_t)(const spi_transfer_t* const transfer);
 
 struct spi_transfer_s {
 	size_t 			wordsRemaining;
-	const uint16_t* src;
-	uint16_t* 		dst;
+	const volatile uint16_t* src;
+	volatile uint16_t* 		dst;
 
 	sspi_deviceId_t 		deviceId;
-	spi_transferStatus_t 	status;
 
 	spi_transferCallback_t callback;
 };
 
+static volatile spi_transferStatus_t 	_transferStatus;
 
 
 static struct {
@@ -77,13 +77,13 @@ void _delay(unsigned int d) {for (counter = 0; counter < d; ++counter ) {};}
 static spi_transfer_t _spi_syncTransferWord(spi_transfer_t transfer)
 {
 	HAL_GPIO_WritePin(_deviceSelectPinMap[transfer.deviceId].gpio, _deviceSelectPinMap[transfer.deviceId].pin, GPIO_PIN_RESET);
-	_delay(25);
+	// _delay(25);
 
 	// size is 1, as it is the number of transfers, not bytes, and SPI is configured in 16bit mode
 	HAL_SPI_TransmitReceive(&hspi2, (void*)transfer.src, (void*)transfer.dst, 1, 1000);
 
 	HAL_GPIO_WritePin(_deviceSelectPinMap[transfer.deviceId].gpio, _deviceSelectPinMap[transfer.deviceId].pin, GPIO_PIN_SET);
-	_delay(25);
+	_delay(50);
 
 	++transfer.src;
 	++transfer.dst;
@@ -95,10 +95,11 @@ static spi_transfer_t _spi_syncTransferWord(spi_transfer_t transfer)
 static spi_transfer_t _spi_asyncStartTransferWord(spi_transfer_t transfer)
 {
 	HAL_GPIO_WritePin(_deviceSelectPinMap[transfer.deviceId].gpio, _deviceSelectPinMap[transfer.deviceId].pin, GPIO_PIN_RESET);
-	_delay(25);
+	// _delay(25);
 
 	// size is 1, as it is the number of transfers, not bytes, and SPI is configured in 16bit mode
-	HAL_SPI_TransmitReceive_IT(&hspi2, (void*)transfer.src, (void*)transfer.dst, 1);
+	HAL_SPI_TransmitReceive_DMA(&hspi2, (void*)transfer.src, (void*)transfer.dst, 1);
+	// HAL_SPI_TransmitReceive_IT(&hspi2, (void*)transfer.src, (void*)transfer.dst, 1);
 
 	return transfer;
 }
@@ -107,7 +108,7 @@ static spi_transfer_t _spi_finishTransferWord(spi_transfer_t transfer)
 {
 
 	HAL_GPIO_WritePin(_deviceSelectPinMap[transfer.deviceId].gpio, _deviceSelectPinMap[transfer.deviceId].pin, GPIO_PIN_SET);
-	_delay(25);
+	_delay(50);
 
 	++transfer.src;
 	++transfer.dst;
@@ -116,7 +117,7 @@ static spi_transfer_t _spi_finishTransferWord(spi_transfer_t transfer)
 	return transfer;
 }
 
-static spi_transfer_t _currentTransfer;
+static volatile spi_transfer_t _currentTransfer;
 
 int spi_startTransfer(spi_transfer_t transfer)
 {
@@ -138,10 +139,12 @@ void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef *hspi)
 	// if all's transferred, call callback
 	if (0 == transfer.wordsRemaining)
 	{
-		_currentTransfer.status = SPI_XFER_IDLE;
-		transfer.status = SPI_XFER_COMPLETE;
+		_transferStatus = SPI_XFER_COMPLETE;
 		if (transfer.callback)
 			transfer.callback(&transfer);
+
+		// set idle at the end, as the static buffers are still used in callback
+		_transferStatus = SPI_XFER_IDLE;
 	}
 	else
 	{
@@ -152,10 +155,11 @@ void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef *hspi)
 void HAL_SPI_ErrorCallback(SPI_HandleTypeDef *hspi)
 {
 	spi_transfer_t transfer = _currentTransfer;
-	transfer.status = SPI_XFER_ERROR;
+	_transferStatus = SPI_XFER_ERROR;
+	err_println("HAL_SPI_ErrorCallback");
 	if (transfer.callback)
 		transfer.callback(&transfer);
-	_currentTransfer.status = SPI_XFER_IDLE;
+	_transferStatus = SPI_XFER_IDLE;
 
 }
 
@@ -213,17 +217,17 @@ sspi_as5047_state_t ssf_readHallSensor(void)
 
 	// wait until we can start a sync transfer
 	spi_transferStatus_t expected = SPI_XFER_IDLE;
-	while (!atomic_compare_exchange_weak(&_currentTransfer.status, &expected, SPI_XFER_SYNC)) {}
+	while (!atomic_compare_exchange_weak(&_transferStatus, &expected, SPI_XFER_SYNC)) {}
 
 	while (transfer.wordsRemaining)
 	{
 		transfer = _spi_syncTransferWord(transfer);
 	}
 
-	_currentTransfer.status = SPI_XFER_IDLE;
+	_transferStatus = SPI_XFER_IDLE;
 
 	sspi_as5047_state_t state = {
-		// .NOP = FLIP16(rx[0]),
+		.NOP = (rx[0]),
 		.ERRFL = (rx[1]),
 		.DIAAGC = (rx[2]),
 		.ANGLEUNC = (rx[3]),
@@ -232,19 +236,20 @@ sspi_as5047_state_t ssf_readHallSensor(void)
 	return state;
 }
 
-static uint16_t _hallSensorTxBuf[4] = {0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF};
-static uint16_t _hallSensorRxBuf[4] = {0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF};
+static volatile uint16_t _hallSensorTxBuf[4] = {0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF};
+static volatile uint16_t _hallSensorRxBuf[4] = {0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF};
 
 static void _readHallSensorCallback(const spi_transfer_t* const transfer)
 {
 	sspi_as5047_state_t state = {
-		// .NOP = FLIP16(rx[0]),
+		.NOP = (_hallSensorRxBuf[0]),
 		.ERRFL = (_hallSensorRxBuf[1]),
 		.DIAAGC = (_hallSensorRxBuf[2]),
 		.ANGLEUNC = (_hallSensorRxBuf[3]),
 	};	
 
-	ssf_asyncReadHallSensorCallback(state);
+	if (transfer->wordsRemaining == 0)
+		ssf_asyncReadHallSensorCallback(state);
 }
 
 int ssf_asyncReadHallSensor(void)
@@ -260,11 +265,11 @@ int ssf_asyncReadHallSensor(void)
 
 	// wait until we can start a sync transfer before setting buffers
 	spi_transferStatus_t expected = SPI_XFER_IDLE;
-	if (!atomic_compare_exchange_strong(&_currentTransfer.status, &expected, SPI_XFER_IN_PROGRESS))
+	if (!atomic_compare_exchange_strong(&_transferStatus, &expected, SPI_XFER_IN_PROGRESS))
 		return -1;
 
-	memcpy(_hallSensorTxBuf, cmd, sizeof(_hallSensorTxBuf));
-	memset(_hallSensorRxBuf, -1, sizeof(_hallSensorRxBuf));
+	memcpy((void*)_hallSensorTxBuf, cmd, sizeof(_hallSensorTxBuf));
+	memset((void*)_hallSensorRxBuf, -1, sizeof(_hallSensorRxBuf));
 
 
 	spi_transfer_t transfer = {
@@ -307,14 +312,14 @@ sspi_drv_state_t ssf_readMotorDriver(void)
 
 	// wait until we can start a sync transfer
 	spi_transferStatus_t expected = SPI_XFER_IDLE;
-	while (!atomic_compare_exchange_weak(&_currentTransfer.status, &expected, SPI_XFER_SYNC)) {}
+	while (!atomic_compare_exchange_weak(&_transferStatus, &expected, SPI_XFER_SYNC)) {}
 
 	while (transfer.wordsRemaining)
 	{
 		transfer = _spi_syncTransferWord(transfer);
 	}
 
-	_currentTransfer.status = SPI_XFER_IDLE;
+	_transferStatus = SPI_XFER_IDLE;
 
 	// for (size_t i = 0; i < 7; ++i)
 	// {
@@ -353,14 +358,14 @@ uint16_t ssf_writeMotorDriverReg(size_t addr, uint16_t data)
 	};
 
 	spi_transferStatus_t expected = SPI_XFER_IDLE;
-	while (!atomic_compare_exchange_weak(&_currentTransfer.status, &expected, SPI_XFER_SYNC)) {}
+	while (!atomic_compare_exchange_weak(&_transferStatus, &expected, SPI_XFER_SYNC)) {}
 
 	while (transfer.wordsRemaining)
 	{
 		transfer = _spi_syncTransferWord(transfer);
 	}
 
-	_currentTransfer.status = SPI_XFER_IDLE;
+	_transferStatus = SPI_XFER_IDLE;
 
 	// return ssf_spiRW(cmd[0], SSPI_DEVICE_DRV);
 	return rx[0];
