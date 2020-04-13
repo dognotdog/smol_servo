@@ -159,13 +159,15 @@ void ssf_idle(void)
 		// dbg_println("Hello USB!");
 		// // HAL_Delay(8);
 
+		// ssf_asyncReadHallSensor();
 		// _hallState = ssf_readHallSensor();
-		ssf_dbgPrintEncoderStatus(_hallState);
-		dbg_println("HALL 0x%04x, 0x%04x, 0x%04x, 0x%04x", _hallState.NOP, _hallState.ERRFL, _hallState.DIAAGC, _hallState.ANGLEUNC);
-		sspi_drv_state_t drvState = ssf_readMotorDriver();
+		sspi_as5047_state_t hallState = _hallState;
+		ssf_dbgPrintEncoderStatus(hallState);
+		dbg_println("HALL 0x%04x, 0x%04x, 0x%04x, 0x%04x", hallState.NOP, hallState.ERRFL, hallState.DIAAGC, hallState.ANGLEUNC);
+		// sspi_drv_state_t drvState = ssf_readMotorDriver();
 		{
 			// dbg_println("DRV %04x, %04x, %04x, %04x, %04x, %04x, %04x", drvState.FAULT_STATUS.reg, drvState.VGS_STATUS.reg, drvState.DRV_CTRL.reg, drvState.DRV_HS.reg, drvState.DRV_LS.reg, drvState.OCP_CTRL.reg, drvState.CSA_CTRL.reg);
-			ssf_printMotorDriverFaults(drvState);
+			// ssf_printMotorDriverFaults(drvState);
 		}
 		// // HAL_Delay(8);
 

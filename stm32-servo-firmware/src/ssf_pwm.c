@@ -118,7 +118,19 @@ void spwm_init(void)
 	HAL_GPIO_WritePin(PIN_ENB, GPIO_PIN_SET);
 	HAL_GPIO_WritePin(PIN_ENC, GPIO_PIN_SET);
 
+
 	HAL_TIM_Base_Stop(HTIM_DRV);
+	HAL_TIM_Base_Stop(HTIM_ISENSE_OFFSET);
+
+
+	// setup triggered ADC offset timer
+	__HAL_TIM_SET_AUTORELOAD(HTIM_ISENSE_OFFSET, 1699);
+
+
+	HAL_TIM_Base_Start(HTIM_ISENSE_OFFSET);
+
+
+
 
 	// with dithering, subtract 16
 	__HAL_TIM_SET_AUTORELOAD(HTIM_DRV, (DRV_PWM_PERIOD - DRV_PWM_DITHER));

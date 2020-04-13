@@ -16,7 +16,7 @@ ADC Setup
 	channels are 17, 13, 3 for A,B,C respectively
 	ADC is setup to store A,A,B,B,C,C sequence in buffer (PWM on / off center values)
 
-	If the ADC is setup before the PWM timer is started, then ADC is started on the first trigger, which is not the beginning of counting, but the center of the first LOW period.
+	If the ADC is setup before the PWM timer is started, then ADC is started on the first trigger, which is not the beginning of counting, but the center of the first HIGH period.
 
 */
 
@@ -53,11 +53,12 @@ static void _currentSenseConversionCallback(void)
 }
 
 // void HAL_ADCEx_EndOfSamplingCallback(ADC_HandleTypeDef *hadc)
-void _adc2ConversionCompleteCallback(ADC_HandleTypeDef *hadc)
+void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
 {
 	// uint32_t isr = hadc->Instance->ISR;
 	// uint32_t ier = hadc->Instance->IER;
 	// if (((isr & ADC_FLAG_EOSMP) == ADC_FLAG_EOSMP) && ((ier & ADC_IT_EOSMP) == ADC_IT_EOSMP))
+	if (hadc == &hadc2)
 	{
 		_currentSenseConversionCallback();
 		// do not reset EOSMP flags as HAL does that
@@ -108,7 +109,7 @@ void ssf_analogInit(void)
 	// HAL_DMA_RegisterCallback(&hdma_adc2, HAL_DMA_XFER_CPLT_CB_ID, _adc2DmaCallback);
 
 	// register an ADC scan conversion complete callback
-	HAL_ADC_RegisterCallback(&hadc2, HAL_ADC_CONVERSION_COMPLETE_CB_ID, _adc2ConversionCompleteCallback);
+	// HAL_ADC_RegisterCallback(&hadc2, HAL_ADC_CONVERSION_COMPLETE_CB_ID, _adc2ConversionCompleteCallback);
 
 
 	HAL_ADC_Start_DMA(&hadc1, (uint32_t*) an0_buf, sizeof(an0_buf)/sizeof(an0_buf[0]));

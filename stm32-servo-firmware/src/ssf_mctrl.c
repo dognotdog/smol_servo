@@ -364,29 +364,47 @@ static inline float _calcInductance(float di, float dt, float u)
 
 
 // reverse indexing of i_n
-float _calculateInductance_n3(float i2, float i1, float i0, float V, float T, bool* isValid)
+float _calculateInductance_n3(float i0, float i1, float i2, float V, float T, bool* isValid)
 {
-	float den = i1*i1 - i0*i2;
-	float nom = T*V*(i0-i1);
+	// float den = i1*i1 - i0*i2;
+	// float nom = T*V*(i0-i1);
+	// *isValid = fabsf(den) > fabsf(nom)*FLT_EPSILON;
+	// float L = -nom/den;
+
+	float i = (1.0f/3.0f)*(i0+i1+i2);
+	float ii = 0.5f*(i2-i0);
+	float iii = i2 - 2.0f*i1 + i0;
+
+	float den = ii*ii - i*iii;
+	float nom = T*V*(ii);
 	*isValid = fabsf(den) > fabsf(nom)*FLT_EPSILON;
-	float L = -nom/den;
+	float L = nom/den;
 
 	return L;
 }
-float _calculateResistance_n3(float i2, float i1, float i0, float V, float T, bool* isValid)
+float _calculateResistance_n3(float i0, float i1, float i2, float V, float T, bool* isValid)
 {
-	float den = i1*i1 - i0*i2;
-	float nom = V*(2.0f*i1 - i0 - i2);
+	// float den = i1*i1 - i0*i2;
+	// float nom = V*(2.0f*i1 - i0 - i2);
+	// *isValid = fabsf(den) > fabsf(nom)*FLT_EPSILON;
+	// float R = -nom/den;
+
+	float i = (1.0f/3.0f)*(i0+i1+i2);
+	float ii = 0.5f*(i2-i0);
+	float iii = i2 - 2.0f*i1 + i0;
+
+	float den = ii*ii - i*iii;
+	float nom = -V*(iii);
 	*isValid = fabsf(den) > fabsf(nom)*FLT_EPSILON;
-	float R = -nom/den;
+	float R = nom/den;
 
 	return R;
 }
 
-float _calculateTimeConstant_n3(float i2, float i1, float i0, float V, float T, bool* isValid)
+float _calculateTimeConstant_n3(float i0, float i1, float i2, float V, float T, bool* isValid)
 {
 	float den = 2.0f*i1 - i0 - i2;
-	float nom = T*(i0-i1);
+	float nom = T*(i1-i0);
 	*isValid = fabsf(den) > fabsf(nom)*FLT_EPSILON;
 	float tau = nom/den;
 
@@ -878,9 +896,10 @@ static float _getCurrentSenseFactor(void)
 	// current sense shunts are Rs = 15mOhm
 	// sense amp output is centered on VREF/2, max. 0.25V away from rail
 	// thus +- 1.4V usable range
+	// also, the DRV8323 is inverting
 	// for 12V operation, 10A would give 150mV, factor of 10 gives full range for 8A
 	// return Rs * G
-	return 1.0/(0.015f*20.0f);
+	return -1.0f/(0.015f*20.0f);
 }
 
 
@@ -1127,7 +1146,7 @@ void mctrl_fastLoop(const uint16_t adcCounts[6])
 
 			// "control" right now is just constant speed moves
 
-			const float step = M_PI/(100.0e3/6.0/10)*0.25f;
+			const float step = M_PI/(100.0e3/6.0/10)*0.5f;
 
 			// keep the brake resistor off
 			spwm_setDrvChannel(HTIM_DRV_CH_R, 0.0f);
