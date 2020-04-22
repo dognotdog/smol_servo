@@ -7,7 +7,10 @@ utime_state_t utime_state = {};
 
 void utime_init(void)
 {
+	// microsecond counter
 	HAL_TIM_Base_Start(&htim6);
+	// event counter
+	HAL_TIM_Base_Start(&htim1);
 
 }
 
