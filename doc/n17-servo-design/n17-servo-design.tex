@@ -214,7 +214,7 @@ Positive currents can only be measured in low periods, when the lower switch is 
 
 \subsubsection{ADC Triggering}
 
-As the ADC sampling takes a finite time, it will not quite sample on-center. \texttt{TIM15} is setup to offset by $T_{\textrm{base}} - T_{\textrm{sssa}}/2 = \unit{6.47}{\micro\second}$ or 1100 CPU cycles.
+As the ADC sampling takes a finite time, it will not quite sample on-center. \texttt{TIM15} is setup to offset by $T_{\textrm{base}} - T_{\textrm{ssaa}}/2 = \unit{6.47}{\micro\second}$ or 1100 CPU cycles.
 
 \begin{figure}[htbp]
 \begin{center}
@@ -269,6 +269,15 @@ i &= \frac{U}{R} \left( 1 - e^{-t\frac{R}{L}} \right) \\
 \frac{\ud^2}{\ud t^2} \imath &= -\frac{UR}{L^2} e^{-t\frac{R}{L}}
 \end{align}
 
+Logarithmic linear regression of first/second derivative?
+\begin{align}
+\log \left(\frac{L}{U} \frac{\ud}{\ud t} \imath \right) &= -t\frac{R}{L} \\
+\log \left( L \right) - \log \left(U \right) + \log \left(\frac{\ud}{\ud t} \imath \right) &= -t\frac{R}{L} \\
+\frac{\ud^2}{\ud t^2} \imath &= -\frac{UR}{L^2} e^{-t\frac{R}{L}}
+\end{align}
+
+
+
 \subsubsection{Combining for L}
 
 Rearranging both equations to be able to drop $R$
@@ -318,6 +327,8 @@ L &= U \frac{\dot{\imath}}{\dot{\imath}^2 - \ddot{\imath} \imath}
 
 
 \section{2-Phase Motor With 3-Phase Driver}
+
+In theory, all motor parameters can be estimated by sequentially turning one half bridge low, while the others are switched high, allowing current to simultaneously flow in in two places, but only out in one. However, the parameter estimation is difficult with noisy values.
 
 \subsection{Full Dynamic Circuit}
 
@@ -646,6 +657,17 @@ and for $R_P$
 4 \frac{ 5 R_B^2 - 2 R_A R_B  + 2 R_A R_S - 8 R_B R_S + 3 R_S^2}{4 R_B - R_A - 3 R_S} &= R_P
 \end{aligned}
 \end{gather}
+
+\subsection{Single Current Path}
+
+System identification  with only one active high and low switch at a time, and the third half-bridge being disabled, results in simpler equations than having two active high switches:
+\begin{gather}
+\begin{aligned}
+R_{AB} = R_{BC} &= R_P + 2 R_T + R_S \\
+R_{AC} &= 2 R_P + 2 R_T + R_S \\
+\end{aligned}
+\end{gather}
+
 
 \nocite{*}
 
