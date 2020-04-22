@@ -164,10 +164,10 @@ void ssf_idle(void)
 		sspi_as5047_state_t hallState = _hallState;
 		ssf_dbgPrintEncoderStatus(hallState);
 		dbg_println("HALL 0x%04x, 0x%04x, 0x%04x, 0x%04x", hallState.NOP, hallState.ERRFL, hallState.DIAAGC, hallState.ANGLEUNC);
-		// sspi_drv_state_t drvState = ssf_readMotorDriver();
 		{
+			sspi_drv_state_t drvState = ssf_readMotorDriver();
 			// dbg_println("DRV %04x, %04x, %04x, %04x, %04x, %04x, %04x", drvState.FAULT_STATUS.reg, drvState.VGS_STATUS.reg, drvState.DRV_CTRL.reg, drvState.DRV_HS.reg, drvState.DRV_LS.reg, drvState.OCP_CTRL.reg, drvState.CSA_CTRL.reg);
-			// ssf_printMotorDriverFaults(drvState);
+			ssf_printMotorDriverFaults(drvState);
 		}
 		// // HAL_Delay(8);
 
@@ -182,7 +182,7 @@ void ssf_idle(void)
 		// dbg_println("iA = %8.3f %8.3f, iB = %8.3f %8.3f, iC = %8.3f %8.3f", (double)currentSensed[0], (double)currentSensed[1], (double)currentSensed[2], (double)currentSensed[3], (double)currentSensed[4], (double)currentSensed[5]);
 		// dbg_println("iA = %5u %5u, iB = %5u %5u, iC = %5u %5u", (int)an1_buf[0], (int)an1_buf[1], (int)an1_buf[2], (int)an1_buf[3], (int)an1_buf[4], (int)an1_buf[5]);
 
-		dbg_println("VBUS = %.3f, VDDA = %.3f", (double)ssf_getVbus(), (double)ssf_getVdda());
+		dbg_println("VBUS = %.3f, VDDA = %.3f, VDDP = %.3f", (double)ssf_getVbus(), (double)ssf_getVdda(), (double)ssf_getVddp());
 
 		// float* phaseCurrents0 = mctrl_getPhaseTable(2);
 		// float* phaseCurrents1 = mctrl_getPhaseTable(3);
