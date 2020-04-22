@@ -1,12 +1,11 @@
 #ifndef SSF_PERF_H
 #define SSF_PERF_H
 
-#include "perf_counters.h"
+#include "ssf_perf_counters.h"
 
 
 #include "main.h"
 #include "ssf_main.h"
-#include "ssf_scheduler.h"
 
 #ifdef STM32G431xx
 	#include "stm32g4xx_hal.h"
@@ -21,9 +20,8 @@
 
 // select which timer to use
 #ifdef STM32G431xx
-	#define PERF_TIM TIM6
-#else // STM32F0xx use TIM14
-	#define PERF_TIM TIM14
+	#define PERF_TIM 		TIM6
+	#define PERF_EVENT_TIM	TIM1
 #endif
 
 
@@ -58,6 +56,11 @@ uint32_t perf_totalRuntime_ms(const perf_counter_t counterId);
 static inline uint16_t perf_getTimerValue(void)
 {
 	return PERF_TIM->CNT;
+}
+
+static inline uint16_t perf_getEventCount(void)
+{
+	return PERF_EVENT_TIM->CNT;
 }
 
 
