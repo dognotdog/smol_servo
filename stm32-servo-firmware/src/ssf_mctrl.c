@@ -2,6 +2,7 @@
 #include "ssf_main.h"
 #include "ssf_spi.h"
 #include "debug.h"
+#include "ssf_perf.h"
 
 #include <math.h>
 #include <float.h>
@@ -326,6 +327,11 @@ typedef struct {
 			float Rvar[3];
 		} phases;
 	} sysParamEstimates;
+	// debugging counters
+	uint16_t lastEventCount;
+	uint16_t lastEventCountDelta;
+	uint32_t lastControlStepTime_us;
+	uint32_t lastControlDelta_us;
 } mctrl_controller_t;
 
 static mctrl_params_t _params = {
@@ -356,6 +362,93 @@ static inline float ssf_getVbus(void)
 
 #endif
 
+typedef struct {
+    float sumx;		// sum of x     
+    float sumx2;	// sum of x**2  
+    float sumxy;	// sum of x * y 
+    float sumy;		// sum of y     
+    float sumy2;	// sum of y**2 
+    size_t n;		// number of samples
+
+} incrementalLinreg_t;
+
+typedef struct {
+	float intercept, slope, rsqr;
+	bool ok;
+} linregResult_t;
+
+incrementalLinreg_t linreg_addSample(incrementalLinreg_t self, float x, float y)
+{
+	self.sumx  += x;       
+	self.sumx2 += x*x;  
+	self.sumxy += x*y;
+	self.sumy  += y;      
+	self.sumy2 += y*y; 
+	++self.n;
+	return self;
+}
+
+linregResult_t linreg_solve(incrementalLinreg_t self)
+{
+	float denom = (self.n * self.sumx2 - (self.sumx*self.sumx));
+	if (fabsf(denom) <= FLT_EPSILON) 
+	{
+	    return (linregResult_t){.ok = false};
+	}
+	float nom = (self.n*self.sumxy - self.sumx*self.sumy);
+	float den = (self.n*self.sumx2 - self.sumx*self.sumx) * (self.n*self.sumy2 - self.sumy*self.sumy);
+	linregResult_t result = {
+		.intercept = (self.n * self.sumxy  -  self.sumx*self.sumy) / denom,
+		.slope = (self.sumy * self.sumx2  -  self.sumx*self.sumxy) / denom,
+	    .rsqr =  nom*nom / den,
+	    .ok = true,
+	};
+	return result;
+}
+
+// https://stackoverflow.com/questions/5083465/fast-efficient-least-squares-fit-algorithm-in-c
+static int linreg(size_t n, const float x[], const float y[], float* m, float* b, float* r)
+{
+    float sumx = 0.0;	// sum of x     
+    float sumx2 = 0.0;	// sum of x**2  
+    float sumxy = 0.0;	// sum of x * y 
+    float sumy = 0.0;	// sum of y     
+    float sumy2 = 0.0;	// sum of y**2 
+
+    for (size_t i = 0; i < n; ++i)
+    { 
+        sumx  += x[i];       
+        sumx2 += (x[i]*x[i]);  
+        sumxy += x[i] * y[i];
+        sumy  += y[i];      
+        sumy2 += (y[i]*y[i]); 
+    } 
+
+    float denom = (n * sumx2 - (sumx*sumx));
+    if (fabsf(denom) <= FLT_EPSILON) 
+    {
+        *m = 0.0f;
+        *b = 0.0f;
+        if (r)
+         	*r = 0.0f;
+        return -1;
+    }
+
+    *m = (n * sumxy  -  sumx*sumy) / denom;
+    *b = (sumy * sumx2  -  sumx*sumxy) / denom;
+    if (r) 
+    {
+    	float nom = (n*sumxy - sumx*sumy);
+    	float den = ((n*sumx2 - sumx*sumx) *
+              (n*sumy2 - sumy*sumy));
+        *r =  nom*nom / den;
+    }
+
+    return 0; 
+}
+
+
+
 static inline float _calcInductance(float di, float dt, float u)
 {
 	float L = u / di * dt;
@@ -371,7 +464,8 @@ float _calculateInductance_n3(float i0, float i1, float i2, float V, float T, bo
 	// *isValid = fabsf(den) > fabsf(nom)*FLT_EPSILON;
 	// float L = -nom/den;
 
-	float i = (1.0f/3.0f)*(i0+i1+i2);
+	float i = i1;
+	// float i = (1.0f/3.0f)*(i0+i1+i2);
 	float ii = 0.5f*(i2-i0);
 	float iii = i2 - 2.0f*i1 + i0;
 
@@ -389,7 +483,8 @@ float _calculateResistance_n3(float i0, float i1, float i2, float V, float T, bo
 	// *isValid = fabsf(den) > fabsf(nom)*FLT_EPSILON;
 	// float R = -nom/den;
 
-	float i = (1.0f/3.0f)*(i0+i1+i2);
+	float i = i1;
+	// float i = (1.0f/3.0f)*(i0+i1+i2);
 	float ii = 0.5f*(i2-i0);
 	float iii = i2 - 2.0f*i1 + i0;
 
@@ -404,7 +499,7 @@ float _calculateResistance_n3(float i0, float i1, float i2, float V, float T, bo
 float _calculateTimeConstant_n3(float i0, float i1, float i2, float V, float T, bool* isValid)
 {
 	float den = 2.0f*i1 - i0 - i2;
-	float nom = T*(i1-i0);
+	float nom = 0.5*T*(i2-i0);
 	*isValid = fabsf(den) > fabsf(nom)*FLT_EPSILON;
 	float tau = nom/den;
 
@@ -429,7 +524,7 @@ float _calculateInductance(float i0, float i1, float i2, float i3, float V, floa
 
 float _calculateTimeConstant(float i0, float i1, float i2, float i3, float V, float T, bool* isValid)
 {
-	float i = 0.5*(i1+i2);
+	// float i = 0.5*(i1+i2);
 	float ii1 = 0.5*(i2-i0);
 	float ii2 = 0.5*(i3-i1);
 	float iii = ii2-ii1;
@@ -445,7 +540,7 @@ float _calculateTimeConstant(float i0, float i1, float i2, float i3, float V, fl
 
 float _calculateInductance2(float i0, float i1, float i2, float i3, float V, float T, bool* isValid)
 {
-	float i = 0.5*(i1+i2);
+	// float i = 0.5*(i1+i2);
 	float ii1 = 0.5*(i2-i0);
 	float ii2 = 0.5*(i3-i1);
 	float ii = i2-i1;
@@ -479,7 +574,7 @@ float _calculateResistance2(float i0, float i1, float i2, float i3, float V, flo
 	float ii1 = 0.5*(i2-i0);
 	float ii2 = 0.5*(i3-i1);
 	float iii = ii2-ii1;
-	float ii = i2-i1;
+	// float ii = i2-i1;
 
 	float R = V*(iii)/(i2*ii1-i1*ii2);
 
@@ -510,7 +605,8 @@ void mctrl_init(void)
 
 	HAL_Delay(2);
 	ssf_exitMotorDriverCalibrationMode();
-	ssf_enterMotorDriverCalibrationMode();
+	// do not enter calibration mode again, sample ADCs on microcontroller to determine zero offset at output of current sense amps
+	// ssf_enterMotorDriverCalibrationMode();
 
 	HAL_Delay(2);
 
@@ -522,18 +618,22 @@ void mctrl_init(void)
 	while (_state != MCTRL_ANALOG_CALIBRATION_FINISH) {};
 
 
-	// average out the 16 reads for an adc count calibration
+	// average out the reads for an adc count calibration
 	for (size_t i = 0; i < 3; ++i)
 	{
 		float calib = (_adcZeroCalibs[2*i]+_adcZeroCalibs[2*i+1])*(1.0f/CALIBREADS);
+		
+		// dbg_println("    calib0 = %.3f, calib1 = %.3f", (double)(_adcZeroCalibs[2*i]*(2.0f/CALIBREADS)), (double)(_adcZeroCalibs[2*i+1]*(2.0f/CALIBREADS)));
+		
 		_adcZeroCalibs[2*i] = calib;
 		_adcZeroCalibs[2*i+1] = calib;
 
 		dbg_println("SO[%u] calibrated to 0A = %.3f counts", i, (double)calib);
 	}
 
-	ssf_exitMotorDriverCalibrationMode();
+	// ssf_exitMotorDriverCalibrationMode();
 
+	spwm_enableHalfBridges(0x0);
 
 	// driver calibration is now done, we can move on to motor identification
 	// do identification runs for each phase
@@ -543,6 +643,10 @@ void mctrl_init(void)
 		_state = MCTRL_ID_ALIGN_START;
 		while (_state != MCTRL_ID_ALIGN_FINISH) {};
 
+		int lowBridge = _idRunCounter;
+		int highBridge = (_idRunCounter + 1) % 3;
+
+		spwm_enableHalfBridges((1 << lowBridge) | (1 << highBridge));
 
 		// ballpark measure how fast current ramps up
 		memset((void*)_lastMeasurement, 0, sizeof(_lastMeasurement));
@@ -637,9 +741,39 @@ void mctrl_init(void)
 			// 	}
 			// }
 
+			incrementalLinreg_t linregData = {};
+
+			for (size_t j = 0; j+1 < NUM_STATIC_MEASUREMENTS; ++j)
+			{
+				const float h = MEAS_FULL_PERIOD;
+				const float dh = MEAS_SINGLE_PERIOD;
+				float i0 = _lastMeasurement[j+0][2*_idRunCounter];
+				float i0a = _lastMeasurement[j+0][2*_idRunCounter+1];
+				float i1 = _lastMeasurement[j+1][2*_idRunCounter];
+				float i1a = _lastMeasurement[j+1][2*_idRunCounter+1];
+				float di = (i1-i0)/h;
+				float dia = (i1a-i0a)/h;
+
+				linregData = linreg_addSample(linregData, j*h + 0.0f*dh, logf(di));
+				linregData = linreg_addSample(linregData, j*h + 1.0f*dh, logf(dia));
+
+				// dbg_println("  di[%u] = %8.3f A/s, dia = %8.3f A/s", _idRunCounter, (double)(di), (double)(dia));
+			}
+
+			linregResult_t lr = linreg_solve(linregData);
+
+			float currentRate = expf(-lr.slope);
+			// float vbus = ssf_getVbus();
+
+			dbg_println("LINREG tau[%u] = %8.3f ms, R^2 = %8.3f, h = %u us (%u count)", _idRunCounter, (double)(currentRate*1e3f), (double)(lr.rsqr), _mctrl.lastControlDelta_us, _mctrl.lastEventCountDelta);
+
 			for (size_t j = 0; j+NUM_ID_ALGO_SAMPLES-1 < NUM_STATIC_MEASUREMENTS; ++j)
 			{
 #if NUM_ID_ALGO_SAMPLES == 3
+				// measurements are done in batches of 6, A,A,B,B,C,C
+				// in the system identification run, we'd look at one channel each
+				// over a number of repeated measurements NUM_STATIC_MEASUREMENTS
+
 				float i0 = _lastMeasurement[j+0][2*_idRunCounter];
 				float i1 = _lastMeasurement[j+1][2*_idRunCounter];
 				float i2 = _lastMeasurement[j+2][2*_idRunCounter];
@@ -659,6 +793,10 @@ void mctrl_init(void)
 				bool tauValid0, tauValid1;
 				float tau0 = _calculateTimeConstant_n3(i0, i1, i2, vbus, MEAS_FULL_PERIOD, &tauValid0);
 				float tau1 = _calculateTimeConstant_n3(i0a, i1a, i2a, vbus, MEAS_FULL_PERIOD, &tauValid1);
+
+				// dbg_println("  [%u] L0 = %8.3f mH, L1 = %8.3f mH", _idRunCounter, (double)(L0*1e3), (double)(L1*1e3));
+				// dbg_println(" [%u] R0 = %8.3f R,  R1 = %8.3f R", _idRunCounter, (double)(R0*1e0), (double)(R1*1e0));
+				// dbg_println(" [%u] t0 = %8.3f ms, t1 = %8.3f ms", _idRunCounter, (double)(tau0*1e3), (double)(tau1*1e3));
 
 				if (validL0)
 				{
@@ -737,6 +875,8 @@ void mctrl_init(void)
 				// dbg_println("R reads %8.3f, %8.3f R", (double)(R), (double)(Ra));
 
 			}
+
+
 
 			float Lavg = 0.0;
 			float Lvar = 0.0;
@@ -854,31 +994,57 @@ void mctrl_init(void)
 
 	// we measured the phase values, lets see what the winding resistance would be in ABBC config
 
-	{
-		float Ra = _mctrl.sysParamEstimates.phases.Rest[0];
-		float Rb = _mctrl.sysParamEstimates.phases.Rest[1];
-		float Rsw = -(8*Ra*Rb - 16*Rb*Rb)/(4*Ra + 16*Rb);
-		float Rp = 2*Rb - 3*Rsw;
-		dbg_println("Rsw[AB] is %8.3f R", (double)Rsw);
-		dbg_println("Rp[AB]  is %8.3f R", (double)Rp);
-	}
-	{
-		float Ra = _mctrl.sysParamEstimates.phases.Rest[2];
-		float Rb = _mctrl.sysParamEstimates.phases.Rest[1];
-		float Rsw = -(8*Ra*Rb - 16*Rb*Rb)/(4*Ra + 16*Rb);
-		float Rp = 2*Rb - 3*Rsw;
-		dbg_println("Rsw[BC] is %8.3f R", (double)Rsw);
-		dbg_println("Rp[BC]  is %8.3f R", (double)Rp);
-	}
+	// {
+	// 	float Ra = _mctrl.sysParamEstimates.phases.Rest[0];
+	// 	float Rb = _mctrl.sysParamEstimates.phases.Rest[1];
+	// 	float Rsw = -(8*Ra*Rb - 16*Rb*Rb)/(4*Ra + 16*Rb);
+	// 	float Rp = 2*Rb - 3*Rsw;
+	// 	dbg_println("Rsw[AB] is %8.3f R", (double)Rsw);
+	// 	dbg_println("Rp[AB]  is %8.3f R", (double)Rp);
+	// }
+	// {
+	// 	float Ra = _mctrl.sysParamEstimates.phases.Rest[2];
+	// 	float Rb = _mctrl.sysParamEstimates.phases.Rest[1];
+	// 	float Rsw = -(8*Ra*Rb - 16*Rb*Rb)/(4*Ra + 16*Rb);
+	// 	float Rp = 2*Rb - 3*Rsw;
+	// 	dbg_println("Rsw[BC] is %8.3f R", (double)Rsw);
+	// 	dbg_println("Rp[BC]  is %8.3f R", (double)Rp);
+	// }
 
 	{
 		float Ra = _mctrl.sysParamEstimates.phases.Rest[0];
 		float Rb = _mctrl.sysParamEstimates.phases.Rest[1];
-		float Rs = 0.015;
+		float Rs = 0.015f;
 		float Rt = -2*(Rs*Rs + Ra*Rs - 3*Rb*Rs + 2*Rb*Rb - Ra*Rb)/(3*Rs + Ra - 4*Rb);
 		float Rp = 2*Rb - 3*Rt - 2*Rs;
 		dbg_println("Rt[AB] is %8.3f R", (double)Rt);
 		dbg_println("Rp[AB] is %8.3f R", (double)Rp);
+	}
+	{
+		float Ra = _mctrl.sysParamEstimates.phases.Rest[2];
+		float Rb = _mctrl.sysParamEstimates.phases.Rest[1];
+		float Rs = 0.015f;
+		float Rt = -2*(Rs*Rs + Ra*Rs - 3*Rb*Rs + 2*Rb*Rb - Ra*Rb)/(3*Rs + Ra - 4*Rb);
+		float Rp = 2*Rb - 3*Rt - 2*Rs;
+		dbg_println("Rt[BC] is %8.3f R", (double)Rt);
+		dbg_println("Rp[BC] is %8.3f R", (double)Rp);
+	}
+
+	{
+		// with only 2 phases (3rd disabled) active we have
+		// Rc = 2*Rp + 2*Rt + Rs 
+		// Ra/b = Rp + 2*Rt + Rs
+		// Rp = Ra/b - 2*Rt - Rs
+		// Rp = 0.5*Rc - Rt - 0.5*Rs
+		// 0.5*Rc - Rt - 0.5*Rs = Ra/b - 2*Rt - Rs
+		// Rt = Ra/b - 0.5*Rc - 0.5*Rs
+		float Ra = _mctrl.sysParamEstimates.phases.Rest[0];
+		float Rc = _mctrl.sysParamEstimates.phases.Rest[2];
+		float Rs = 0.015f;
+		float Rt = Ra - 0.5f*Rc - 0.5*Rs;
+		float Rp = 0.5*Rc - Rt - 0.5*Rs;
+		dbg_println("Rt[A/C] is %8.3f R", (double)Rt);
+		dbg_println("Rp[A/C] is %8.3f R", (double)Rp);
 	}
 
 	_state = MCTRL_DEMO;
@@ -917,6 +1083,14 @@ static void _convertAdcToCurrent(volatile float currents[6], const uint16_t adcC
 
 void mctrl_fastLoop(const uint16_t adcCounts[6])
 {
+	uint32_t now = perf_now();
+	uint16_t eventCount = perf_getEventCount();
+
+	_mctrl.lastControlDelta_us = now - _mctrl.lastControlStepTime_us;
+	_mctrl.lastControlStepTime_us = now;
+
+	_mctrl.lastEventCountDelta = eventCount - _mctrl.lastEventCount;
+	_mctrl.lastEventCount = eventCount;
 
 	switch (_state)
 	{
