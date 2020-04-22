@@ -104,20 +104,29 @@ float sintab(float x)
 	return xint < SINTAB_COUNT ? yabs : -yabs;
 }
 
+void spwm_enableHalfBridges(uint32_t outputMask)
+{
+	HAL_GPIO_WritePin(PIN_ENA, (outputMask >> 0) & 0x1);
+	HAL_GPIO_WritePin(PIN_ENB, (outputMask >> 1) & 0x1);
+	HAL_GPIO_WritePin(PIN_ENC, (outputMask >> 2) & 0x1);
+
+}
 
 void spwm_init(void)
 {
 	HAL_GPIO_WritePin(PIN_DRVEN, GPIO_PIN_RESET);
-	HAL_GPIO_WritePin(PIN_ENA, GPIO_PIN_RESET);
-	HAL_GPIO_WritePin(PIN_ENB, GPIO_PIN_RESET);
-	HAL_GPIO_WritePin(PIN_ENC, GPIO_PIN_RESET);
+
+	spwm_enableHalfBridges(0x0);
+
 	HAL_Delay(1);
 	HAL_GPIO_WritePin(PIN_DRVEN, GPIO_PIN_SET);
 	HAL_Delay(1);
+
 	HAL_GPIO_WritePin(PIN_ENA, GPIO_PIN_SET);
 	HAL_GPIO_WritePin(PIN_ENB, GPIO_PIN_SET);
 	HAL_GPIO_WritePin(PIN_ENC, GPIO_PIN_SET);
 
+	spwm_enableHalfBridges(0x7);
 
 	HAL_TIM_Base_Stop(HTIM_DRV);
 	HAL_TIM_Base_Stop(HTIM_ISENSE_OFFSET);
