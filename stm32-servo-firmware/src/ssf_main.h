@@ -34,6 +34,7 @@ extern TIM_HandleTypeDef htim2;	// 3 Phase + Brake Resistor PWM
 extern TIM_HandleTypeDef htim3;	// ABI Encoder Input
 extern TIM_HandleTypeDef htim4;	// RGB LED
 
+extern TIM_HandleTypeDef htim1;	// TIM2 event counter
 extern TIM_HandleTypeDef htim6; // us timer
 
 extern TIM_HandleTypeDef htim15;	// current sense offset
@@ -49,7 +50,7 @@ extern TIM_HandleTypeDef htim15;	// current sense offset
 #define ADC2_OVERSAMPLING_FACTOR	(ADC2_OVERSAMPLING_COUNT >> ADC2_SHIFT)
 
 #define ISENSE_SAMPLE_ADC_CYCLES	25 // 12.5 sample + 12.5 conversion
-#define ISENSE_SSAA_ADC_CYCLES		(ISENSE_SAMPLE_CYCLES*ADC2_OVERSAMPLING_COUNT)
+#define ISENSE_SSAA_ADC_CYCLES		(ISENSE_SAMPLE_ADC_CYCLES*ADC2_OVERSAMPLING_COUNT)
 #define ISENSE_SSAA_CPU_CYCLES		(ISENSE_SSAA_ADC_CYCLES*3)
 
 
@@ -80,6 +81,7 @@ extern void ssf_idle(void);
 
 extern void ssf_analogInit(void);
 extern float ssf_getVbus(void);
+extern float ssf_getVddp(void);
 extern float ssf_getVdda(void);
 
 extern void mctrl_init(void);
@@ -92,6 +94,7 @@ extern void ssf_ledIdle(void);
 extern void spwm_init(void);
 extern void spwm_idle(void);
 extern void spwm_setDrvChannel(mctrl_pwmChannelId_t ch, float normValue);
+extern void spwm_enableHalfBridges(uint32_t outputMask);
 
 extern void ssf_uiFastTask(uint32_t now_us);
 // void ssf_adc2IrqHandler(ADC_HandleTypeDef *hadc);
@@ -106,6 +109,15 @@ static inline float fclampf(float a, float minv, float maxv)
 	return fminf(fmaxf(a, minv), maxv);
 }
 
+static inline uint32_t umin(uint32_t const a, uint32_t const b)
+{
+	return a < b ? a : b;
+}
+
+static inline uint32_t umax(uint32_t const a, uint32_t const b)
+{
+	return a > b ? a : b;
+}
 
 
 #endif // SSF_MAIN_H
