@@ -20,7 +20,7 @@ ADC Setup
 
 */
 
-static uint16_t __ALIGNED(4) an0_buf[4];
+static uint16_t __ALIGNED(4) an0_buf[5];
 static uint16_t __ALIGNED(4) an1_buf[6] = {0xF0F0, 0x00F0};
 // float currentSensed[6] = {};
 
@@ -70,25 +70,87 @@ void _adc2DmaCallback(DMA_HandleTypeDef* hdma)
 	_currentSenseConversionCallback();
 }
 
+static inline float ssf_calibratedVddaVoltage(float vref_count)
+{
+	// Voltage reference calibration
+	// VDDA = 3.0 V x VREFINT_CAL / VREFINT_DATA
+	float vref_cal = (uint32_t)(*VREFINT_CAL_ADDR);
+	float vout_mV = (vref_cal * (float)VREFINT_CAL_VREF) / (vref_count);
+
+	return vout_mV*0.001f;
+}
+
+static inline float ssf_calibratedVoltage(float vcount, float vdda)
+{
+	return vcount*vdda*(1.0f/ADC1_NOMINAL_MAXCOUNT);
+}
+
 float ssf_getVdda(void)
 {
 	// Voltage reference calibration
 	// VDDA = 3.0 V x VREFINT_CAL / VREFINT_DATA
 	float vref_count = an0_buf[3];
 	float vref_ncount = vref_count * (1.0f / ADC1_OVERSAMPLING_FACTOR);
-	float vref_cal = (uint32_t)(*VREFINT_CAL_ADDR);
-	float vdda_mV = (vref_cal * (float)VREFINT_CAL_VREF) / (vref_ncount);
 
-	return vdda_mV*0.001f;
+	return ssf_calibratedVddaVoltage(vref_ncount);
 }
+/*
+	A Zener diode in parallel with the low resistor in a voltage divider will influence the measured voltage
 
+	a) assuming constant resistance
+		treat zener as in parallel resistance with lower resistor
+
+	b) as constant leakage current Ir
+		Ihi = (Vhi-Vdiv)/(Rhi) = Ir + Vdiv/Rlo
+		Vhi/Rhi - Vdiv/Rhi = Ir + Vdiv/Rlo
+		Vdiv/Rhi + Vdiv/Rlo = Vhi/Rhi - Ir
+		Vdiv + Vdiv*Rhi/Rlo = Vhi - Ir*Rhi
+		Vdiv = (Vhi - Ir*Rhi)/(1+Rhi/Rlo)
+		Vhi = Vdiv*(1+Rhi/Rlo) + Ir*Rhi
+
+
+*/
+float ssf_getVddp(void)
+{
+	float vddCount = an0_buf[4]*(1.0f/ADC1_OVERSAMPLING_FACTOR);
+	float vdda = ssf_getVdda();
+	float vdiv = ssf_calibratedVoltage(vddCount, vdda);	
+
+	const float bridgeHi = 22.0e3f;
+	// from datasheet VR = 1V, IRmax = 25uA
+	const float rZener = 40.0e3f;
+	const float bridgeLo = (5.11e3f*rZener)/(5.11e3f+rZener);
+	// const float bridgeLo = 5.11e3f;
+
+	// const float Ir = 5.0e-6f;
+	// const float vddp = vdiv * (1.0f + bridgeHi/bridgeLo) + Ir*bridgeHi;
+
+	const float vddp = vdiv*((bridgeHi + bridgeLo)/bridgeLo);
+
+	return vddp;
+}
 
 float ssf_getVbus(void)
 {
-	float vbusCount = an0_buf[0];
+	float vbusCount = an0_buf[0]*(1.0f/ADC1_OVERSAMPLING_FACTOR);
 	float vdda = ssf_getVdda();
+	float vdiv = ssf_calibratedVoltage(vbusCount, vdda);
 
-	return vbusCount*vdda*((120.0f+5.1f)/5.1f/(ADC1_OVERSAMPLING_FACTOR*ADC1_NOMINAL_MAXCOUNT));
+	const float bridgeHi = 120.0e3f;
+	// from datasheet VR = 1V, IRmax = 25uA
+	const float rZener = 40.0e3f;
+	const float bridgeLo = (5.11e3f*rZener)/(5.11e3f+rZener);
+	// const float bridgeLo = 5.11e3f;
+
+	// const float Ir = 5.0e-6f;
+	// const float vbus = vdiv * (1.0f + bridgeHi/bridgeLo) + Ir*bridgeHi;
+
+	const float vbus = vdiv*((bridgeHi + bridgeLo)/bridgeLo);
+
+	return vbus;
+
+	// return vdiv*((bridgeHi + bridgeLo)/bridgeLo);
+	// return vbusCount*vdda/(ADC1_OVERSAMPLING_FACTOR*ADC1_NOMINAL_MAXCOUNT);
 }
 
 
@@ -116,6 +178,7 @@ void ssf_analogInit(void)
 	HAL_ADC_StartSampling(&hadc1);
 
 	HAL_ADC_Start_DMA(&hadc2, (uint32_t*) an1_buf, sizeof(an1_buf)/sizeof(an1_buf[0]));
+	// HAL_ADC_Start_DMA(&hadc2, (uint32_t*) an1_buf, 3);
 	// HAL_ADC_StartSampling(&hadc2);
 	// HAL_TIM_Base_Start_IT(&htim2);
 	// HAL_TIM_Base_Start_DMA(&htim3, (uint32_t*) adcBuffer, sizeof(adcBuffer)/4);
