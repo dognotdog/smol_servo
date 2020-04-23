@@ -1,25 +1,14 @@
 #ifndef SSF_MAIN_H
 #define SSF_MAIN_H
 
-#include <stdint.h>
-#include <math.h>
+#include "ssf_scheduler.h"
 
 #include "stm32g4xx_hal.h"
 
-
-typedef enum {
-	SCHED_NONE,
-	SCHED_UI_FAST,
-	SCHED_COUNT
-} sch_taskId_t;
-
-typedef void (*sch_taskFun_t)(uint32_t now_us);
+#include <stdint.h>
+#include <math.h>
 
 
-typedef struct {
-	sch_taskFun_t 	taskFun;
-	int32_t		period_us, offset_us;
-} ssf_scheduledTask_t;
 
 
 
@@ -96,7 +85,7 @@ extern void spwm_idle(void);
 extern void spwm_setDrvChannel(mctrl_pwmChannelId_t ch, float normValue);
 extern void spwm_enableHalfBridges(uint32_t outputMask);
 
-extern void ssf_uiFastTask(uint32_t now_us);
+extern void ssf_ui1sTask(uint32_t now_us);
 // void ssf_adc2IrqHandler(ADC_HandleTypeDef *hadc);
 
 extern void ssf_usbRxCallback(const void* data, size_t datalen);

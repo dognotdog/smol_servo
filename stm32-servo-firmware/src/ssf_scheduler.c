@@ -1,5 +1,6 @@
 
 #include "ssf_main.h"
+#include "ssf_scheduler.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -21,6 +22,14 @@ void ssf_scheduleInit(void)
 		taskStates[i].lastCall = tasks[i].offset_us;
 	}
 
+}
+
+void ssf_enableTasks(sch_taskId_t first, sch_taskId_t last, bool enable)
+{
+	for (size_t i = first; i <= last; ++i)
+	{
+		taskStates[i].isEnabled = enable;
+	}
 }
 
 void ssf_scheduleTasks(sch_taskId_t first, sch_taskId_t last, uint32_t now_us)

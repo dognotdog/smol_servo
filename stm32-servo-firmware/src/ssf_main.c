@@ -73,7 +73,12 @@ void ssf_init(void)
 	spwm_init();
 	ssf_spiInit();
 
+	ssf_scheduleInit();
+
+
 	mctrl_init();
+
+	ssf_enableTasks(SCHED_UI_SLOW, SCHED_UI_SLOW, true);
 
 }
 
@@ -136,6 +141,60 @@ void ssf_asyncReadHallSensorCallback(sspi_as5047_state_t sensorState)
 	_hallState = sensorState;
 }
 
+extern void ssf_ui1sTask(uint32_t now_us)
+{
+	// dbg_println("Hello USB!");
+	// // HAL_Delay(8);
+
+	// ssf_asyncReadHallSensor();
+	// _hallState = ssf_readHallSensor();
+	sspi_as5047_state_t hallState = _hallState;
+	ssf_dbgPrintEncoderStatus(hallState);
+	dbg_println("HALL 0x%04x, 0x%04x, 0x%04x, 0x%04x", hallState.NOP, hallState.ERRFL, hallState.DIAAGC, hallState.ANGLEUNC);
+	{
+		sspi_drv_state_t drvState = ssf_readMotorDriver();
+		// dbg_println("DRV %04x, %04x, %04x, %04x, %04x, %04x, %04x", drvState.FAULT_STATUS.reg, drvState.VGS_STATUS.reg, drvState.DRV_CTRL.reg, drvState.DRV_HS.reg, drvState.DRV_LS.reg, drvState.OCP_CTRL.reg, drvState.CSA_CTRL.reg);
+		ssf_printMotorDriverFaults(drvState);
+	}
+	// // HAL_Delay(8);
+
+	// bool drven = HAL_GPIO_ReadPin(PIN_DRVEN);
+	// dbg_println("DRVEN %8u %u", utime_now(), drven);
+
+	// uint32_t adcState = HAL_ADC_GetState(&hadc2);
+	// uint32_t adcError = HAL_ADC_GetError(&hadc2);
+	// dbg_println("ADC2 0x%08x, 0x%08x", adcState, adcError);
+	// HAL_Delay(8);
+
+	// dbg_println("iA = %8.3f %8.3f, iB = %8.3f %8.3f, iC = %8.3f %8.3f", (double)currentSensed[0], (double)currentSensed[1], (double)currentSensed[2], (double)currentSensed[3], (double)currentSensed[4], (double)currentSensed[5]);
+	// dbg_println("iA = %5u %5u, iB = %5u %5u, iC = %5u %5u", (int)an1_buf[0], (int)an1_buf[1], (int)an1_buf[2], (int)an1_buf[3], (int)an1_buf[4], (int)an1_buf[5]);
+
+	dbg_println("VBUS = %.3f, VDDA = %.3f, VDDP = %.3f", (double)ssf_getVbus(), (double)ssf_getVdda(), (double)ssf_getVddp());
+
+	// float* phaseCurrents0 = mctrl_getPhaseTable(2);
+	// float* phaseCurrents1 = mctrl_getPhaseTable(3);
+
+	// float maxi = 0.0f;
+	// for (size_t i = 0; i < 16; ++i)
+	// {
+	// 	maxi = fmaxf(maxi, fabsf(phaseCurrents0[i]));
+	// }
+
+	// const char* padding = "                                ";
+	// const char* line 	= "--------------------------------";
+
+
+	// for (size_t i = 0; i < 16; ++i)
+	// {
+	// 	int lineLen = fminf(32.0f, 32.0f/maxi*fabsf(phaseCurrents0[i]));
+	// 	int padLen = phaseCurrents0[i] > 0.0f ? 32 : 32-lineLen;
+	// 	dbg_println("IB[%2u] = %8.3f, %8.3f %.*s%.*s", i, (double)phaseCurrents0[i], (double)phaseCurrents1[i], padLen, padding, lineLen, line);
+	// }
+
+
+}
+
+
 void ssf_idle(void)
 {
 	ssf_ledIdle();
@@ -153,59 +212,8 @@ void ssf_idle(void)
 
 	ssf_asyncReadHallSensor();
 
+	ssf_scheduleTasks(SCHED_UI_SLOW, SCHED_UI_SLOW, utime_now());
 
-	if (((now_ms) % 1000) == 0)
-	{
-		// dbg_println("Hello USB!");
-		// // HAL_Delay(8);
-
-		// ssf_asyncReadHallSensor();
-		// _hallState = ssf_readHallSensor();
-		sspi_as5047_state_t hallState = _hallState;
-		ssf_dbgPrintEncoderStatus(hallState);
-		dbg_println("HALL 0x%04x, 0x%04x, 0x%04x, 0x%04x", hallState.NOP, hallState.ERRFL, hallState.DIAAGC, hallState.ANGLEUNC);
-		{
-			sspi_drv_state_t drvState = ssf_readMotorDriver();
-			// dbg_println("DRV %04x, %04x, %04x, %04x, %04x, %04x, %04x", drvState.FAULT_STATUS.reg, drvState.VGS_STATUS.reg, drvState.DRV_CTRL.reg, drvState.DRV_HS.reg, drvState.DRV_LS.reg, drvState.OCP_CTRL.reg, drvState.CSA_CTRL.reg);
-			ssf_printMotorDriverFaults(drvState);
-		}
-		// // HAL_Delay(8);
-
-		// bool drven = HAL_GPIO_ReadPin(PIN_DRVEN);
-		// dbg_println("DRVEN %8u %u", utime_now(), drven);
-
-		// uint32_t adcState = HAL_ADC_GetState(&hadc2);
-		// uint32_t adcError = HAL_ADC_GetError(&hadc2);
-		// dbg_println("ADC2 0x%08x, 0x%08x", adcState, adcError);
-		// HAL_Delay(8);
-
-		// dbg_println("iA = %8.3f %8.3f, iB = %8.3f %8.3f, iC = %8.3f %8.3f", (double)currentSensed[0], (double)currentSensed[1], (double)currentSensed[2], (double)currentSensed[3], (double)currentSensed[4], (double)currentSensed[5]);
-		// dbg_println("iA = %5u %5u, iB = %5u %5u, iC = %5u %5u", (int)an1_buf[0], (int)an1_buf[1], (int)an1_buf[2], (int)an1_buf[3], (int)an1_buf[4], (int)an1_buf[5]);
-
-		dbg_println("VBUS = %.3f, VDDA = %.3f, VDDP = %.3f", (double)ssf_getVbus(), (double)ssf_getVdda(), (double)ssf_getVddp());
-
-		// float* phaseCurrents0 = mctrl_getPhaseTable(2);
-		// float* phaseCurrents1 = mctrl_getPhaseTable(3);
-
-		// float maxi = 0.0f;
-		// for (size_t i = 0; i < 16; ++i)
-		// {
-		// 	maxi = fmaxf(maxi, fabsf(phaseCurrents0[i]));
-		// }
-
-		// const char* padding = "                                ";
-		// const char* line 	= "--------------------------------";
-
-
-		// for (size_t i = 0; i < 16; ++i)
-		// {
-		// 	int lineLen = fminf(32.0f, 32.0f/maxi*fabsf(phaseCurrents0[i]));
-		// 	int padLen = phaseCurrents0[i] > 0.0f ? 32 : 32-lineLen;
-		// 	dbg_println("IB[%2u] = %8.3f, %8.3f %.*s%.*s", i, (double)phaseCurrents0[i], (double)phaseCurrents1[i], padLen, padding, lineLen, line);
-		// }
-
-
-	}
 	// test_chipSelects();
 
 }

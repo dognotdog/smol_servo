@@ -3,11 +3,6 @@
 
 #include "ssf_main.h"
 
-// MCU variations:
-// STM32F030x6
-// STM32F070x6
-// STM32G431xx
-
 
 typedef enum {
 	PERFC_SCHEDULED_LAST = SCHED_COUNT, // first entries are scheduled idle loop calls
