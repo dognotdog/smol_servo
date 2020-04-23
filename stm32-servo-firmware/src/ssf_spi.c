@@ -478,7 +478,7 @@ void ssf_dbgPrintEncoderStatus(sspi_as5047_state_t state)
 	if (state.DIAAGC & 0x0400)
 		err_println("AS5047D Magnetic Field Strength Too High");
 	if (state.DIAAGC & 0x0800)
-		err_println("AS5047D Magnetic Field Strength Too Low");
+		warn_println("AS5047D Magnetic Field Strength Too Low");
 
 	dbg_println("AS5047D AGC = %u", state.DIAAGC & 0xFF);
 
