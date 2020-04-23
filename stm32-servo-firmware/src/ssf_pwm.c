@@ -134,6 +134,7 @@ void spwm_init(void)
 
 	// setup triggered ADC offset timer
 	__HAL_TIM_SET_AUTORELOAD(HTIM_ISENSE_OFFSET, 1699);
+	__HAL_TIM_SET_COMPARE(HTIM_DRV, HTIM_DRV_CH_R, 1700 - ISENSE_SSAA_CPU_CYCLES/2);
 
 
 	HAL_TIM_Base_Start(HTIM_ISENSE_OFFSET);
