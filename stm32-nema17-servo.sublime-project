@@ -30,6 +30,10 @@
 				{
 					"name": "Clean",
 					"cmd": ["make", "clean"]
+				},
+				{
+					"name": "Program",
+            		"cmd": ["make", "-j8", "program"]
 				}
 			]
         }
