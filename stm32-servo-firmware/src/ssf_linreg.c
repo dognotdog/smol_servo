@@ -1,6 +1,9 @@
 
 #include "ssf_linreg.h"
 
+#include <float.h>
+#include <math.h>
+
 incrementalLinreg_t linreg_addSample(incrementalLinreg_t self, float x, float y)
 {
 	self.sumx  += x;       
