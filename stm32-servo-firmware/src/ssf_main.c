@@ -199,6 +199,8 @@ void ssf_idle(void)
 {
 	ssf_ledIdle();
 
+	mctrl_idle(utime_now());
+
 
 	_processUsbRx();
 
@@ -365,11 +367,11 @@ void TIM1_BRK_TIM15_IRQHandler(void)
 	while (1) {++irqDummyCounter;};
 }
 
-void TIM1_UP_TIM16_IRQHandler(void)
-{
-	// uart_printf("WWDG_IRQHandler!\r\n");
-	while (1) {++irqDummyCounter;};
-}
+// void TIM1_UP_TIM16_IRQHandler(void)
+// {
+// 	// uart_printf("WWDG_IRQHandler!\r\n");
+// 	while (1) {++irqDummyCounter;};
+// }
 
 void TIM1_TRG_COM_TIM17_IRQHandler(void)
 {

@@ -27,6 +27,7 @@ extern TIM_HandleTypeDef htim1;	// TIM2 event counter
 extern TIM_HandleTypeDef htim6; // us timer
 
 extern TIM_HandleTypeDef htim15;	// current sense offset
+extern TIM_HandleTypeDef htim16;	// SPI timing
 
 #define ADC1_NOMINAL_MAXCOUNT 		4095
 #define ADC1_SHIFT					4
@@ -52,6 +53,7 @@ extern TIM_HandleTypeDef htim15;	// current sense offset
 #define HTIM_ENC 		(&htim3)
 #define HTIM_DRV 		(&htim2)
 #define HTIM_ISENSE_OFFSET	(&htim15)
+#define HTIM_SPI		(&htim16)
 
 typedef enum {
 	HTIM_DRV_CH_R = TIM_CHANNEL_1,
@@ -76,6 +78,7 @@ extern float ssf_getVdda(void);
 extern void mctrl_init(void);
 extern void mctrl_fastLoop(const uint16_t adcCounts[6]);
 extern float* mctrl_getPhaseTable(size_t i);
+extern void mctrl_idle(uint32_t now_us);
 
 extern void ssf_ledInit(void);
 extern void ssf_ledIdle(void);

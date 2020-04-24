@@ -1,15 +1,17 @@
 
+#include "ssf_mctrl_private.h"
+
 #include "ssf_main.h"
 #include "ssf_spi.h"
 #include "debug.h"
 #include "ssf_perf.h"
 #include "ssf_linreg.h"
+#include "utime.h"
 
 #include <math.h>
 #include <float.h>
 #include <stdbool.h>
 #include <string.h>
-
 
 
 /*
@@ -243,107 +245,8 @@ Assuming an RH/RL being equal at Rt, Rp being being equal cross phases, and Ra,R
 
 */
 
-enum {
-	ISENSE_ALO,
-	ISENSE_AHI,
-	ISENSE_BLO,
-	ISENSE_BHI,
-	ISENSE_CLO,
-	ISENSE_VHI,
-	ISENSE_COUNT,
-};
 
-#define PHASE_BUCKETS				16
-#define NUM_STATIC_MEASUREMENTS		8
-#define NUM_ALIGN_WAIT_ON_CYCLES	33
-#define NUM_ALIGN_WAIT_OFF_CYCLES	333
-
-#define CALIBREADS 3000
-
-static float _phasedCurrents[6][PHASE_BUCKETS];
-static float _phase = 0.0f;
-static size_t _counter = 0;
-
-static float _adcZeroCalibs[6];
-static volatile size_t _calibCounter = 0;
-
-static volatile float _lastMeasurement[NUM_STATIC_MEASUREMENTS][ISENSE_COUNT];
-static volatile float _lastVbus[NUM_STATIC_MEASUREMENTS];
-
-
-
-
-#define MEAS_SINGLE_PERIOD 	10.0e-6f
-#define MEAS_SAMPLES 		6
-#define MEAS_FULL_PERIOD	(MEAS_SINGLE_PERIOD*MEAS_SAMPLES)
-#define NUM_ID_ALGO_SAMPLES	2
-#define NUM_ID_ALGO_ESTIMATES (2*(NUM_STATIC_MEASUREMENTS - (NUM_ID_ALGO_SAMPLES-1)))
-#define NUM_IDENTIFICATION_RUNS	3
-
-#define MAX_IDENTIFICATION_REPEATS	32
-#define IDELTA_MIN			0.001f
-#define TARGET_VAR_NORM		0.05f
-
-
-typedef enum {
-	MCTRL_INIT,
-
-	MCTRL_ANALOG_CALIBRATION_RUN,
-	MCTRL_ANALOG_CALIBRATION_FINISH,
-
-	MCTRL_ID_ALIGN_START,
-	MCTRL_ID_ALIGN_WAIT,
-	MCTRL_ID_ALIGN_SETTLE,
-	MCTRL_ID_ALIGN_FINISH,
-
-	MCTRL_RAMPTIME_ID_START,
-	MCTRL_RAMPTIME_ID_WAIT,
-	MCTRL_RAMPTIME_ID_FINISH,
-
-	MCTRL_INDUCTANCE_ID_START,
-	MCTRL_INDUCTANCE_ID_RUN,
-	MCTRL_INDUCTANCE_ID_FINISH,
-
-	MCTRL_RESISTANCE_ID_START,
-	MCTRL_RESISTANCE_ID_RUN,
-	MCTRL_RESISTANCE_ID_FINISH,
-
-	MCTRL_DEMO,
-	MCTRL_
-} mctrl_state_t;
-
-typedef enum {
-	MCTRL_MOT_UNKNOWN,
-	MCTRL_MOT_2PH,
-	MCTRL_MOT_3PH,
-	MCTRL_MOT_
-} mctrl_motor_type_t;
-
-typedef struct {
-	struct {
-		float maxCurrent;
-		float staticIdentificationDutyCycle;
-		size_t maxRampCycles;
-	} sysId;
-} mctrl_params_t;
-
-typedef struct {
-	struct {
-		struct {
-			float Lest[3];
-			float Rest[3];
-			float Lvar[3];
-			float Rvar[3];
-		} phases;
-	} sysParamEstimates;
-	// debugging counters
-	uint16_t lastEventCount;
-	uint16_t lastEventCountDelta;
-	uint32_t lastControlStepTime_us;
-	uint32_t lastControlDelta_us;
-} mctrl_controller_t;
-
-static mctrl_params_t _params = {
+mctrl_params_t mctrl_params = {
 	.sysId = {
 		.maxCurrent = 1.0f,
 		.staticIdentificationDutyCycle = 0.1f,
@@ -351,16 +254,25 @@ static mctrl_params_t _params = {
 	},
 };
 
-static mctrl_controller_t _mctrl;
+mctrl_controller_t mctrl = {
+	.lastEventCount = 0,
+};
 
-static size_t _idRunCounter = 0;
 
-static volatile mctrl_state_t _state = MCTRL_INIT;
+volatile mctrl_state_t mctrl_state = MCTRL_INIT;
 
 // static float _kalmanInductanceMeans[3];
 // static float _kalmanInductanceVars[3];
 // static float _kalmanResistanceMeans[3];
 // static float _kalmanResistanceVars[3];
+
+// #define SYNC_INIT
+
+#ifdef SYNC_INIT
+void mctrl_idle(uint32_t now_us) {};
+#else
+// #include "ssf_mctrl_idle.h"
+#endif
 
 #if SSF_HARDWARE_VERSION == 0x000100
 
@@ -506,7 +418,7 @@ float _calculateResistance2(float i0, float i1, float i2, float i3, float V, flo
 	return R;
 }
 
-
+#ifdef SYNC_INIT
 void mctrl_init(void)
 {
 	// reset state
@@ -562,14 +474,14 @@ void mctrl_init(void)
 
 	// driver calibration is now done, we can move on to motor identification
 	// do identification runs for each phase
-	for (_idRunCounter = 0; _idRunCounter < NUM_IDENTIFICATION_RUNS; ++_idRunCounter)
+	for (mctrl.idRunCounter = 0; mctrl.idRunCounter < NUM_IDENTIFICATION_RUNS; ++mctrl.idRunCounter)
 	{
 		// align rotor with a gentle nudge
 		_state = MCTRL_ID_ALIGN_START;
 		while (_state != MCTRL_ID_ALIGN_FINISH) {};
 
-		int lowBridge = _idRunCounter;
-		int highBridge = (_idRunCounter + 1) % 3;
+		int lowBridge = mctrl.idRunCounter;
+		int highBridge = (mctrl.idRunCounter + 1) % 3;
 
 		spwm_enableHalfBridges((1 << lowBridge) | (1 << highBridge));
 
@@ -584,23 +496,23 @@ void mctrl_init(void)
 		if (numSampleExceedingCurrentLimit >= NUM_STATIC_MEASUREMENTS)
 		{
 			{
-				float i0 = _lastMeasurement[NUM_STATIC_MEASUREMENTS-1][2*_idRunCounter+0];
-				float i1 = _lastMeasurement[NUM_STATIC_MEASUREMENTS-1][2*_idRunCounter+1];
+				float i0 = _lastMeasurement[NUM_STATIC_MEASUREMENTS-1][2*mctrl.idRunCounter+0];
+				float i1 = _lastMeasurement[NUM_STATIC_MEASUREMENTS-1][2*mctrl.idRunCounter+1];
 
 				float i = 0.5*(i0+i1);
 
-				float time = (NUM_STATIC_MEASUREMENTS-1)*(float)MEAS_FULL_PERIOD + _idRunCounter*2*MEAS_SINGLE_PERIOD;
-				dbg_println("could not reach %.3f, max current reached is %.3f after %8.0f us", (double)_params.sysId.maxCurrent, (double)i, (double)(time*1e6f));
+				float time = (NUM_STATIC_MEASUREMENTS-1)*(float)MEAS_FULL_PERIOD + mctrl.idRunCounter*2*MEAS_SINGLE_PERIOD;
+				dbg_println("could not reach %.3f, max current reached is %.3f after %8.0f us", (double)mctrl_params.sysId.maxCurrent, (double)i, (double)(time*1e6f));
 
 			}
 		}
 		else
 		{
-			float i0 = _lastMeasurement[numSampleExceedingCurrentLimit][2*_idRunCounter+0];
-			float i1 = _lastMeasurement[numSampleExceedingCurrentLimit][2*_idRunCounter+1];
+			float i0 = _lastMeasurement[numSampleExceedingCurrentLimit][2*mctrl.idRunCounter+0];
+			float i1 = _lastMeasurement[numSampleExceedingCurrentLimit][2*mctrl.idRunCounter+1];
 
 			float i = 0.5*(i0+i1);
-			float time = numSampleExceedingCurrentLimit*(float)MEAS_FULL_PERIOD + _idRunCounter*2*MEAS_SINGLE_PERIOD;
+			float time = numSampleExceedingCurrentLimit*(float)MEAS_FULL_PERIOD + mctrl.idRunCounter*2*MEAS_SINGLE_PERIOD;
 
 			dbg_println("reached %.3f after %8.0f us", (double)i, (double)(time*1e6f));
 
@@ -612,7 +524,7 @@ void mctrl_init(void)
 		for (size_t k = 0; k < MAX_IDENTIFICATION_REPEATS; ++k)
 		{
 			// run full-PWM resistance estimation
-			_params.sysId.staticIdentificationDutyCycle = 1.0f/ssf_getVbus();
+			mctrl_params.sysId.staticIdentificationDutyCycle = 1.0f/ssf_getVbus();
 			memset((void*)_lastMeasurement, 0, sizeof(_lastMeasurement));
 			_calibCounter = 0;
 			_state = MCTRL_RESISTANCE_ID_START;
@@ -623,8 +535,8 @@ void mctrl_init(void)
 
 			for (size_t j = NUM_STATIC_MEASUREMENTS/2; j < NUM_STATIC_MEASUREMENTS; ++j)
 			{
-				float i0 = _lastMeasurement[j][2*_idRunCounter+0];
-				float i1 = _lastMeasurement[j][2*_idRunCounter+1];
+				float i0 = _lastMeasurement[j][2*mctrl.idRunCounter+0];
+				float i1 = _lastMeasurement[j][2*mctrl.idRunCounter+1];
 
 				i += (i0+i1);
 
@@ -635,7 +547,7 @@ void mctrl_init(void)
 			i *= 1.0f/NUM_STATIC_MEASUREMENTS;
 			vbus *= 1.0f/NUM_STATIC_MEASUREMENTS;
 
-			float dc = _params.sysId.staticIdentificationDutyCycle;
+			float dc = mctrl_params.sysId.staticIdentificationDutyCycle;
 			float u = ssf_getVbus();
 			float R = u/i*dc;
 
@@ -650,8 +562,8 @@ void mctrl_init(void)
 
 		dbg_println("steady state estimate %.3f R, sigma = %.3f", (double)Rest, (double)(sqrtf(Rvar)));
 
-		_mctrl.sysParamEstimates.phases.Rest[_idRunCounter] = Rest;
-		_mctrl.sysParamEstimates.phases.Rvar[_idRunCounter] = Rvar;
+		mctrl.sysParamEstimates.phases.Rest[mctrl.idRunCounter] = Rest;
+		mctrl.sysParamEstimates.phases.Rvar[mctrl.idRunCounter] = Rvar;
 
 		incrementalLinreg_t linregData = {};
 
@@ -692,17 +604,17 @@ void mctrl_init(void)
 			{
 				const float h = MEAS_FULL_PERIOD;
 				const float dh = MEAS_SINGLE_PERIOD;
-				float i0 = _lastMeasurement[j+0][2*_idRunCounter];
-				float i0a = _lastMeasurement[j+0][2*_idRunCounter+1];
-				float i1 = _lastMeasurement[j+1][2*_idRunCounter];
-				float i1a = _lastMeasurement[j+1][2*_idRunCounter+1];
+				float i0 = _lastMeasurement[j+0][2*mctrl.idRunCounter];
+				float i0a = _lastMeasurement[j+0][2*mctrl.idRunCounter+1];
+				float i1 = _lastMeasurement[j+1][2*mctrl.idRunCounter];
+				float i1a = _lastMeasurement[j+1][2*mctrl.idRunCounter+1];
 				float di = (i1-i0)/h;
 				float dia = (i1a-i0a)/h;
 
 				linregData = linreg_addSample(linregData, j*h + 0.0f*dh, logf(di));
 				linregData = linreg_addSample(linregData, j*h + 1.0f*dh, logf(dia));
 
-				// dbg_println("  di[%u] = %8.3f A/s, dia = %8.3f A/s", _idRunCounter, (double)(di), (double)(dia));
+				// dbg_println("  di[%u] = %8.3f A/s, dia = %8.3f A/s", mctrl.idRunCounter, (double)(di), (double)(dia));
 			}
 
 
@@ -714,15 +626,15 @@ void mctrl_init(void)
 				float vbus0 = _lastVbus[j+0];
 				float vbus1 = _lastVbus[j+1];
 				float vbus = 0.5*(vbus0 + vbus1);
-				float i0 = _lastMeasurement[j+0][2*_idRunCounter];
-				float i0a = _lastMeasurement[j+0][2*_idRunCounter+1];
-				float i1 = _lastMeasurement[j+1][2*_idRunCounter];
-				float i1a = _lastMeasurement[j+1][2*_idRunCounter+1];
+				float i0 = _lastMeasurement[j+0][2*mctrl.idRunCounter];
+				float i0a = _lastMeasurement[j+0][2*mctrl.idRunCounter+1];
+				float i1 = _lastMeasurement[j+1][2*mctrl.idRunCounter];
+				float i1a = _lastMeasurement[j+1][2*mctrl.idRunCounter+1];
 				float di = (i1-i0)/h;
 				float dia = (i1a-i0a)/h;
 
-				float L0 = (vbus - 0.5f*(i0+i1)*_mctrl.sysParamEstimates.phases.Rest[_idRunCounter]) / di;
-				float L1 = (vbus - 0.5f*(i0a+i1a)*_mctrl.sysParamEstimates.phases.Rest[_idRunCounter]) / dia;
+				float L0 = (vbus - 0.5f*(i0+i1)*mctrl.sysParamEstimates.phases.Rest[mctrl.idRunCounter]) / di;
+				float L1 = (vbus - 0.5f*(i0a+i1a)*mctrl.sysParamEstimates.phases.Rest[mctrl.idRunCounter]) / dia;
 
 				if (fabsf(di) > FLT_EPSILON)
 					Lest[numValidLMeasurements++] = L0;
@@ -735,13 +647,13 @@ void mctrl_init(void)
 				// in the system identification run, we'd look at one channel each
 				// over a number of repeated measurements NUM_STATIC_MEASUREMENTS
 
-				float i0 = _lastMeasurement[j+0][2*_idRunCounter];
-				float i1 = _lastMeasurement[j+1][2*_idRunCounter];
-				float i2 = _lastMeasurement[j+2][2*_idRunCounter];
+				float i0 = _lastMeasurement[j+0][2*mctrl.idRunCounter];
+				float i1 = _lastMeasurement[j+1][2*mctrl.idRunCounter];
+				float i2 = _lastMeasurement[j+2][2*mctrl.idRunCounter];
 
-				float i0a = _lastMeasurement[j+0][2*_idRunCounter+1];
-				float i1a = _lastMeasurement[j+1][2*_idRunCounter+1];
-				float i2a = _lastMeasurement[j+2][2*_idRunCounter+1];
+				float i0a = _lastMeasurement[j+0][2*mctrl.idRunCounter+1];
+				float i1a = _lastMeasurement[j+1][2*mctrl.idRunCounter+1];
+				float i2a = _lastMeasurement[j+2][2*mctrl.idRunCounter+1];
 
 				bool validL0 = false, validL1 = false;
 				bool validR0 = false, validR1 = false;
@@ -755,9 +667,9 @@ void mctrl_init(void)
 				float tau0 = _calculateTimeConstant_n3(i0, i1, i2, vbus, MEAS_FULL_PERIOD, &tauValid0);
 				float tau1 = _calculateTimeConstant_n3(i0a, i1a, i2a, vbus, MEAS_FULL_PERIOD, &tauValid1);
 
-				// dbg_println("  [%u] L0 = %8.3f mH, L1 = %8.3f mH", _idRunCounter, (double)(L0*1e3), (double)(L1*1e3));
-				// dbg_println(" [%u] R0 = %8.3f R,  R1 = %8.3f R", _idRunCounter, (double)(R0*1e0), (double)(R1*1e0));
-				// dbg_println(" [%u] t0 = %8.3f ms, t1 = %8.3f ms", _idRunCounter, (double)(tau0*1e3), (double)(tau1*1e3));
+				// dbg_println("  [%u] L0 = %8.3f mH, L1 = %8.3f mH", mctrl.idRunCounter, (double)(L0*1e3), (double)(L1*1e3));
+				// dbg_println(" [%u] R0 = %8.3f R,  R1 = %8.3f R", mctrl.idRunCounter, (double)(R0*1e0), (double)(R1*1e0));
+				// dbg_println(" [%u] t0 = %8.3f ms, t1 = %8.3f ms", mctrl.idRunCounter, (double)(tau0*1e3), (double)(tau1*1e3));
 
 				if (validL0)
 				{
@@ -786,15 +698,15 @@ void mctrl_init(void)
 				}
 
 #elif NUM_ID_ALGO_SAMPLES == 4
-				float i0 = _lastMeasurement[j+0][2*_idRunCounter];
-				float i1 = _lastMeasurement[j+1][2*_idRunCounter];
-				float i2 = _lastMeasurement[j+2][2*_idRunCounter];
-				float i3 = _lastMeasurement[j+3][2*_idRunCounter];
+				float i0 = _lastMeasurement[j+0][2*mctrl.idRunCounter];
+				float i1 = _lastMeasurement[j+1][2*mctrl.idRunCounter];
+				float i2 = _lastMeasurement[j+2][2*mctrl.idRunCounter];
+				float i3 = _lastMeasurement[j+3][2*mctrl.idRunCounter];
 
-				float i0a = _lastMeasurement[j+0][2*_idRunCounter+1];
-				float i1a = _lastMeasurement[j+1][2*_idRunCounter+1];
-				float i2a = _lastMeasurement[j+2][2*_idRunCounter+1];
-				float i3a = _lastMeasurement[j+3][2*_idRunCounter+1];
+				float i0a = _lastMeasurement[j+0][2*mctrl.idRunCounter+1];
+				float i1a = _lastMeasurement[j+1][2*mctrl.idRunCounter+1];
+				float i2a = _lastMeasurement[j+2][2*mctrl.idRunCounter+1];
+				float i3a = _lastMeasurement[j+3][2*mctrl.idRunCounter+1];
 
 				bool valid0 = false, valid1 = false;
 				float vbus = ssf_getVbus();
@@ -863,7 +775,7 @@ void mctrl_init(void)
 			Lvar -= Lavg*Lavg;
 
 			Ravg *= 1.0f/numValidRMeasurements;
-			Rvar *= 1.0f/numValidLMeasurements;
+			Rvar *= 1.0f/numValidRMeasurements;
 
 			Rvar -= Ravg*Ravg;
 
@@ -930,8 +842,8 @@ void mctrl_init(void)
 
 			}
 
-			// dbg_println("Kalman Lest[%u] is  %8.3f mH, sigma = %8.3f mH", _idRunCounter, (double)(inductanceEstimate*1e3), (double)(sqrtf(inductanceVariance)*1e3));
-			// dbg_println("Kalman Rest[%u] is  %8.3f R,  sigma = %8.3f R", _idRunCounter, (double)(resistanceEstimate*1e0), (double)(sqrtf(resistanceVariance)*1e0));
+			// dbg_println("Kalman Lest[%u] is  %8.3f mH, sigma = %8.3f mH", mctrl.idRunCounter, (double)(inductanceEstimate*1e3), (double)(sqrtf(inductanceVariance)*1e3));
+			// dbg_println("Kalman Rest[%u] is  %8.3f R,  sigma = %8.3f R", mctrl.idRunCounter, (double)(resistanceEstimate*1e0), (double)(sqrtf(resistanceVariance)*1e0));
 
 			if ((inductanceVariance < inductanceEstimate*inductanceEstimate*TARGET_VAR_NORM*TARGET_VAR_NORM) && (resistanceVariance < resistanceEstimate*resistanceEstimate*TARGET_VAR_NORM*TARGET_VAR_NORM))
 			{
@@ -951,19 +863,19 @@ void mctrl_init(void)
 		// float logL = logf(vbus) - logf(lr.intercept);
 
 
-		// dbg_println("LINREG tau[%u] = %8.3f ms, R^2 = %8.3f, h = %u us (%u count)", _idRunCounter, (double)(currentRate*1e3f), (double)(lr.rsqr), _mctrl.lastControlDelta_us, _mctrl.lastEventCountDelta);
-		// dbg_println("LINREG L[%u] = %8.3f mH, R^2 = %8.3f", _idRunCounter, (double)(lr.intercept*1e0f), (double)(lr.rsqr));
+		// dbg_println("LINREG tau[%u] = %8.3f ms, R^2 = %8.3f, h = %u us (%u count)", mctrl.idRunCounter, (double)(currentRate*1e3f), (double)(lr.rsqr), _mctrl.lastControlDelta_us, _mctrl.lastEventCountDelta);
+		// dbg_println("LINREG L[%u] = %8.3f mH, R^2 = %8.3f", mctrl.idRunCounter, (double)(lr.intercept*1e0f), (double)(lr.rsqr));
 
-		_mctrl.sysParamEstimates.phases.Lest[_idRunCounter] = inductanceEstimate;
-		_mctrl.sysParamEstimates.phases.Lvar[_idRunCounter] = inductanceVariance;
-		// _mctrl.sysParamEstimates.phases.Rest[_idRunCounter] = resistanceEstimate;
-		// _mctrl.sysParamEstimates.phases.Rvar[_idRunCounter] = resistanceVariance;
+		mctrl.sysParamEstimates.phases.Lest[mctrl.idRunCounter] = inductanceEstimate;
+		mctrl.sysParamEstimates.phases.Lvar[mctrl.idRunCounter] = inductanceVariance;
+		// _mctrl.sysParamEstimates.phases.Rest[mctrl.idRunCounter] = resistanceEstimate;
+		// _mctrl.sysParamEstimates.phases.Rvar[mctrl.idRunCounter] = resistanceVariance;
 
-		dbg_println("  Lest[%u] is %8.3f mH, sigma = %8.3f mH", _idRunCounter, (double)(inductanceEstimate*1e3), (double)(sqrtf(inductanceVariance)*1e3));
-		// dbg_println("Kalman Tau[%u] is   %8.3f ms, sigma = %8.3f ms", _idRunCounter, (double)(tcEstimate*1e3), (double)(sqrtf(tcVariance)*1e3));
-		dbg_println("  Rest[%u] is %8.3f R,  sigma = %8.3f R", _idRunCounter, (double)(_mctrl.sysParamEstimates.phases.Rest[_idRunCounter]*1e0), (double)(sqrtf(_mctrl.sysParamEstimates.phases.Rvar[_idRunCounter])*1e0));
+		dbg_println("  Lest[%u] is %8.3f mH, sigma = %8.3f mH", mctrl.idRunCounter, (double)(inductanceEstimate*1e3), (double)(sqrtf(inductanceVariance)*1e3));
+		// dbg_println("Kalman Tau[%u] is   %8.3f ms, sigma = %8.3f ms", mctrl.idRunCounter, (double)(tcEstimate*1e3), (double)(sqrtf(tcVariance)*1e3));
+		dbg_println("  Rest[%u] is %8.3f R,  sigma = %8.3f R", mctrl.idRunCounter, (double)(mctrl.sysParamEstimates.phases.Rest[mctrl.idRunCounter]*1e0), (double)(sqrtf(mctrl.sysParamEstimates.phases.Rvar[mctrl.idRunCounter])*1e0));
 
-		dbg_println("   Tau[%u] is %8.3f ms", _idRunCounter, (double)(_mctrl.sysParamEstimates.phases.Lest[_idRunCounter]/_mctrl.sysParamEstimates.phases.Rest[_idRunCounter]*1e3));
+		dbg_println("   Tau[%u] is %8.3f ms", mctrl.idRunCounter, (double)(mctrl.sysParamEstimates.phases.Lest[mctrl.idRunCounter]/mctrl.sysParamEstimates.phases.Rest[mctrl.idRunCounter]*1e3));
 
 
 	}
@@ -972,8 +884,8 @@ void mctrl_init(void)
 	// 3 phase all 3 resistances and windings should be close
 	// 2 phase C should have roughly double the R and L of A,B
 	// calculate weights based on how far away we are from ideal ratios, lowest weight wins
-	float ph2Weight = fabsf(_mctrl.sysParamEstimates.phases.Rest[0]/_mctrl.sysParamEstimates.phases.Rest[2] - 0.5f) + fabsf(_mctrl.sysParamEstimates.phases.Rest[1]/_mctrl.sysParamEstimates.phases.Rest[2] - 0.5f);
-	float ph3Weight = fabsf(_mctrl.sysParamEstimates.phases.Rest[0]/_mctrl.sysParamEstimates.phases.Rest[2] - 1.0f) + fabsf(_mctrl.sysParamEstimates.phases.Rest[1]/_mctrl.sysParamEstimates.phases.Rest[2] - 1.0f);
+	float ph2Weight = fabsf(mctrl.sysParamEstimates.phases.Rest[0]/mctrl.sysParamEstimates.phases.Rest[2] - 0.5f) + fabsf(mctrl.sysParamEstimates.phases.Rest[1]/mctrl.sysParamEstimates.phases.Rest[2] - 0.5f);
+	float ph3Weight = fabsf(mctrl.sysParamEstimates.phases.Rest[0]/mctrl.sysParamEstimates.phases.Rest[2] - 1.0f) + fabsf(mctrl.sysParamEstimates.phases.Rest[1]/mctrl.sysParamEstimates.phases.Rest[2] - 1.0f);
 
 	dbg_println("  ph2Weight is %6.3f, ph3Weight is %6.3f", (double)(ph2Weight), (double)(ph3Weight));
 
@@ -1039,8 +951,8 @@ void mctrl_init(void)
 		// Rp = 0.5*Rc - Rt - 0.5*Rs
 		// 0.5*Rc - Rt - 0.5*Rs = Ra/b - 2*Rt - Rs
 		// Rt = Ra/b - 0.5*Rc - 0.5*Rs
-		float Ra = _mctrl.sysParamEstimates.phases.Rest[0];
-		float Rc = _mctrl.sysParamEstimates.phases.Rest[2];
+		float Ra = mctrl.sysParamEstimates.phases.Rest[0];
+		float Rc = mctrl.sysParamEstimates.phases.Rest[2];
 		float Rs = 0.015f;
 		float Rt = Ra - 0.5f*Rc - 0.5*Rs;
 		float Rp = 0.5*Rc - Rt - 0.5*Rs;
@@ -1048,8 +960,8 @@ void mctrl_init(void)
 		dbg_println("Rp[A/C] is %8.3f R", (double)Rp);
 	}
 	{
-		float Rb = _mctrl.sysParamEstimates.phases.Rest[1];
-		float Rc = _mctrl.sysParamEstimates.phases.Rest[2];
+		float Rb = mctrl.sysParamEstimates.phases.Rest[1];
+		float Rc = mctrl.sysParamEstimates.phases.Rest[2];
 		float Rs = 0.015f;
 		float Rt = Rb - 0.5f*Rc - 0.5*Rs;
 		float Rp = 0.5*Rc - Rt - 0.5*Rs;
@@ -1059,12 +971,18 @@ void mctrl_init(void)
 
 	// re-enable all phases in case some were turned off during system identification
 	spwm_enableHalfBridges(0x7);
-	_state = MCTRL_DEMO;
+	mctrl_state = MCTRL_DEMO;
 }
+#else
+void mctrl_init(void)
+{
+	mctrl_state = MCTRL_DRIVER_RESET_START;
+}
+#endif
 
 float* mctrl_getPhaseTable(size_t i)
 {
-	return _phasedCurrents[i];
+	return mctrl.phasedCurrents[i];
 }
 
 
@@ -1081,44 +999,44 @@ static float _getCurrentSenseFactor(void)
 }
 
 
-static void _convertAdcToCurrent(volatile float currents[6], const uint16_t adcCounts[6], const float vdda)
+static void _convertAdcToCurrent(volatile float currents[ISENSE_COUNT], const uint16_t adcCounts[ISENSE_COUNT], const float vdda)
 {
 	float gain = (1.0f/(ADC2_OVERSAMPLING_FACTOR*ADC2_NOMINAL_MAXCOUNT))*vdda*_getCurrentSenseFactor();
-	for (size_t i = 0; i < 6; ++i)
+	for (size_t i = 0; i < ISENSE_COUNT; ++i)
 	{
 		float adcCount = (float)(adcCounts[i]);
 
-		float current = (adcCount - _adcZeroCalibs[i])*gain;
+		float current = (adcCount - mctrl.adcZeroCalibs[i])*gain;
 		currents[i] = current;
 	}
 }
 
-void mctrl_fastLoop(const uint16_t adcCounts[6])
+void mctrl_fastLoop(const uint16_t adcCounts[ISENSE_COUNT])
 {
-	uint32_t now = perf_now();
+	uint32_t now = utime_now();
 	uint16_t eventCount = perf_getEventCount();
 
-	_mctrl.lastControlDelta_us = now - _mctrl.lastControlStepTime_us;
-	_mctrl.lastControlStepTime_us = now;
+	mctrl.lastControlDelta_us = now - mctrl.lastControlStepTime_us;
+	mctrl.lastControlStepTime_us = now;
 
-	_mctrl.lastEventCountDelta = eventCount - _mctrl.lastEventCount;
-	_mctrl.lastEventCount = eventCount;
+	mctrl.lastEventCountDelta = eventCount - mctrl.lastEventCount;
+	mctrl.lastEventCount = eventCount;
 
-	switch (_state)
+	switch (mctrl_state)
 	{
 		case MCTRL_ANALOG_CALIBRATION_RUN:
 		{
-			if (_calibCounter < CALIBREADS/2)
+			if (mctrl.calibCounter < CALIBREADS/2)
 			{
-				for (size_t i = 0; i < 6; ++i)
+				for (size_t i = 0; i < ISENSE_COUNT; ++i)
 				{
-					_adcZeroCalibs[i] += adcCounts[i];
+					mctrl.adcZeroCalibs[i] += adcCounts[i];
 				}
-				++_calibCounter;	
+				++mctrl.calibCounter;	
 			}
 			else
 			{
-				_state = MCTRL_ANALOG_CALIBRATION_FINISH;
+				mctrl_state = MCTRL_ANALOG_CALIBRATION_FINISH;
 			}
 
 			break;
@@ -1126,18 +1044,18 @@ void mctrl_fastLoop(const uint16_t adcCounts[6])
 		case MCTRL_ID_ALIGN_START:
 		{
 			// turn everything off to to start
-			if (_calibCounter < NUM_ALIGN_WAIT_OFF_CYCLES)
+			if (mctrl.calibCounter < NUM_ALIGN_WAIT_OFF_CYCLES)
 			{
 				spwm_setDrvChannel(HTIM_DRV_CH_A, 0.0);
 				spwm_setDrvChannel(HTIM_DRV_CH_B, 0.0);
 				spwm_setDrvChannel(HTIM_DRV_CH_C, 0.0);
 
-				++_calibCounter;
+				++mctrl.calibCounter;
 			}
 			else
 			{
-				_calibCounter = 0;
-				_state = MCTRL_ID_ALIGN_WAIT;
+				mctrl.calibCounter = 0;
+				mctrl_state = MCTRL_ID_ALIGN_WAIT;
 			}
 
 			break;
@@ -1146,15 +1064,15 @@ void mctrl_fastLoop(const uint16_t adcCounts[6])
 		{
 			// ramp up current to align motor
 			// wait for some time to complete alignment
-			if (_calibCounter < NUM_ALIGN_WAIT_ON_CYCLES)
+			if (mctrl.calibCounter < NUM_ALIGN_WAIT_ON_CYCLES)
 			{
 				// ramp up the current to not cause a huge jerk bringing the rotor into alignment
-				float ramp = 1.0f - fabsf(_calibCounter - NUM_ALIGN_WAIT_ON_CYCLES/2);
-				spwm_setDrvChannel(HTIM_DRV_CH_A, ramp*(_idRunCounter != 0));
-				spwm_setDrvChannel(HTIM_DRV_CH_B, ramp*(_idRunCounter != 1));
-				spwm_setDrvChannel(HTIM_DRV_CH_C, ramp*(_idRunCounter != 2));
+				float ramp = 1.0f - fabsf(mctrl.calibCounter - NUM_ALIGN_WAIT_ON_CYCLES/2);
+				spwm_setDrvChannel(HTIM_DRV_CH_A, ramp*(mctrl.idRunCounter != 0));
+				spwm_setDrvChannel(HTIM_DRV_CH_B, ramp*(mctrl.idRunCounter != 1));
+				spwm_setDrvChannel(HTIM_DRV_CH_C, ramp*(mctrl.idRunCounter != 2));
 
-				++_calibCounter;
+				++mctrl.calibCounter;
 			}
 			else
 			{
@@ -1162,36 +1080,36 @@ void mctrl_fastLoop(const uint16_t adcCounts[6])
 				spwm_setDrvChannel(HTIM_DRV_CH_B, 0.0);
 				spwm_setDrvChannel(HTIM_DRV_CH_C, 0.0);
 
-				_calibCounter = 0;
-				_state = MCTRL_ID_ALIGN_SETTLE;
+				mctrl.calibCounter = 0;
+				mctrl_state = MCTRL_ID_ALIGN_SETTLE;
 			}
 			break;
 		}
 		case MCTRL_ID_ALIGN_SETTLE:
 		{
 			// wait for some time to complete alignment and have current die down
-			if (_calibCounter < NUM_ALIGN_WAIT_OFF_CYCLES)
+			if (mctrl.calibCounter < NUM_ALIGN_WAIT_OFF_CYCLES)
 			{
 				spwm_setDrvChannel(HTIM_DRV_CH_A, 0.0);
 				spwm_setDrvChannel(HTIM_DRV_CH_B, 0.0);
 				spwm_setDrvChannel(HTIM_DRV_CH_C, 0.0);
-				++_calibCounter;
+				++mctrl.calibCounter;
 			}
 			else
 			{
-				_calibCounter = 0;
-				_state = MCTRL_ID_ALIGN_FINISH;
+				mctrl.calibCounter = 0;
+				mctrl_state = MCTRL_ID_ALIGN_FINISH;
 			}
 			break;
 		}
 
 		case MCTRL_RAMPTIME_ID_START:
 		{
-			spwm_setDrvChannel(HTIM_DRV_CH_A, (_idRunCounter != 0));
-			spwm_setDrvChannel(HTIM_DRV_CH_B, (_idRunCounter != 1));
-			spwm_setDrvChannel(HTIM_DRV_CH_C, (_idRunCounter != 2));
-			_calibCounter = 0;
-			_state = MCTRL_RAMPTIME_ID_WAIT;
+			spwm_setDrvChannel(HTIM_DRV_CH_A, (mctrl.idRunCounter != 0));
+			spwm_setDrvChannel(HTIM_DRV_CH_B, (mctrl.idRunCounter != 1));
+			spwm_setDrvChannel(HTIM_DRV_CH_C, (mctrl.idRunCounter != 2));
+			mctrl.calibCounter = 0;
+			mctrl_state = MCTRL_RAMPTIME_ID_WAIT;
 
 			break;
 		}
@@ -1199,31 +1117,31 @@ void mctrl_fastLoop(const uint16_t adcCounts[6])
 		{
 			// turn current off again
 			// wait for some time to complete alignment
-			if (_calibCounter < _params.sysId.maxRampCycles)
+			if (mctrl.calibCounter < mctrl_params.sysId.maxRampCycles)
 			{
-				spwm_setDrvChannel(HTIM_DRV_CH_A, (_idRunCounter != 0));
-				spwm_setDrvChannel(HTIM_DRV_CH_B, (_idRunCounter != 1));
-				spwm_setDrvChannel(HTIM_DRV_CH_C, (_idRunCounter != 2));
+				spwm_setDrvChannel(HTIM_DRV_CH_A, (mctrl.idRunCounter != 0));
+				spwm_setDrvChannel(HTIM_DRV_CH_B, (mctrl.idRunCounter != 1));
+				spwm_setDrvChannel(HTIM_DRV_CH_C, (mctrl.idRunCounter != 2));
 
 				float vdda = ssf_getVdda();
-				_convertAdcToCurrent(_lastMeasurement[_calibCounter], adcCounts, vdda);
+				_convertAdcToCurrent(mctrl.lastMeasurement[mctrl.calibCounter], adcCounts, vdda);
 
-				float i0 = _lastMeasurement[_calibCounter][2*_idRunCounter+0];
-				float i1 = _lastMeasurement[_calibCounter][2*_idRunCounter+1];
+				float i0 = mctrl.lastMeasurement[mctrl.calibCounter][2*mctrl.idRunCounter+0];
+				float i1 = mctrl.lastMeasurement[mctrl.calibCounter][2*mctrl.idRunCounter+1];
 
 				float i = 0.5*(i0+i1);
 
 				// stop if we exceed max current
-				if (fabsf(i) > _params.sysId.maxCurrent)
+				if (fabsf(i) > mctrl_params.sysId.maxCurrent)
 				{
 					spwm_setDrvChannel(HTIM_DRV_CH_A, 0.0);
 					spwm_setDrvChannel(HTIM_DRV_CH_B, 0.0);
 					spwm_setDrvChannel(HTIM_DRV_CH_C, 0.0);
 
-					_state = MCTRL_RAMPTIME_ID_FINISH;
+					mctrl_state = MCTRL_RAMPTIME_ID_FINISH;
 				}
 				else
-					++_calibCounter;
+					++mctrl.calibCounter;
 			}
 			else
 			{
@@ -1231,42 +1149,42 @@ void mctrl_fastLoop(const uint16_t adcCounts[6])
 				spwm_setDrvChannel(HTIM_DRV_CH_B, 0.0);
 				spwm_setDrvChannel(HTIM_DRV_CH_C, 0.0);
 
-				_state = MCTRL_RAMPTIME_ID_FINISH;
+				mctrl_state = MCTRL_RAMPTIME_ID_FINISH;
 			}
 			break;
 		}
 		case MCTRL_INDUCTANCE_ID_START:
 		{
 			// wait for things to settle
-			if (_calibCounter < NUM_ALIGN_WAIT_OFF_CYCLES)
+			if (mctrl.calibCounter < NUM_ALIGN_WAIT_OFF_CYCLES)
 			{
 				spwm_setDrvChannel(HTIM_DRV_CH_A, 0.0);
 				spwm_setDrvChannel(HTIM_DRV_CH_B, 0.0);
 				spwm_setDrvChannel(HTIM_DRV_CH_C, 0.0);
 
-				++_calibCounter;
+				++mctrl.calibCounter;
 			}
 			else
 			{
 				// run 5% current to figure out the resistance
 				float dc = 1.0f;
-				spwm_setDrvChannel(HTIM_DRV_CH_A, dc*(_idRunCounter != 0));
-				spwm_setDrvChannel(HTIM_DRV_CH_B, dc*(_idRunCounter != 1));
-				spwm_setDrvChannel(HTIM_DRV_CH_C, dc*(_idRunCounter != 2));
+				spwm_setDrvChannel(HTIM_DRV_CH_A, dc*(mctrl.idRunCounter != 0));
+				spwm_setDrvChannel(HTIM_DRV_CH_B, dc*(mctrl.idRunCounter != 1));
+				spwm_setDrvChannel(HTIM_DRV_CH_C, dc*(mctrl.idRunCounter != 2));
 
-				_calibCounter = 0;
-				_state = MCTRL_INDUCTANCE_ID_RUN;
+				mctrl.calibCounter = 0;
+				mctrl_state = MCTRL_INDUCTANCE_ID_RUN;
 			}
 			break;
 		}
 		case MCTRL_INDUCTANCE_ID_RUN:
 		{
-			if (_calibCounter < NUM_STATIC_MEASUREMENTS)
+			if (mctrl.calibCounter < NUM_STATIC_MEASUREMENTS)
 			{
 				float vdda = ssf_getVdda();
-				_lastVbus[_calibCounter] = ssf_getVbus();
-				_convertAdcToCurrent(_lastMeasurement[_calibCounter], adcCounts, vdda);
-				++_calibCounter;
+				mctrl.lastVbus[mctrl.calibCounter] = ssf_getVbus();
+				_convertAdcToCurrent(mctrl.lastMeasurement[mctrl.calibCounter], adcCounts, vdda);
+				++mctrl.calibCounter;
 			}
 			else
 			{
@@ -1274,27 +1192,27 @@ void mctrl_fastLoop(const uint16_t adcCounts[6])
 				spwm_setDrvChannel(HTIM_DRV_CH_B, 0.0);
 				spwm_setDrvChannel(HTIM_DRV_CH_C, 0.0);
 
-				_state = MCTRL_INDUCTANCE_ID_FINISH;
+				mctrl_state = MCTRL_INDUCTANCE_ID_FINISH;
 			}
 			break;
 		}
 		case MCTRL_RESISTANCE_ID_START:
 		{
 			// turn on PWM and wait for it to settle
-			if (_calibCounter < NUM_ALIGN_WAIT_OFF_CYCLES)
+			if (mctrl.calibCounter < NUM_ALIGN_WAIT_OFF_CYCLES)
 			{
-				float dc = _params.sysId.staticIdentificationDutyCycle;
-				spwm_setDrvChannel(HTIM_DRV_CH_A, dc*(_idRunCounter != 0));
-				spwm_setDrvChannel(HTIM_DRV_CH_B, dc*(_idRunCounter != 1));
-				spwm_setDrvChannel(HTIM_DRV_CH_C, dc*(_idRunCounter != 2));
+				float dc = mctrl_params.sysId.staticIdentificationDutyCycle;
+				spwm_setDrvChannel(HTIM_DRV_CH_A, dc*(mctrl.idRunCounter != 0));
+				spwm_setDrvChannel(HTIM_DRV_CH_B, dc*(mctrl.idRunCounter != 1));
+				spwm_setDrvChannel(HTIM_DRV_CH_C, dc*(mctrl.idRunCounter != 2));
 
 
-				++_calibCounter;
+				++mctrl.calibCounter;
 			}
 			else
 			{
-				_calibCounter = 0;
-				_state = MCTRL_RESISTANCE_ID_RUN;
+				mctrl.calibCounter = 0;
+				mctrl_state = MCTRL_RESISTANCE_ID_RUN;
 			}
 
 			break;
@@ -1302,12 +1220,12 @@ void mctrl_fastLoop(const uint16_t adcCounts[6])
 		case MCTRL_RESISTANCE_ID_RUN:
 		{
 			// measure steady-state current
-			if (_calibCounter < NUM_STATIC_MEASUREMENTS)
+			if (mctrl.calibCounter < NUM_STATIC_MEASUREMENTS)
 			{
 				float vdda = ssf_getVdda();
-				_lastVbus[_calibCounter] = ssf_getVbus();
-				_convertAdcToCurrent(_lastMeasurement[_calibCounter], adcCounts, vdda);
-				++_calibCounter;
+				mctrl.lastVbus[mctrl.calibCounter] = ssf_getVbus();
+				_convertAdcToCurrent(mctrl.lastMeasurement[mctrl.calibCounter], adcCounts, vdda);
+				++mctrl.calibCounter;
 			}
 			else
 			{
@@ -1315,21 +1233,21 @@ void mctrl_fastLoop(const uint16_t adcCounts[6])
 				spwm_setDrvChannel(HTIM_DRV_CH_B, 0.0);
 				spwm_setDrvChannel(HTIM_DRV_CH_C, 0.0);
 
-				_state = MCTRL_RESISTANCE_ID_FINISH;
+				mctrl_state = MCTRL_RESISTANCE_ID_FINISH;
 			}
 			break;
 		}
 		case MCTRL_DEMO:
 		{
 			float vdda = ssf_getVdda();
-			float currents[6] = {0.0f};
+			float currents[ISENSE_COUNT] = {0.0f};
 			_convertAdcToCurrent(currents, adcCounts, vdda);
 
 			// store phase currents for debugging purposes
-			for (size_t i = 0; i < 6; ++i)
+			for (size_t i = 0; i < ISENSE_COUNT; ++i)
 			{
-				size_t pidx = ((int)(_phase*((PHASE_BUCKETS)/(M_PI*2.0f)))) % PHASE_BUCKETS;
-				_phasedCurrents[i][pidx] = currents[i];
+				size_t pidx = ((int)(mctrl.phase*((PHASE_BUCKETS)/(M_PI*2.0f)))) % PHASE_BUCKETS;
+				mctrl.phasedCurrents[i][pidx] = currents[i];
 			}
 
 			// "control" right now is just constant speed moves
@@ -1343,11 +1261,11 @@ void mctrl_fastLoop(const uint16_t adcCounts[6])
 			spwm_setDrvChannel(HTIM_DRV_CH_B, 0.5f);
 
 			// vary A,C with sines
-			spwm_setDrvChannel(HTIM_DRV_CH_A, 0.5f+0.1f*sintab(_phase));
-			spwm_setDrvChannel(HTIM_DRV_CH_C, 0.5f+0.1f*sintab(_phase + M_PI*0.5f));
+			spwm_setDrvChannel(HTIM_DRV_CH_A, 0.5f+0.1f*sintab(mctrl.phase));
+			spwm_setDrvChannel(HTIM_DRV_CH_C, 0.5f+0.1f*sintab(mctrl.phase + M_PI*0.5f));
 
-			++_counter;
-			_phase = fmodf(_phase + step, 2.0f*M_PI);
+			++mctrl.counter;
+			mctrl.phase = fmodf(mctrl.phase + step, 2.0f*M_PI);
 
 			break;
 		}

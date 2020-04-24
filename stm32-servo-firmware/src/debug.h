@@ -2,6 +2,7 @@
 #define DEBUG_H
 
 #include <inttypes.h>
+#include <stdarg.h>
 
 #ifdef DEBUG_USB_PRINTF
 

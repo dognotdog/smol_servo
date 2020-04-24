@@ -84,6 +84,7 @@ extern void ssf_dbgPrintEncoderStatus(sspi_as5047_state_t state);
 
 extern sspi_drv_state_t ssf_enterMotorDriverCalibrationMode(void);
 extern sspi_drv_state_t ssf_exitMotorDriverCalibrationMode(void);
+extern sspi_drv_state_t ssf_setMotorDriver3PwmMode(void);
 
 
 extern void ssf_spiInit(void);

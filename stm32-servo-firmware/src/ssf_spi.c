@@ -39,6 +39,7 @@ typedef enum {
 	SPI_XFER_IDLE,
 	SPI_XFER_SYNC,
 	SPI_XFER_IN_PROGRESS,
+	SPI_XFER_WAIT_LATCH,
 	SPI_XFER_COMPLETE,
 	SPI_XFER_ERROR,
 } spi_transferStatus_t;
@@ -59,7 +60,7 @@ struct spi_transfer_s {
 	spi_transferCallback_t callback;
 };
 
-static volatile spi_transferStatus_t 	_transferStatus;
+static volatile spi_transferStatus_t 	_transferStatus = SPI_XFER_IDLE;
 
 
 static struct {
@@ -73,6 +74,44 @@ static struct {
 volatile unsigned int counter = 0;
 
 void _delay(unsigned int d) {for (counter = 0; counter < d; ++counter ) {};}
+
+/*
+	elaborate delay scheme to avoid wasting cycles:
+	- as hardware NSS doesn't work, it has to be pulsed in software after each data word
+	- SPI access is serialized, so we can use on timer to do this
+	- callback to trigger next word transfer after elapsed time
+	- effective forced delay to completion on end of transfer
+
+*/
+static void (*_timingCallback)(void) = NULL;
+
+static void _delayWithCallback(float delay_us, void (*callback)(void))
+{
+	_timingCallback = callback;
+	__HAL_TIM_SET_AUTORELOAD(HTIM_SPI, 170.0f*delay_us);
+	HAL_TIM_OnePulse_Start_IT(HTIM_SPI, 0);
+	__HAL_TIM_ENABLE(HTIM_SPI);
+}
+
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+{
+	// dbg_println("HAL_TIM_PeriodElapsedCallback");
+	if (htim == HTIM_SPI)
+	{
+		if (_timingCallback)
+			_timingCallback();
+		_timingCallback = NULL;
+	}
+}
+void HAL_TIM_PWM_PulseFinishedCallback(TIM_HandleTypeDef *htim)
+{
+	HAL_TIM_PeriodElapsedCallback(htim);
+}
+void HAL_TIM_TriggerCallback(TIM_HandleTypeDef *htim)
+{
+	HAL_TIM_PeriodElapsedCallback(htim);
+}
+
 
 static spi_transfer_t _spi_syncTransferWord(spi_transfer_t transfer)
 {
@@ -104,20 +143,41 @@ static spi_transfer_t _spi_asyncStartTransferWord(spi_transfer_t transfer)
 	return transfer;
 }
 
+static volatile spi_transfer_t _currentTransfer;
+
+static void _nssLatchDelayCallback(void)
+{
+	// dbg_println("_nssLatchDelayCallback");
+	if (0 == _currentTransfer.wordsRemaining)
+	{
+		_transferStatus = SPI_XFER_IDLE;
+	}
+	else
+	{
+		_transferStatus = SPI_XFER_IN_PROGRESS;
+		_currentTransfer = _spi_asyncStartTransferWord(_currentTransfer);		
+	}
+}
+
+
 static spi_transfer_t _spi_finishTransferWord(spi_transfer_t transfer)
 {
 
 	HAL_GPIO_WritePin(_deviceSelectPinMap[transfer.deviceId].gpio, _deviceSelectPinMap[transfer.deviceId].pin, GPIO_PIN_SET);
-	_delay(50);
+	// _delay(50);
 
 	++transfer.src;
 	++transfer.dst;
 	--transfer.wordsRemaining;
 
+	// add an async delay that keeps the NSS pulse high long enough, it will be reset when starting to transfer the next word
+	_transferStatus = SPI_XFER_WAIT_LATCH;
+	_currentTransfer = transfer;
+	_delayWithCallback(0.5f, _nssLatchDelayCallback);
+
 	return transfer;
 }
 
-static volatile spi_transfer_t _currentTransfer;
 
 int spi_startTransfer(spi_transfer_t transfer)
 {
@@ -135,20 +195,11 @@ void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef *hspi)
 {
 	spi_transfer_t transfer = _spi_finishTransferWord(_currentTransfer);
 
-
 	// if all's transferred, call callback
 	if (0 == transfer.wordsRemaining)
 	{
-		_transferStatus = SPI_XFER_COMPLETE;
 		if (transfer.callback)
 			transfer.callback(&transfer);
-
-		// set idle at the end, as the static buffers are still used in callback
-		_transferStatus = SPI_XFER_IDLE;
-	}
-	else
-	{
-		_currentTransfer = _spi_asyncStartTransferWord(transfer);
 	}
 }
 
