@@ -175,6 +175,7 @@ void mctrl_idle(uint32_t now_us)
 
 			// ballpark measure how fast current ramps up
 			memset((void*)mctrl.lastMeasurement, 0, sizeof(mctrl.lastMeasurement));
+			memset((void*)mctrl.lastVbus, 0, sizeof(mctrl.lastVbus));
 			mctrl.calibCounter = 0;
 			mctrl_state = MCTRL_RAMPTIME_ID_START;
 			break;
@@ -225,6 +226,7 @@ void mctrl_idle(uint32_t now_us)
 			// dbg_println("MCTRL_RESISTANCE_ID_PREPARE mctrl.idRunCounter %u, _calibCounter %u, k %u", mctrl.idRunCounter, _calibCounter, k);
 			mctrl_params.sysId.staticIdentificationDutyCycle = 1.0f/ssf_getVbus();
 			memset((void*)mctrl.lastMeasurement, 0, sizeof(mctrl.lastMeasurement));
+			memset((void*)mctrl.lastVbus, 0, sizeof(mctrl.lastVbus));
 			mctrl.calibCounter = 0;
 			mctrl_state = MCTRL_RESISTANCE_ID_START;
 			break;
@@ -247,15 +249,15 @@ void mctrl_idle(uint32_t now_us)
 
 				i += (i0+i1);
 
-				vbus += mctrl.lastVbus[j+0];
+				vbus += mctrl.lastVbus[j];
 
 			}
 
 			i *= 1.0f/NUM_STATIC_MEASUREMENTS;
-			vbus *= 1.0f/NUM_STATIC_MEASUREMENTS;
+			vbus *= 2.0f/NUM_STATIC_MEASUREMENTS;
 
 			float dc = mctrl_params.sysId.staticIdentificationDutyCycle;
-			float u = ssf_getVbus();
+			float u = vbus;
 			float R = u/i*dc;
 
 			// dbg_println("steady state current is %1.3f A @ %3.3f %% of %7.3f V for %.3f R", (double)i, (double)(dc*100.0f), (double)u, (double)(R));
@@ -271,8 +273,8 @@ void mctrl_idle(uint32_t now_us)
 			}
 			else
 			{
-				float Rest = RestSum*(1.0f/MAX_IDENTIFICATION_REPEATS);
-				float Rvar = RestSqrSum*(1.0f/MAX_IDENTIFICATION_REPEATS) - Rest*Rest;
+				float Rest = RestSum*(1.0f/k);
+				float Rvar = RestSqrSum*(1.0f/k) - Rest*Rest;
 
 				dbg_println("RestSum %.3f , RestSqrSum %.3f", (double)RestSum, (double)(RestSqrSum));
 				dbg_println("steady state estimate %.3f R, sigma = %.3f", (double)Rest, (double)(sqrtf(Rvar)));
@@ -291,6 +293,7 @@ void mctrl_idle(uint32_t now_us)
 			// dbg_println("MCTRL_INDUCTANCE_ID_PREPARE mctrl.idRunCounter %u, _calibCounter %u, k %u", mctrl.idRunCounter, _calibCounter, k);
 			mctrl_params.sysId.staticIdentificationDutyCycle = 1.0f/ssf_getVbus();
 			memset((void*)mctrl.lastMeasurement, 0, sizeof(mctrl.lastMeasurement));
+			memset((void*)mctrl.lastVbus, 0, sizeof(mctrl.lastVbus));
 			mctrl.calibCounter = 0;
 			mctrl_state = MCTRL_INDUCTANCE_ID_START;
 			break;
@@ -306,7 +309,9 @@ void mctrl_idle(uint32_t now_us)
 			float Lest[NUM_ID_ALGO_ESTIMATES] = {};
 			size_t numValidLMeasurements = 0;
 
-			for (size_t j = 0; j+NUM_ID_ALGO_SAMPLES-1 < NUM_STATIC_MEASUREMENTS; ++j)
+			float R = mctrl.sysParamEstimates.phases.Rest[mctrl.idRunCounter];
+
+			for (size_t j = 1; j+NUM_ID_ALGO_SAMPLES-1 < NUM_STATIC_MEASUREMENTS; ++j)
 			{
 #if NUM_ID_ALGO_SAMPLES == 2
 				// inductance estimation only based on previous R estimate
@@ -321,8 +326,9 @@ void mctrl_idle(uint32_t now_us)
 				float di = (i1-i0)/h;
 				float dia = (i1a-i0a)/h;
 
-				float L0 = (vbus - 0.5f*(i0+i1)*mctrl.sysParamEstimates.phases.Rest[mctrl.idRunCounter]) / di;
-				float L1 = (vbus - 0.5f*(i0a+i1a)*mctrl.sysParamEstimates.phases.Rest[mctrl.idRunCounter]) / dia;
+
+				float L0 = (vbus - 0.5f*(i0 + i1)*R) / di;
+				float L1 = (vbus - 0.5f*(i0a+i1a)*R) / dia;
 
 				if (fabsf(di) > FLT_EPSILON)
 					Lest[numValidLMeasurements++] = L0;
