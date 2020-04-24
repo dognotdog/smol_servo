@@ -25,6 +25,7 @@
 /* USER CODE BEGIN Includes */
 #include "utime.h"
 #include "ssf_main.h"
+#include "debug.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -66,6 +67,8 @@ extern I2C_HandleTypeDef hi2c3;
 extern DMA_HandleTypeDef hdma_spi2_rx;
 extern DMA_HandleTypeDef hdma_spi2_tx;
 extern SPI_HandleTypeDef hspi2;
+extern TIM_HandleTypeDef htim1;
+extern TIM_HandleTypeDef htim16;
 extern UART_HandleTypeDef huart1;
 /* USER CODE BEGIN EV */
 
@@ -93,6 +96,7 @@ void NMI_Handler(void)
 void HardFault_Handler(void)
 {
   /* USER CODE BEGIN HardFault_IRQn 0 */
+  err_println("HardFault_Handler");
 
   /* USER CODE END HardFault_IRQn 0 */
   while (1)
@@ -108,6 +112,7 @@ void HardFault_Handler(void)
 void MemManage_Handler(void)
 {
   /* USER CODE BEGIN MemoryManagement_IRQn 0 */
+  err_println("MemManage_Handler");
 
   /* USER CODE END MemoryManagement_IRQn 0 */
   while (1)
@@ -123,6 +128,7 @@ void MemManage_Handler(void)
 void BusFault_Handler(void)
 {
   /* USER CODE BEGIN BusFault_IRQn 0 */
+  err_println("BusFault_Handler");
 
   /* USER CODE END BusFault_IRQn 0 */
   while (1)
@@ -138,6 +144,7 @@ void BusFault_Handler(void)
 void UsageFault_Handler(void)
 {
   /* USER CODE BEGIN UsageFault_IRQn 0 */
+  err_println("UsageFault_Handler");
 
   /* USER CODE END UsageFault_IRQn 0 */
   while (1)
@@ -248,6 +255,21 @@ void ADC1_2_IRQHandler(void)
   /* USER CODE BEGIN ADC1_2_IRQn 1 */
 
   /* USER CODE END ADC1_2_IRQn 1 */
+}
+
+/**
+  * @brief This function handles TIM1 update interrupt and TIM16 global interrupt.
+  */
+void TIM1_UP_TIM16_IRQHandler(void)
+{
+  /* USER CODE BEGIN TIM1_UP_TIM16_IRQn 0 */
+
+  /* USER CODE END TIM1_UP_TIM16_IRQn 0 */
+  HAL_TIM_IRQHandler(&htim1);
+  HAL_TIM_IRQHandler(&htim16);
+  /* USER CODE BEGIN TIM1_UP_TIM16_IRQn 1 */
+
+  /* USER CODE END TIM1_UP_TIM16_IRQn 1 */
 }
 
 /**
