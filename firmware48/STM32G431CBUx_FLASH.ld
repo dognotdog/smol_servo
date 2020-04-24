@@ -61,8 +61,8 @@ _Min_Stack_Size = 0x800; /* required amount of stack */
 /* Specify the memory areas */
 MEMORY
 {
-RAM (xrw)      : ORIGIN = 0x20000000, LENGTH = 32K
-FLASH (rx)      : ORIGIN = 0x8000000, LENGTH = 128K
+  RAM (xrw)      : ORIGIN = 0x20000000, LENGTH = 32K
+  FLASH (rx)     : ORIGIN = 0x08000000, LENGTH = 128K
 }
 
 /* Define output sections */
@@ -173,6 +173,19 @@ SECTIONS
     . = ALIGN(8);
   } >RAM
 
+  .freeflash :
+  {
+    . = ABSOLUTE(LOADADDR(.data) + SIZEOF(.data));
+/*    BYTE(0xFF) */
+/*    FILL(0xFF); */
+    __freeflash_start = .;
+    . = ALIGN(2048);
+    __freeflash_firstPage = .;
+    __freeflash_end = ABSOLUTE(ORIGIN(FLASH) + LENGTH(FLASH));
+    __freeflash_lastPage = ABSOLUTE(ORIGIN(FLASH) + LENGTH(FLASH) - 2048);
+    . = ABSOLUTE(__freeflash_end)-1;
+/*    BYTE(0xFF) */
+  } > FLASH
   
 
   /* Remove information from the standard libraries */

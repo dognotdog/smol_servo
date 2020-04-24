@@ -75,6 +75,7 @@ Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_cordic.c
 
 # C_SOURCES += ../stm32-servo-firmware/src/usbd/usbd_cdc.c
 # C_SOURCES += ../stm32-servo-firmware/src/usb_cdc.c
+C_SOURCES += ../stm32-servo-firmware/src/ssf_flash.c
 C_SOURCES += ../stm32-servo-firmware/src/ssf_perf.c
 C_SOURCES += ../stm32-servo-firmware/src/ssf_scheduler.c
 C_SOURCES += ../stm32-servo-firmware/src/ssf_tasks.c

@@ -8,6 +8,7 @@
 #include "main.h"
 #include "ssf_main.h"
 #include "ssf_spi.h"
+#include "ssf_flash.h"
 #include "utime.h"
 
 #include "servo_hid_if.h"
@@ -67,6 +68,9 @@ void test_chipSelects(void)
 void ssf_init(void)
 {
 	do {dbg_println("ssf_init()...");} while (0);
+
+	ssf_flashInit();
+
 	ssf_analogInit();
 	utime_init();
 	ssf_ledInit();
