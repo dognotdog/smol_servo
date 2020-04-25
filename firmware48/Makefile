@@ -309,7 +309,7 @@ bootm:
 
 .PHONY: rst
 rst: 
-	openocd --command "$(OPENOCD_COMMON) init; reset run; exit"
+	openocd --command "$(OPENOCD_COMMON) init; reset halt; reset run; exit"
 
 .PHONY: gdbserver
 gdbserver: 
