@@ -90,9 +90,15 @@ float sintab(float x)
 	float x2pi = fmodf(x, 2.0f*M_PI);
 
 	// gemerate lookup integer and fractional parts
-	int32_t xint = x2pi*(SINTAB_COUNT/M_PI);
-	float xfrac0  = fmodf(xint, 1.0f);
+	// our tables contain half a sine wave
+
+	// convert to table index range, in float first, adding 2pi to ensure always positive
+	float xtab = (x2pi+2.0f*M_PI)*(SINTAB_COUNT/M_PI);
+	uint32_t xint = ((unsigned) xtab) % (2*SINTAB_COUNT);
+	float xfrac0  = fmodf(xtab, 1.0f);
 	float xfrac1 = 1.0f-xfrac0;
+
+
 
 	float y0 = _sintab[xint     % SINTAB_COUNT];
 	float y1 = _sintab[(xint+1) % SINTAB_COUNT];
