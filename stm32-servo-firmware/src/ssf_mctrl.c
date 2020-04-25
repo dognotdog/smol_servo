@@ -1237,7 +1237,7 @@ void mctrl_fastLoop(const uint16_t adcCounts[ISENSE_COUNT])
 			}
 			break;
 		}
-		case MCTRL_PHASE_ID_START:
+		case MCTRL_IMPEDANCE_ID_START:
 		{
 			if (mctrl.calibCounter < NUM_ALIGN_WAIT_OFF_CYCLES)
 			{
@@ -1263,11 +1263,11 @@ void mctrl_fastLoop(const uint16_t adcCounts[ISENSE_COUNT])
 				spwm_setDrvChannel(HTIM_DRV_CH_B, dcb);
 				spwm_setDrvChannel(HTIM_DRV_CH_C, dcc);
 
-				mctrl_state = MCTRL_PHASE_ID_RUN;
+				mctrl_state = MCTRL_IMPEDANCE_ID_RUN;
 			}
 			break;
 		}
-		case MCTRL_PHASE_ID_RUN:
+		case MCTRL_IMPEDANCE_ID_RUN:
 		{
 			// measure steady-state current
 			if (mctrl.calibCounter < NUM_PHASE_MEASUREMENTS*NUM_INDUCTANCE_ID_CYCLES)
@@ -1303,7 +1303,7 @@ void mctrl_fastLoop(const uint16_t adcCounts[ISENSE_COUNT])
 				spwm_setDrvChannel(HTIM_DRV_CH_B, 0.0);
 				spwm_setDrvChannel(HTIM_DRV_CH_C, 0.0);
 
-				mctrl_state = MCTRL_PHASE_ID_FINISH;
+				mctrl_state = MCTRL_IMPEDANCE_ID_FINISH;
 			}
 			break;
 		}

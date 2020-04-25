@@ -283,7 +283,7 @@ void mctrl_idle(uint32_t now_us)
 				mctrl.sysParamEstimates.phases.Rvar[mctrl.idRunCounter] = Rvar;
 
 				k = 0;
-				mctrl_state = MCTRL_PHASE_ID_PREPARE;
+				mctrl_state = MCTRL_IMPEDANCE_ID_PREPARE;
 			}
 
 			break;
@@ -394,12 +394,12 @@ void mctrl_idle(uint32_t now_us)
 				dbg_println("   Tau[%u] is %8.3f ms", mctrl.idRunCounter, (double)(mctrl.sysParamEstimates.phases.Lest[mctrl.idRunCounter]/mctrl.sysParamEstimates.phases.Rest[mctrl.idRunCounter]*1e3));
 
 				k = 0;
-				mctrl_state = MCTRL_PHASE_ID_PREPARE;
+				mctrl_state = MCTRL_IMPEDANCE_ID_PREPARE;
 			}
 
 			break;
 		}
-		case MCTRL_PHASE_ID_PREPARE:
+		case MCTRL_IMPEDANCE_ID_PREPARE:
 		{
 			// dbg_println("MCTRL_INDUCTANCE_ID_PREPARE mctrl.idRunCounter %u, _calibCounter %u, k %u", mctrl.idRunCounter, _calibCounter, k);
 			float pwmScale = mctrl_params.sysId.staticIdentificationDutyCycle;
@@ -413,16 +413,16 @@ void mctrl_idle(uint32_t now_us)
 			memset((void*)mctrl.phaseCurrents, 0, sizeof(mctrl.phaseCurrents));
 
 			mctrl.calibCounter = 0;
-			mctrl_state = MCTRL_PHASE_ID_START;
+			mctrl_state = MCTRL_IMPEDANCE_ID_START;
 			break;
 		}
-		case MCTRL_PHASE_ID_START:
-		case MCTRL_PHASE_ID_RUN:
+		case MCTRL_IMPEDANCE_ID_START:
+		case MCTRL_IMPEDANCE_ID_RUN:
 		{
 			// do nothing, wait for fastloop
 			break;
 		}
-		case MCTRL_PHASE_ID_FINISH:
+		case MCTRL_IMPEDANCE_ID_FINISH:
 		{
 			// TODO: looking at the data, it seems like the 2nd reading of iSense cycle is good, the first is garbage, why is that?
 			// Interestingly, even the garbage looking readings average to zero, so at least that's good. It might be switching interference, as the test pwm duty cycle was very low. Might have to re-think the ADC-sampling strategy, and do more frequent samples with less over-sampling, and cull the ones potentially overlapping the bridge switching
@@ -532,7 +532,7 @@ void mctrl_idle(uint32_t now_us)
 
 			if (k < MAX_IDENTIFICATION_REPEATS)
 			{
-				mctrl_state = MCTRL_PHASE_ID_PREPARE;
+				mctrl_state = MCTRL_IMPEDANCE_ID_PREPARE;
 			}
 			else
 			{
