@@ -1237,6 +1237,76 @@ void mctrl_fastLoop(const uint16_t adcCounts[ISENSE_COUNT])
 			}
 			break;
 		}
+		case MCTRL_PHASE_ID_START:
+		{
+			if (mctrl.calibCounter < NUM_ALIGN_WAIT_OFF_CYCLES)
+			{
+				spwm_setDrvChannel(HTIM_DRV_CH_A, 0.0);
+				spwm_setDrvChannel(HTIM_DRV_CH_B, 0.0);
+				spwm_setDrvChannel(HTIM_DRV_CH_C, 0.0);
+
+				++mctrl.calibCounter;
+			}
+			else
+			{
+				mctrl.calibCounter = 0;
+				// set PWM from phase table, which is +-
+				// current path is from idRunCounter+1 down to idRunCounter
+				// the idRunCounter phase must be LOW when PWM is positive
+				// idRunCounter+1 phase must be HIGH when PWM is negative
+				size_t i = mctrl.calibCounter % NUM_PHASE_MEASUREMENTS;
+				float dc = mctrl.phasePwm[i];
+				float dca = -(mctrl.idRunCounter == 0)*dc + (mctrl.idRunCounter == 2)*dc;
+				float dcb = -(mctrl.idRunCounter == 1)*dc + (mctrl.idRunCounter == 0)*dc;
+				float dcc = -(mctrl.idRunCounter == 2)*dc + (mctrl.idRunCounter == 1)*dc;
+				spwm_setDrvChannel(HTIM_DRV_CH_A, dca);
+				spwm_setDrvChannel(HTIM_DRV_CH_B, dcb);
+				spwm_setDrvChannel(HTIM_DRV_CH_C, dcc);
+
+				mctrl_state = MCTRL_PHASE_ID_RUN;
+			}
+			break;
+		}
+		case MCTRL_PHASE_ID_RUN:
+		{
+			// measure steady-state current
+			if (mctrl.calibCounter < NUM_PHASE_MEASUREMENTS*NUM_INDUCTANCE_ID_CYCLES)
+			{
+				size_t i = (mctrl.calibCounter+1) % NUM_PHASE_MEASUREMENTS;
+				float dc = mctrl.phasePwm[i];
+				float dca = -(mctrl.idRunCounter == 0)*dc + (mctrl.idRunCounter == 2)*dc;
+				float dcb = -(mctrl.idRunCounter == 1)*dc + (mctrl.idRunCounter == 0)*dc;
+				float dcc = -(mctrl.idRunCounter == 2)*dc + (mctrl.idRunCounter == 1)*dc;
+				spwm_setDrvChannel(HTIM_DRV_CH_A, dca);
+				spwm_setDrvChannel(HTIM_DRV_CH_B, dcb);
+				spwm_setDrvChannel(HTIM_DRV_CH_C, dcc);
+
+				// start measuring after half through the period
+				if (mctrl.calibCounter >= NUM_PHASE_MEASUREMENTS*NUM_INDUCTANCE_ID_CYCLES/2)
+				{
+					float vdda = ssf_getVdda();
+					size_t j = (mctrl.calibCounter) % NUM_PHASE_MEASUREMENTS;
+					float isense[ISENSE_COUNT];
+					_convertAdcToCurrent(isense, adcCounts, vdda);
+					for (size_t i = 0; i < ISENSE_COUNT; ++i)
+					{
+						mctrl.phaseCurrents[j][i] += isense[i];
+					}		
+				}
+
+				++mctrl.calibCounter;
+			}
+			else
+			{
+				// turn everything low again once we're done
+				spwm_setDrvChannel(HTIM_DRV_CH_A, 0.0);
+				spwm_setDrvChannel(HTIM_DRV_CH_B, 0.0);
+				spwm_setDrvChannel(HTIM_DRV_CH_C, 0.0);
+
+				mctrl_state = MCTRL_PHASE_ID_FINISH;
+			}
+			break;
+		}
 		case MCTRL_DEMO:
 		{
 			float vdda = ssf_getVdda();

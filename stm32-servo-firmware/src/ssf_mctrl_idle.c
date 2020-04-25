@@ -283,7 +283,7 @@ void mctrl_idle(uint32_t now_us)
 				mctrl.sysParamEstimates.phases.Rvar[mctrl.idRunCounter] = Rvar;
 
 				k = 0;
-				mctrl_state = MCTRL_INDUCTANCE_ID_PREPARE;
+				mctrl_state = MCTRL_PHASE_ID_PREPARE;
 			}
 
 			break;
@@ -393,17 +393,172 @@ void mctrl_idle(uint32_t now_us)
 				dbg_println("  Rest[%u] is %8.3f R,  sigma = %8.3f R", mctrl.idRunCounter, (double)(mctrl.sysParamEstimates.phases.Rest[mctrl.idRunCounter]*1e0), (double)(sqrtf(mctrl.sysParamEstimates.phases.Rvar[mctrl.idRunCounter])*1e0));
 				dbg_println("   Tau[%u] is %8.3f ms", mctrl.idRunCounter, (double)(mctrl.sysParamEstimates.phases.Lest[mctrl.idRunCounter]/mctrl.sysParamEstimates.phases.Rest[mctrl.idRunCounter]*1e3));
 
-				if (mctrl.idRunCounter < 2)
+				k = 0;
+				mctrl_state = MCTRL_PHASE_ID_PREPARE;
+			}
+
+			break;
+		}
+		case MCTRL_PHASE_ID_PREPARE:
+		{
+			// dbg_println("MCTRL_INDUCTANCE_ID_PREPARE mctrl.idRunCounter %u, _calibCounter %u, k %u", mctrl.idRunCounter, _calibCounter, k);
+			float pwmScale = mctrl_params.sysId.staticIdentificationDutyCycle;
+			for (size_t i = 0; i < NUM_PHASE_MEASUREMENTS; ++i)
+			{
+				float x = 2.0f*M_PI*(i+0.5f)/NUM_PHASE_MEASUREMENTS;
+				float y = sintab(x);
+				mctrl.phasePwm[i] = y*pwmScale;
+			}
+
+			memset((void*)mctrl.phaseCurrents, 0, sizeof(mctrl.phaseCurrents));
+
+			mctrl.calibCounter = 0;
+			mctrl_state = MCTRL_PHASE_ID_START;
+			break;
+		}
+		case MCTRL_PHASE_ID_START:
+		case MCTRL_PHASE_ID_RUN:
+		{
+			// do nothing, wait for fastloop
+			break;
+		}
+		case MCTRL_PHASE_ID_FINISH:
+		{
+			// TODO: looking at the data, it seems like the 2nd reading of iSense cycle is good, the first is garbage, why is that?
+			// Interestingly, even the garbage looking readings average to zero, so at least that's good. It might be switching interference, as the test pwm duty cycle was very low. Might have to re-think the ADC-sampling strategy, and do more frequent samples with less over-sampling, and cull the ones potentially overlapping the bridge switching
+
+
+			// scale currents by number of readouts
+			size_t n = NUM_INDUCTANCE_ID_CYCLES/2;
+			float n1 = 1.0f/n; // have CALIBREADS/2 number of samples added up
+
+			float currentMeans[ISENSE_COUNT] = {0.0f};
+			float currentSqr[ISENSE_COUNT] = {0.0f};
+			float currentRms[ISENSE_COUNT] = {0.0f};
+
+			for (size_t i = 0; i < NUM_PHASE_MEASUREMENTS; ++i)
+			{
+				// dbg_println("  sin[%u] = %6.3f", i, (double)(mctrl.phasePwm[i]/mctrl_params.sysId.staticIdentificationDutyCycle));
+				for (size_t j = 0; j < ISENSE_COUNT; ++j)
 				{
-					++mctrl.idRunCounter;
-					mctrl_state = MCTRL_ID_ALIGN_START;
-				}
-				else
-				{
-					mctrl_state = MCTRL_SYSID_DONE;
+					mctrl.phaseCurrents[i][j] *= n1;
+					currentMeans[j] += mctrl.phaseCurrents[i][j]*(1.0f/NUM_PHASE_MEASUREMENTS);
+					// dbg_println("    %6.3f", (double)(mctrl.phaseCurrents[i][j]));
 				}
 			}
 
+			// subtract out DC component and find AC RMS
+			for (size_t i = 0; i < NUM_PHASE_MEASUREMENTS; ++i)
+			{
+				for (size_t j = 0; j < ISENSE_COUNT; ++j)
+				{
+					mctrl.phaseCurrents[i][j] -= currentMeans[j];
+					currentSqr[j] += mctrl.phaseCurrents[i][j]*mctrl.phaseCurrents[i][j]*(1.0f/NUM_PHASE_MEASUREMENTS);
+				}
+			}
+			for (size_t j = 0; j < ISENSE_COUNT; ++j)
+			{
+				currentRms[j] = sqrtf(currentSqr[j]);
+			}
+
+
+			// find phase via atan2 of signal + pi/2 shift
+			// we know the signal is 16 samples for a full period, so this is easy enough
+			// find the low isense for both observed phases
+			size_t j0 = (1 + 2*mctrl.idRunCounter) % ISENSE_COUNT;
+			size_t j1 = (3 + 2*mctrl.idRunCounter) % ISENSE_COUNT;
+
+			// RMS applied voltage
+			float Urms = ssf_getVbus()*mctrl_params.sysId.staticIdentificationDutyCycle/sqrtf(2.0);
+			float R = mctrl.sysParamEstimates.phases.Rest[mctrl.idRunCounter];
+
+			float Z0 = Urms/currentRms[j0];
+			float Z1 = Urms/currentRms[j1];
+			float X0 = sqrtf(Z0*Z0 - R*R);
+			float X1 = sqrtf(Z1*Z1 - R*R);
+			float omega = (2.0f*M_PI)/(MEAS_FULL_PERIOD*NUM_PHASE_MEASUREMENTS);
+			float Lest0 = X0/omega;
+			float Lest1 = X1/omega;
+			
+			// dbg_println("  Lest0 = %6.3f mH, Z0 = %6.3f, X0 = %6.3f", (double)(Lest0*1.0e3), (double)Z0, (double)X0);
+			// dbg_println("  Lest1 = %6.3f mH, Z1 = %6.3f, X1 = %6.3f", (double)(Lest1*1.0e3), (double)Z1, (double)X1);
+
+			float Lavg = 0.5f*(Lest0+Lest1);
+			float Lvar = 0.5f*(Lest0*Lest0 + Lest1*Lest1) - Lavg*Lavg;
+
+
+			// float ph0 = 0.0f, ph1 = 0.0f;
+			// for (size_t i = 0; i < NUM_PHASE_MEASUREMENTS; ++i)
+			// {
+			// 	// find phases,
+			// 	size_t iy = (i + NUM_PHASE_MEASUREMENTS/4) % NUM_PHASE_MEASUREMENTS;
+			// 	float x0 = mctrl.phaseCurrents[i][j0];
+			// 	float y0 = mctrl.phaseCurrents[iy][j0];
+			// 	float x1 = mctrl.phaseCurrents[i][j1];
+			// 	float y1 = mctrl.phaseCurrents[iy][j1];
+
+			// 	ph0 += atan2f(y0, x0)*(1.0f/NUM_PHASE_MEASUREMENTS);
+			// 	ph1 += atan2f(y1, x1)*(1.0f/NUM_PHASE_MEASUREMENTS);
+			// }
+			// 	dbg_println("  phase[%u] = %6.3f", mctrl.idRunCounter, (double)(ph0*180.0f/M_PI));
+			// 	dbg_println("  phase[%u] = %6.3f", (mctrl.idRunCounter + 1) % 3, (double)(ph1*180.0f/M_PI));
+
+			if (k == 0)
+			{
+				inductanceEstimate = Lavg;
+				inductanceVariance = Lvar;	
+			}
+			else
+			{
+				// update estimate via Kalman Filter
+				/*
+				K = sigma1^2 / (sigma1^2 + sigma2^2)
+				x = x1 + K (x2 - x1)
+				sigma^2 = (1 - K) sigma1^2
+				*/
+				// if (numValidLMeasurements > 1)
+				{
+					float KL = inductanceVariance / (inductanceVariance +  Lvar);
+					inductanceEstimate += KL * (Lavg - inductanceEstimate);
+					inductanceVariance *= 1.0f - KL;	
+				}
+
+				// dbg_println("  KL = %8.3f, KR = %8.3f", (double)(KL), (double)(KR));
+
+			}
+
+
+			++k;
+
+			if (k < MAX_IDENTIFICATION_REPEATS)
+			{
+				mctrl_state = MCTRL_PHASE_ID_PREPARE;
+			}
+			else
+			{
+				mctrl.sysParamEstimates.phases.Lest[mctrl.idRunCounter] = inductanceEstimate;
+				mctrl.sysParamEstimates.phases.Lvar[mctrl.idRunCounter] = inductanceVariance;
+
+				dbg_println("  Lest[%u] is %8.3f mH, sigma = %8.3f mH", mctrl.idRunCounter, (double)(inductanceEstimate*1e3), (double)(sqrtf(inductanceVariance)*1e3));
+				dbg_println("  Rest[%u] is %8.3f R,  sigma = %8.3f R", mctrl.idRunCounter, (double)(mctrl.sysParamEstimates.phases.Rest[mctrl.idRunCounter]*1e0), (double)(sqrtf(mctrl.sysParamEstimates.phases.Rvar[mctrl.idRunCounter])*1e0));
+				dbg_println("   Tau[%u] is %8.3f ms", mctrl.idRunCounter, (double)(mctrl.sysParamEstimates.phases.Lest[mctrl.idRunCounter]/mctrl.sysParamEstimates.phases.Rest[mctrl.idRunCounter]*1e3));
+
+				k = 0;
+				mctrl_state = MCTRL_SYSID_FINISH;
+			}
+			break;
+		}
+		case MCTRL_SYSID_FINISH:
+		{
+			if (mctrl.idRunCounter < 2)
+			{
+				++mctrl.idRunCounter;
+				mctrl_state = MCTRL_ID_ALIGN_START;
+			}
+			else
+			{
+				mctrl_state = MCTRL_SYSID_DONE;
+			}
 			break;
 		}
 		case MCTRL_SYSID_DONE:
