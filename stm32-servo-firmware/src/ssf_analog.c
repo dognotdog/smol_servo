@@ -156,6 +156,112 @@ float ssf_getVbus(void)
 	// return vbusCount*vdda/(ADC1_OVERSAMPLING_FACTOR*ADC1_NOMINAL_MAXCOUNT);
 }
 
+static void _setOversamplingModeRaw(ADC_HandleTypeDef* hadc, bool enable, uint32_t ovsr, uint32_t ovss)
+{
+	if (enable)
+	{
+        MODIFY_REG(hadc->Instance->CFGR2,
+                   ADC_CFGR2_OVSR | ADC_CFGR2_OVSS,
+                   ADC_CFGR2_ROVSE | ovsr | ovss
+                  );
+
+	}
+	else
+	{
+		CLEAR_BIT(hadc->Instance->CFGR2, ADC_CFGR2_ROVSE);
+	}
+}
+
+static void _setOversamplingMode(ADC_HandleTypeDef* hadc, uint32_t oversamplingRatio, uint32_t oversamplingShift)
+{
+	bool enable = false;
+	uint32_t ovsr = 0;
+	switch(oversamplingRatio)
+	{
+		case 1:
+			break;
+		case 2:
+			ovsr = ADC_OVERSAMPLING_RATIO_2;
+			enable = true;
+			break;
+		case 4:
+			ovsr = ADC_OVERSAMPLING_RATIO_4;
+			enable = true;
+			break;
+		case 8:
+			ovsr = ADC_OVERSAMPLING_RATIO_8;
+			enable = true;
+			break;
+		case 16:
+			ovsr = ADC_OVERSAMPLING_RATIO_16;
+			enable = true;
+			break;
+		case 32:
+			ovsr = ADC_OVERSAMPLING_RATIO_32;
+			enable = oversamplingShift >= 1;
+			break;
+		case 64:
+			ovsr = ADC_OVERSAMPLING_RATIO_64;
+			enable = oversamplingShift >= 2;
+			break;
+		case 128:
+			ovsr = ADC_OVERSAMPLING_RATIO_128;
+			enable = oversamplingShift >= 3;
+			break;
+		case 256:
+			ovsr = ADC_OVERSAMPLING_RATIO_256;
+			enable = oversamplingShift >= 4;
+			break;
+		default:
+			enable = false;
+			err_println("invalid oversampling ratio for ADC oversampling: %u", oversamplingRatio);
+			return;
+	}
+
+	if ((oversamplingRatio > 1) && !enable)
+	{
+		err_println("invalid oversampling ratio and bitshif combination for ADC oversampling: %u >> %u", oversamplingRatio, oversamplingShift);
+		return;
+	}
+
+	uint32_t ovss = 0;
+	switch(oversamplingShift)
+	{
+		case 0:
+			ovss = ADC_RIGHTBITSHIFT_NONE;
+			break;
+		case 1:
+			ovss = ADC_RIGHTBITSHIFT_1;
+			break;
+		case 2:
+			ovss = ADC_RIGHTBITSHIFT_2;
+			break;
+		case 3:
+			ovss = ADC_RIGHTBITSHIFT_3;
+			break;
+		case 4:
+			ovss = ADC_RIGHTBITSHIFT_4;
+			break;
+		case 5:
+			ovss = ADC_RIGHTBITSHIFT_5;
+			break;
+		case 6:
+			ovss = ADC_RIGHTBITSHIFT_6;
+			break;
+		case 7:
+			ovss = ADC_RIGHTBITSHIFT_7;
+			break;
+		case 8:
+			ovss = ADC_RIGHTBITSHIFT_8;
+			break;
+		default:
+			enable = false;
+			err_println("invalid bishift for ADC oversampling: %u", oversamplingShift);
+			return;
+	}
+
+	_setOversamplingModeRaw(hadc, enable, ovsr, ovss);
+}
 
 void ssf_analogInit(void)
 {
@@ -180,6 +286,7 @@ void ssf_analogInit(void)
 	HAL_ADC_Start_DMA(&hadc1, (uint32_t*) an0_buf, sizeof(an0_buf)/sizeof(an0_buf[0]));
 	HAL_ADC_StartSampling(&hadc1);
 
+	_setOversamplingMode(&hadc2, ADC2_OVERSAMPLING_COUNT, ADC2_SHIFT);
 	HAL_ADC_Start_DMA(&hadc2, (uint32_t*) an1_buf, sizeof(an1_buf)/sizeof(an1_buf[0]));
 	// HAL_ADC_Start_DMA(&hadc2, (uint32_t*) an1_buf, 3);
 	// HAL_ADC_StartSampling(&hadc2);
