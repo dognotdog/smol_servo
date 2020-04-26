@@ -8,6 +8,7 @@
 
 	extern void usb_printf(const char* const format, ...);
 
+	#define dbg_printf(fmt, ...) usb_printf(fmt, ##__VA_ARGS__)
 	#define dbg_println(fmt, ...) usb_printf("DBG %"PRIu32" " fmt "\r\n", HAL_GetTick(), ##__VA_ARGS__)
 	#define warn_println(fmt, ...) usb_printf("WRN %"PRIu32" " fmt "\r\n", HAL_GetTick(), ##__VA_ARGS__)
 	#define err_println(fmt, ...) usb_printf("ERR " fmt "\r\n", ##__VA_ARGS__)
@@ -16,6 +17,7 @@
 
 	extern void uart_printf(const char* const format, ...);
 
+	#define dbg_printf(fmt, ...) uart_printf(fmt, ##__VA_ARGS__)
 	#define dbg_println(fmt, ...) uart_printf("DBG %"PRIu32" " fmt "\r\n", HAL_GetTick(), ##__VA_ARGS__)
 	#define warn_println(fmt, ...) uart_printf("WRN %"PRIu32" " fmt "\r\n", HAL_GetTick(), ##__VA_ARGS__)
 	#define err_println(fmt, ...) uart_printf("ERR " fmt "\r\n", ##__VA_ARGS__)
@@ -24,6 +26,7 @@
 
 	#include <stdio.h>
 
+	#define dbg_printf(fmt, ...) printf(fmt, ##__VA_ARGS__)
 	#define dbg_println(fmt, ...) printf("DBG %"PRIu32" " fmt "\r\n", HAL_GetTick(), ##__VA_ARGS__)
 	#define warn_println(fmt, ...) printf("WRN %"PRIu32" " fmt "\r\n", HAL_GetTick(), ##__VA_ARGS__)
 	#define err_println(fmt, ...) printf("ERR " fmt "\r\n", ##__VA_ARGS__)
