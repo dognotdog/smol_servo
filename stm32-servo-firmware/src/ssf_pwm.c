@@ -5,6 +5,7 @@
 #include <math.h>
 #include <main.h>
 #include <ssf_main.h>
+#include <debug.h>
 
 
 /**
@@ -137,10 +138,12 @@ void spwm_init(void)
 	HAL_TIM_Base_Stop(HTIM_DRV);
 	HAL_TIM_Base_Stop(HTIM_ISENSE_OFFSET);
 
+	dbg_println("spwm_init() iSense ADC computed to take %u cycles (%.3f us)", ISENSE_SSAA_CPU_CYCLES, (double)(ISENSE_SSAA_CPU_CYCLES/170.0e0f));
+
 
 	// setup triggered ADC offset timer
 	__HAL_TIM_SET_AUTORELOAD(HTIM_ISENSE_OFFSET, 1699);
-	__HAL_TIM_SET_COMPARE(HTIM_DRV, HTIM_DRV_CH_R, 1700 - ISENSE_SSAA_CPU_CYCLES/2);
+	__HAL_TIM_SET_COMPARE(HTIM_ISENSE_OFFSET, TIM_CHANNEL_1, 1699 - ISENSE_SSAA_CPU_CYCLES/2);
 
 
 	HAL_TIM_Base_Start(HTIM_ISENSE_OFFSET);
