@@ -515,23 +515,36 @@ void  ssf_printMotorDriverFaults(sspi_drv_state_t state)
 
 void ssf_dbgPrintEncoderStatus(sspi_as5047_state_t state)
 {
-	if (state.ERRFL & 0x0001)
-		err_println("AS5047D SPI Framing Error");
-	if (state.ERRFL & 0x0002)
-		err_println("AS5047D Invalid Command Error");
-	if (state.ERRFL & 0x0004)
-		err_println("AS5047D Parity Error");
+	if (state.ERRFL & 0x4000)
+	{
+		err_println("AS5047D ERRFL not read successfully.");
+	}
+	else if (_PAR(state.ERRFL) == state.ERRFL)
+	{
+		if (state.ERRFL & 0x0001)
+			err_println("AS5047D SPI Framing Error");
+		if (state.ERRFL & 0x0002)
+			err_println("AS5047D Invalid Command Error");
+		if (state.ERRFL & 0x0004)
+			err_println("AS5047D Parity Error");
+	}
 
-	if ((state.DIAAGC & 0x0100) == 0)
-		err_println("AS5047D Internal Offset Loops Not Ready");
-	if (state.DIAAGC & 0x0200)
-		err_println("AS5047D CORDIC Overflow");
-	if (state.DIAAGC & 0x0400)
-		err_println("AS5047D Magnetic Field Strength Too High");
-	if (state.DIAAGC & 0x0800)
-		warn_println("AS5047D Magnetic Field Strength Too Low");
-
-	dbg_println("AS5047D AGC = %u", state.DIAAGC & 0xFF);
+	if (state.DIAAGC & 0x4000)
+	{
+		err_println("AS5047D DIAAGC not read successfully.");
+	}
+	else if (_PAR(state.DIAAGC) == state.DIAAGC)
+	{
+		if ((state.DIAAGC & 0x0100) == 0)
+			err_println("AS5047D Internal Offset Loops Not Ready");
+		if (state.DIAAGC & 0x0200)
+			err_println("AS5047D CORDIC Overflow");
+		if (state.DIAAGC & 0x0400)
+			err_println("AS5047D Magnetic Field Strength Too High");
+		if (state.DIAAGC & 0x0800)
+			warn_println("AS5047D Magnetic Field Strength Too Low");
+		dbg_println("AS5047D AGC = %u", state.DIAAGC & 0xFF);
+	}
 
 	// 0x3FF mask as msb are parity and error flags
 	dbg_println("AS5047D ANGLEUNC = %u", state.ANGLEUNC & 0x3FFF);
