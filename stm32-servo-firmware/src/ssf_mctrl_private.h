@@ -17,9 +17,11 @@ enum {
 	ISENSE_COUNT,
 };
 
+#define MCTRL_DRIVER_PHASES			3
+
 #define PHASE_BUCKETS				16
 #define NUM_STATIC_MEASUREMENTS		8
-#define NUM_PHASE_MEASUREMENTS		16
+#define NUM_PHASE_MEASUREMENTS		32
 #define NUM_ALIGN_WAIT_ON_CYCLES	33
 #define NUM_ALIGN_WAIT_OFF_CYCLES	333
 
@@ -34,7 +36,7 @@ enum {
 #define MEAS_FULL_PERIOD	(MEAS_SINGLE_PERIOD*ISENSE_COUNT)
 #define NUM_ID_ALGO_SAMPLES	2
 #define NUM_ID_ALGO_ESTIMATES (2*(NUM_STATIC_MEASUREMENTS - (NUM_ID_ALGO_SAMPLES-1)))
-#define NUM_IDENTIFICATION_RUNS	3
+#define NUM_IDENTIFICATION_RUNS	6
 
 #define MAX_IDENTIFICATION_REPEATS	32
 #define IDELTA_MIN			0.001f
@@ -99,21 +101,30 @@ typedef enum {
 	MCTRL_MOT_
 } mctrl_motor_type_t;
 
+// bridge status low, high impedance (off), and high
+typedef enum {
+	MCTRL_BRIDGE_LO = -1,
+	MCTRL_BRIDGE_ZZ,
+	MCTRL_BRIDGE_HI,
+} mctrl_bridge_activation_t;
+
+
 typedef struct {
 	struct {
 		float maxCurrent;
 		float staticIdentificationDutyCycle;
 		size_t maxRampCycles;
+		mctrl_bridge_activation_t idSequence[6][MCTRL_DRIVER_PHASES];
 	} sysId;
 } mctrl_params_t;
 
 typedef struct {
 	struct {
 		struct {
-			float Lest[3];
-			float Rest[3];
-			float Lvar[3];
-			float Rvar[3];
+			float Lest[NUM_IDENTIFICATION_RUNS];
+			float Rest[NUM_IDENTIFICATION_RUNS];
+			float Lvar[NUM_IDENTIFICATION_RUNS];
+			float Rvar[NUM_IDENTIFICATION_RUNS];
 		} phases;
 	} sysParamEstimates;
 
@@ -126,24 +137,48 @@ typedef struct {
 	float phasePwm[NUM_PHASE_MEASUREMENTS];
 	float phaseCurrents[NUM_PHASE_MEASUREMENTS][ISENSE_COUNT];
 
-	float phasedCurrents[ISENSE_COUNT][PHASE_BUCKETS];
+	float demoPhasedCurrents[ISENSE_COUNT][PHASE_BUCKETS];
 	float phase;
 	size_t counter;
 
-	// debugging counters
-	uint16_t lastEventCount;
-	uint16_t lastEventCountDelta;
-	uint32_t lastControlStepTime_us;
-	uint32_t lastControlDelta_us;
+	struct {
+		// debugging counters
+		uint16_t lastEventCount;
+		uint16_t lastEventCountDelta;
+		uint32_t lastControlStepTime_us;
+		uint32_t lastControlDelta_us;
+
+		float iiPhaseEstimate;
+	} debug;
 
 } mctrl_controller_t;
-
 
 extern mctrl_params_t mctrl_params;
 
 extern volatile mctrl_state_t mctrl_state;
 extern mctrl_controller_t mctrl;
 
+static inline void mctrl_enableBridges(mctrl_bridge_activation_t bridges[MCTRL_DRIVER_PHASES])
+{
+	uint32_t enables = ((bridges[0] != MCTRL_BRIDGE_ZZ) << 0)
+					 | ((bridges[1] != MCTRL_BRIDGE_ZZ) << 1)
+					 | ((bridges[2] != MCTRL_BRIDGE_ZZ) << 2);
+	spwm_enableHalfBridges(enables);
+}
+
+static inline size_t mctrl_loBridge(const mctrl_bridge_activation_t bridges[MCTRL_DRIVER_PHASES])
+{
+	return (bridges[0] == MCTRL_BRIDGE_LO)*0
+		 + (bridges[1] == MCTRL_BRIDGE_LO)*1
+		 + (bridges[2] == MCTRL_BRIDGE_LO)*2;
+}
+
+static inline size_t mctrl_hiBridge(const mctrl_bridge_activation_t bridges[MCTRL_DRIVER_PHASES])
+{
+	return (bridges[0] == MCTRL_BRIDGE_HI)*0
+		 + (bridges[1] == MCTRL_BRIDGE_HI)*1
+		 + (bridges[2] == MCTRL_BRIDGE_HI)*2;
+}
 
 
 #endif // SSF_MCTRL_PRIVATE_H

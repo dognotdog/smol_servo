@@ -55,8 +55,11 @@ void mctrl_idle(uint32_t now_us)
 		{
 			if (waitElapsed >= 2000)
 			{
-				dbg_println("MCTRL_DRIVER_INIT_START");
+				// dbg_println("MCTRL_DRIVER_INIT_START");
 				ssf_setMotorDriver3PwmMode();
+				// sspi_drv_state_t drvState = ssf_readMotorDriver();
+				// dbg_println("DRV8323 DRV_CTRL set to 0x%04X", drvState.DRV_CTRL);
+
 				memset(mctrl.adcZeroCalibs, 0, sizeof(mctrl.adcZeroCalibs));
 				mctrl.calibCounter = 0;
 
@@ -73,7 +76,7 @@ void mctrl_idle(uint32_t now_us)
 		}
 		case MCTRL_DRIVER_CALIB_ENTER:
 		{
-			dbg_println("MCTRL_DRIVER_CALIB_ENTER");
+			// dbg_println("MCTRL_DRIVER_CALIB_ENTER");
 
 			// first is analog recalibration
 			// put the DRV8323 into calibration mode
@@ -93,7 +96,7 @@ void mctrl_idle(uint32_t now_us)
 		}
 		case MCTRL_DRIVER_CALIB_EXIT:
 		{
-			dbg_println("MCTRL_DRIVER_CALIB_EXIT");
+			// dbg_println("MCTRL_DRIVER_CALIB_EXIT");
 			ssf_exitMotorDriverCalibrationMode();
 			waitStart = now_us;
 			mctrl_state = MCTRL_DRIVER_CALIB_EXIT_WAIT;
@@ -139,10 +142,11 @@ void mctrl_idle(uint32_t now_us)
 
 				dbg_println("SO[%u] calibrated to 0A = %.3f counts", i, (double)calib);
 
-				// restart calibration if we're more than 300 counts off center
-				if (fabsf(calib - 8192.0f) > 300.0f)
+				// restart calibration if we're more than 5% off center
+				float center = 0.5f*((ADC2_NOMINAL_MAXCOUNT*ADC2_OVERSAMPLING_COUNT) >> ADC2_SHIFT);
+				if (fabsf(calib - center) > center*0.05f)
 				{
-					err_println("SO[%u] is too far off center at %.3f counts!", i, (double)calib);
+					err_println("SO[%u] is too far off center at %.3f counts (center = %.3f)!", i, (double)calib, (double)center);
 					calibOk = false;
 				}
 			}
@@ -168,10 +172,7 @@ void mctrl_idle(uint32_t now_us)
 		}
 		case MCTRL_ID_ALIGN_FINISH:
 		{
-			int lowBridge = mctrl.idRunCounter;
-			int highBridge = (mctrl.idRunCounter + 1) % 3;
-
-			spwm_enableHalfBridges((1 << lowBridge) | (1 << highBridge));
+			mctrl_enableBridges(mctrl_params.sysId.idSequence[mctrl.idRunCounter]);
 
 			// ballpark measure how fast current ramps up
 			memset((void*)mctrl.lastMeasurement, 0, sizeof(mctrl.lastMeasurement));
@@ -190,23 +191,27 @@ void mctrl_idle(uint32_t now_us)
 		{
 			size_t numSampleExceedingCurrentLimit = mctrl.calibCounter;
 
+			const mctrl_bridge_activation_t* bridges = mctrl_params.sysId.idSequence[mctrl.idRunCounter];
+			size_t loBridgeId = mctrl_loBridge(bridges);
+
+
 			if (numSampleExceedingCurrentLimit >= NUM_STATIC_MEASUREMENTS)
 			{
 				{
-					float i0 = mctrl.lastMeasurement[NUM_STATIC_MEASUREMENTS-1][2*mctrl.idRunCounter+0];
-					float i1 = mctrl.lastMeasurement[NUM_STATIC_MEASUREMENTS-1][2*mctrl.idRunCounter+1];
+					float i0 = mctrl.lastMeasurement[NUM_STATIC_MEASUREMENTS-1][(2*loBridgeId+0)];
+					float i1 = mctrl.lastMeasurement[NUM_STATIC_MEASUREMENTS-1][(2*loBridgeId+1)];
 
 					float i = 0.5*(i0+i1);
 
-					float time = (NUM_STATIC_MEASUREMENTS-1)*(float)MEAS_FULL_PERIOD + mctrl.idRunCounter*2*MEAS_SINGLE_PERIOD;
+					float time = (NUM_STATIC_MEASUREMENTS-1)*(float)MEAS_FULL_PERIOD + (mctrl.idRunCounter % MCTRL_DRIVER_PHASES)*2*MEAS_SINGLE_PERIOD;
 					dbg_println("could not reach %.3f, max current reached is %.3f after %8.0f us", (double)mctrl_params.sysId.maxCurrent, (double)i, (double)(time*1e6f));
 
 				}
 			}
 			else
 			{
-				float i0 = mctrl.lastMeasurement[numSampleExceedingCurrentLimit][2*mctrl.idRunCounter+0];
-				float i1 = mctrl.lastMeasurement[numSampleExceedingCurrentLimit][2*mctrl.idRunCounter+1];
+				float i0 = mctrl.lastMeasurement[numSampleExceedingCurrentLimit][(2*loBridgeId+0)];
+				float i1 = mctrl.lastMeasurement[numSampleExceedingCurrentLimit][(2*loBridgeId+1)];
 
 				float i = 0.5*(i0+i1);
 				float time = numSampleExceedingCurrentLimit*(float)MEAS_FULL_PERIOD + mctrl.idRunCounter*2*MEAS_SINGLE_PERIOD;
@@ -242,10 +247,13 @@ void mctrl_idle(uint32_t now_us)
 			float i = 0.0f;
 			float vbus = 0.0f;
 
+			const mctrl_bridge_activation_t* bridges = mctrl_params.sysId.idSequence[mctrl.idRunCounter];
+			size_t loBridgeId = mctrl_loBridge(bridges);
+
 			for (size_t j = NUM_STATIC_MEASUREMENTS/2; j < NUM_STATIC_MEASUREMENTS; ++j)
 			{
-				float i0 = mctrl.lastMeasurement[j][2*mctrl.idRunCounter+0];
-				float i1 = mctrl.lastMeasurement[j][2*mctrl.idRunCounter+1];
+				float i0 = mctrl.lastMeasurement[j][(2*loBridgeId+0)];
+				float i1 = mctrl.lastMeasurement[j][(2*loBridgeId+1)];
 
 				i += (i0+i1);
 
@@ -311,6 +319,9 @@ void mctrl_idle(uint32_t now_us)
 
 			float R = mctrl.sysParamEstimates.phases.Rest[mctrl.idRunCounter];
 
+			const mctrl_bridge_activation_t* bridges = mctrl_params.sysId.idSequence[mctrl.idRunCounter];
+			size_t loBridgeId = mctrl_loBridge(bridges);
+
 			for (size_t j = 1; j+NUM_ID_ALGO_SAMPLES-1 < NUM_STATIC_MEASUREMENTS; ++j)
 			{
 #if NUM_ID_ALGO_SAMPLES == 2
@@ -319,10 +330,10 @@ void mctrl_idle(uint32_t now_us)
 				float vbus0 = mctrl.lastVbus[j+0];
 				float vbus1 = mctrl.lastVbus[j+1];
 				float vbus = 0.5*(vbus0 + vbus1);
-				float i0 = mctrl.lastMeasurement[j+0][2*mctrl.idRunCounter];
-				float i0a = mctrl.lastMeasurement[j+0][2*mctrl.idRunCounter+1];
-				float i1 = mctrl.lastMeasurement[j+1][2*mctrl.idRunCounter];
-				float i1a = mctrl.lastMeasurement[j+1][2*mctrl.idRunCounter+1];
+				float i0 = mctrl.lastMeasurement[j+0][(2*loBridgeId)];
+				float i0a = mctrl.lastMeasurement[j+0][(2*loBridgeId+1)];
+				float i1 = mctrl.lastMeasurement[j+1][(2*loBridgeId)];
+				float i1a = mctrl.lastMeasurement[j+1][(2*loBridgeId+1)];
 				float di = (i1-i0)/h;
 				float dia = (i1a-i0a)/h;
 
@@ -428,9 +439,14 @@ void mctrl_idle(uint32_t now_us)
 			// Interestingly, even the garbage looking readings average to zero, so at least that's good. It might be switching interference, as the test pwm duty cycle was very low. Might have to re-think the ADC-sampling strategy, and do more frequent samples with less over-sampling, and cull the ones potentially overlapping the bridge switching
 
 
+			const mctrl_bridge_activation_t* bridges = mctrl_params.sysId.idSequence[mctrl.idRunCounter];
+			size_t loBridgeId = mctrl_loBridge(bridges);
+			size_t hiBridgeId = mctrl_hiBridge(bridges);
+
 			// scale currents by number of readouts
 			size_t n = NUM_INDUCTANCE_ID_CYCLES/2;
 			float n1 = 1.0f/n; // have CALIBREADS/2 number of samples added up
+			float U = ssf_getVbus()*mctrl_params.sysId.staticIdentificationDutyCycle;
 
 			float currentMeans[ISENSE_COUNT] = {0.0f};
 			float currentSqr[ISENSE_COUNT] = {0.0f};
@@ -444,6 +460,25 @@ void mctrl_idle(uint32_t now_us)
 					mctrl.phaseCurrents[i][j] *= n1;
 					currentMeans[j] += mctrl.phaseCurrents[i][j]*(1.0f/NUM_PHASE_MEASUREMENTS);
 					// dbg_println("    %6.3f", (double)(mctrl.phaseCurrents[i][j]));
+				}
+			}
+
+			if (0 && (k == 0))
+			{
+				dbg_printf("  pwm = [");
+				for (size_t i = 0; i < NUM_PHASE_MEASUREMENTS; ++i)
+				{
+					dbg_printf(" %.6f,", (double)(U*mctrl.phasePwm[i]/mctrl_params.sysId.staticIdentificationDutyCycle));
+				}
+				dbg_printf("]\r\n");
+				for (size_t j = 0; j < ISENSE_COUNT; ++j)
+				{
+					dbg_printf("isense%u = [", j);
+					for (size_t i = 0; i < NUM_PHASE_MEASUREMENTS; ++i)
+					{
+						dbg_printf(" %.6f,", (double)(mctrl.phaseCurrents[i][j]));
+					}
+					dbg_printf("]\r\n");
 				}
 			}
 
@@ -462,14 +497,14 @@ void mctrl_idle(uint32_t now_us)
 			}
 
 
-			// find phase via atan2 of signal + pi/2 shift
+			// find impedance
 			// we know the signal is 16 samples for a full period, so this is easy enough
 			// find the low isense for both observed phases
-			size_t j0 = (1 + 2*mctrl.idRunCounter) % ISENSE_COUNT;
-			size_t j1 = (3 + 2*mctrl.idRunCounter) % ISENSE_COUNT;
+			size_t j0 = (1 + 2*loBridgeId);
+			size_t j1 = (1 + 2*hiBridgeId);
 
 			// RMS applied voltage
-			float Urms = ssf_getVbus()*mctrl_params.sysId.staticIdentificationDutyCycle/sqrtf(2.0);
+			float Urms = U/sqrtf(2.0);
 			float R = mctrl.sysParamEstimates.phases.Rest[mctrl.idRunCounter];
 
 			float Z0 = Urms/currentRms[j0];
@@ -479,6 +514,38 @@ void mctrl_idle(uint32_t now_us)
 			float omega = (2.0f*M_PI)/(MEAS_FULL_PERIOD*NUM_PHASE_MEASUREMENTS);
 			float Lest0 = X0/omega;
 			float Lest1 = X1/omega;
+
+			// phase
+			float uiMean0 = 0.0f, uiMean1 = 0.0f;
+			float iiMean = 0.0;
+			for (size_t i = 0; i < NUM_PHASE_MEASUREMENTS; ++i)
+			{
+				// reconstruct sinusoid down to the iSense phase shift
+				float x0 = 2.0f*M_PI*(i + (float)(j0-0.0f)/ISENSE_COUNT)/NUM_PHASE_MEASUREMENTS;
+				float y0 = sintab(x0);
+				float U0 = U*y0;
+
+				float x1 = 2.0f*M_PI*(i + (float)(j1-0.0f)/ISENSE_COUNT)/NUM_PHASE_MEASUREMENTS;
+				float y1 = sintab(x1);
+				float U1 = U*y1;
+
+				// negative sign for j0, positive for j1
+				uiMean0 -= U0*mctrl.phaseCurrents[i][j0]*(1.0f/NUM_PHASE_MEASUREMENTS);
+				uiMean1 += U1*mctrl.phaseCurrents[i][j1]*(1.0f/NUM_PHASE_MEASUREMENTS);
+				iiMean -= mctrl.phaseCurrents[i][j0]*mctrl.phaseCurrents[i][j1]*(1.0f/NUM_PHASE_MEASUREMENTS);
+			}
+			// float uiRms0 = Urms*currentRms[j0];
+
+			float Rphase0 = uiMean0/currentSqr[j0];
+			float Rphase1 = uiMean1/currentSqr[j1];
+			float iphase = acos(iiMean/(currentRms[j0]*currentRms[j1]));
+			if (0 && (k == 0))
+			{
+				dbg_println("  Rphase0 = %6.3f R, Z0 = %6.3f, X0 = %6.3f", (double)(Rphase0*1.0e0), (double)Z0, (double)X0);
+				dbg_println("  Rphase1 = %6.3f R, Z1 = %6.3f, X1 = %6.3f", (double)(Rphase1*1.0e0), (double)Z1, (double)X1);				
+			}
+			// dbg_println("  iphase = %6.3f deg, %6.3f isense, j0 %d, j1 %d", (double)(iphase*180.0f/M_PI), (double)(iphase/(2.0f*M_PI)*16.0f*6.0f), j0, j1);
+
 			
 			// dbg_println("  Lest0 = %6.3f mH, Z0 = %6.3f, X0 = %6.3f", (double)(Lest0*1.0e3), (double)Z0, (double)X0);
 			// dbg_println("  Lest1 = %6.3f mH, Z1 = %6.3f, X1 = %6.3f", (double)(Lest1*1.0e3), (double)Z1, (double)X1);
@@ -505,11 +572,15 @@ void mctrl_idle(uint32_t now_us)
 
 			if (k == 0)
 			{
+				mctrl.debug.iiPhaseEstimate = iphase*(1.0f/MAX_IDENTIFICATION_REPEATS);
+
 				inductanceEstimate = Lavg;
 				inductanceVariance = Lvar;	
 			}
 			else
 			{
+				mctrl.debug.iiPhaseEstimate += iphase*(1.0f/MAX_IDENTIFICATION_REPEATS);
+
 				// update estimate via Kalman Filter
 				/*
 				K = sigma1^2 / (sigma1^2 + sigma2^2)
@@ -539,9 +610,10 @@ void mctrl_idle(uint32_t now_us)
 				mctrl.sysParamEstimates.phases.Lest[mctrl.idRunCounter] = inductanceEstimate;
 				mctrl.sysParamEstimates.phases.Lvar[mctrl.idRunCounter] = inductanceVariance;
 
-				dbg_println("  Lest[%u] is %8.3f mH, sigma = %8.3f mH", mctrl.idRunCounter, (double)(inductanceEstimate*1e3), (double)(sqrtf(inductanceVariance)*1e3));
-				dbg_println("  Rest[%u] is %8.3f R,  sigma = %8.3f R", mctrl.idRunCounter, (double)(mctrl.sysParamEstimates.phases.Rest[mctrl.idRunCounter]*1e0), (double)(sqrtf(mctrl.sysParamEstimates.phases.Rvar[mctrl.idRunCounter])*1e0));
-				dbg_println("   Tau[%u] is %8.3f ms", mctrl.idRunCounter, (double)(mctrl.sysParamEstimates.phases.Lest[mctrl.idRunCounter]/mctrl.sysParamEstimates.phases.Rest[mctrl.idRunCounter]*1e3));
+				// dbg_println("  iphase = %6.3f deg, %6.3f isense, j0 %d, j1 %d", (double)(mctrl.debug.iiPhaseEstimate*180.0f/M_PI), (double)(mctrl.debug.iiPhaseEstimate/(2.0f*M_PI)*16.0f*6.0f), j0, j1);
+				// dbg_println("  Lest[%u] is %8.3f mH, sigma = %8.3f mH", mctrl.idRunCounter, (double)(inductanceEstimate*1e3), (double)(sqrtf(inductanceVariance)*1e3));
+				// dbg_println("  Rest[%u] is %8.3f R,  sigma = %8.3f R", mctrl.idRunCounter, (double)(mctrl.sysParamEstimates.phases.Rest[mctrl.idRunCounter]*1e0), (double)(sqrtf(mctrl.sysParamEstimates.phases.Rvar[mctrl.idRunCounter])*1e0));
+				// dbg_println("   Tau[%u] is %8.3f ms", mctrl.idRunCounter, (double)(mctrl.sysParamEstimates.phases.Lest[mctrl.idRunCounter]/mctrl.sysParamEstimates.phases.Rest[mctrl.idRunCounter]*1e3));
 
 				k = 0;
 				mctrl_state = MCTRL_SYSID_FINISH;
@@ -550,7 +622,7 @@ void mctrl_idle(uint32_t now_us)
 		}
 		case MCTRL_SYSID_FINISH:
 		{
-			if (mctrl.idRunCounter < 2)
+			if (mctrl.idRunCounter + 1 < NUM_IDENTIFICATION_RUNS)
 			{
 				++mctrl.idRunCounter;
 				mctrl_state = MCTRL_ID_ALIGN_START;
@@ -563,6 +635,37 @@ void mctrl_idle(uint32_t now_us)
 		}
 		case MCTRL_SYSID_DONE:
 		{
+			for (size_t i = 0; i < NUM_IDENTIFICATION_RUNS; ++i)
+			{
+				dbg_println("  Lest[%u] is %8.3f mH, sigma = %8.3f mH", i, (double)(mctrl.sysParamEstimates.phases.Lest[i]*1e3), (double)(sqrtf(mctrl.sysParamEstimates.phases.Lvar[i])*1e3));
+				dbg_println("  Rest[%u] is %8.3f R,  sigma = %8.3f R", i, (double)(mctrl.sysParamEstimates.phases.Rest[i]*1e0), (double)(sqrtf(mctrl.sysParamEstimates.phases.Rvar[i])*1e0));
+				dbg_println("   Tau[%u] is %8.3f ms", i, (double)(mctrl.sysParamEstimates.phases.Lest[i]/mctrl.sysParamEstimates.phases.Rest[i]*1e3));
+			}
+
+			// having estimated per phases parameters, find out if we have a 2 phase or 3 phase motor
+			// 3 phase all 3 resistances and windings should be close
+			// 2 phase C should have roughly double the R and L of A,B
+			// calculate weights based on how far away we are from ideal ratios, lowest weight wins
+			float ph2Weight = fabsf(mctrl.sysParamEstimates.phases.Rest[0]/mctrl.sysParamEstimates.phases.Rest[2] - 0.5f) + fabsf(mctrl.sysParamEstimates.phases.Rest[1]/mctrl.sysParamEstimates.phases.Rest[2] - 0.5f);
+			float ph3Weight = fabsf(mctrl.sysParamEstimates.phases.Rest[0]/mctrl.sysParamEstimates.phases.Rest[2] - 1.0f) + fabsf(mctrl.sysParamEstimates.phases.Rest[1]/mctrl.sysParamEstimates.phases.Rest[2] - 1.0f);
+
+			dbg_println("  ph2Weight is %6.3f, ph3Weight is %6.3f", (double)(ph2Weight), (double)(ph3Weight));
+
+			float weightRatio = fminf(ph2Weight,ph3Weight)/fmaxf(ph2Weight,ph3Weight);
+
+			if ((weightRatio > 0.5f) && (weightRatio < 2.0f))
+			{
+				err_println("Can't quite tell motor config!");		
+			}
+			else if (ph3Weight > ph2Weight)
+			{
+				dbg_println("Looks like we have a 2-Phase motor.");
+			}
+			else
+			{
+				dbg_println("Looks like we have a 3-Phase motor.");		
+			}
+
 			spwm_enableHalfBridges(0x7);
 			mctrl_state = MCTRL_DEMO;
 			break;
