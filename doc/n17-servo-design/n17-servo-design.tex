@@ -18,7 +18,7 @@
 %\usepackage{natbib} % use author/date bibliographic citations
 %\usepackage{babelbib}
 \usepackage[backend=biber]{biblatex}
-\addbibresource{nanoscan-vs-smps.bib}
+\addbibresource{n17-servo-design.bib}
 
 \usepackage{subfig}
 \usepackage{caption}
@@ -44,6 +44,7 @@
 % \usepackage[activate]{pdfcprot}  % Turn on margin kerning (not in gwTeX)
 %\usepackage{pdfsync}  % enable tex source and pdf output syncronicity
 
+\usepackage{longtable}
 \usepackage{booktabs}
 \usepackage{listings}
 \usepackage{nomencl}
@@ -83,25 +84,34 @@
 \DeclareMathOperator{\fclamp}{clamp}
 \DeclareMathOperator{\fsign}{sign}
 %\newcommand{\ud}{\ensuremath{\binop{\mathrm{d}}}}
-\newcommand{\vx}{\ensuremath{\boldsymbol{x}}}
-\newcommand{\vv}{\ensuremath{\boldsymbol{v}}}
-\newcommand{\va}{\ensuremath{\boldsymbol{a}}}
-\newcommand{\vf}{\ensuremath{\boldsymbol{f}}}
-\newcommand{\vt}{\ensuremath{\boldsymbol{t}}}
-\newcommand{\vk}{\ensuremath{\boldsymbol{k}}}
-\newcommand{\mM}{\ensuremath{\boldsymbol{M}}}
-\newcommand{\mW}{\ensuremath{\boldsymbol{W}}}
-\newcommand{\mJ}{\ensuremath{\boldsymbol{J}}}
-\newcommand{\mA}{\ensuremath{\boldsymbol{A}}}
-\newcommand{\vq}{\ensuremath{\boldsymbol{q}}}
-\newcommand{\vC}{\ensuremath{\boldsymbol{C}}}
-\newcommand{\vQ}{\ensuremath{\boldsymbol{Q}}}
+\newcommand{\vx}{\ensuremath{\mathbf{x}}}
+\newcommand{\vy}{\ensuremath{\mathbf{y}}}
+\newcommand{\vz}{\ensuremath{\mathbf{z}}}
+\newcommand{\vu}{\ensuremath{\mathbf{u}}}
+\newcommand{\vv}{\ensuremath{\mathbf{v}}}
+\newcommand{\vw}{\ensuremath{\mathbf{w}}}
+\newcommand{\va}{\ensuremath{\mathbf{a}}}
+\newcommand{\vf}{\ensuremath{\mathbf{f}}}
+\newcommand{\vt}{\ensuremath{\mathbf{t}}}
+\newcommand{\vk}{\ensuremath{\mathbf{k}}}
+\newcommand{\mM}{\ensuremath{\mathbf{M}}}
+\newcommand{\mW}{\ensuremath{\mathbf{W}}}
+\newcommand{\mJ}{\ensuremath{\mathbf{J}}}
+\newcommand{\mA}{\ensuremath{\mathbf{A}}}
+\newcommand{\mB}{\ensuremath{\mathbf{B}}}
+\newcommand{\mH}{\ensuremath{\mathbf{H}}}
+\newcommand{\vq}{\ensuremath{\mathbf{q}}}
+\newcommand{\mC}{\ensuremath{\mathbf{C}}}
+\newcommand{\mK}{\ensuremath{\mathbf{K}}}
+\newcommand{\mP}{\ensuremath{\mathbf{P}}}
+\newcommand{\mQ}{\ensuremath{\mathbf{Q}}}
+\newcommand{\mR}{\ensuremath{\mathbf{R}}}
 \newcommand{\vlambda}{\ensuremath{\boldsymbol{\lambda}}}
-\newcommand{\vd}{\ensuremath{\boldsymbol{d}}}
-\newcommand{\mI}{\ensuremath{\boldsymbol{I}}}
-\newcommand{\vc}{\ensuremath{\boldsymbol{c}}}
-\newcommand{\vr}{\ensuremath{\boldsymbol{r}}}
-\newcommand{\vF}{\ensuremath{\boldsymbol{F}}}
+\newcommand{\vd}{\ensuremath{\mathbf{d}}}
+\newcommand{\mI}{\ensuremath{\mathbf{I}}}
+\newcommand{\vc}{\ensuremath{\mathbf{c}}}
+\newcommand{\vr}{\ensuremath{\mathbf{r}}}
+\newcommand{\vF}{\ensuremath{\mathbf{F}}}
 \newcommand{\vtau}{\ensuremath{\boldsymbol{\tau}}}
 \newcommand{\valpha}{\ensuremath{\boldsymbol{\alpha}}}
 
@@ -157,42 +167,131 @@ Using a 2-phase motor in this configuration limits the top speed due to lower ef
 
 The main MCU is an STM32G431.
 
-\subsubsection{MCU Peripheral Assignments}
+\subsection{SPI}
+
+Unfortunately the STM32G4 SPI implementation does not allow hardware NSS signaling, as the SPI mode that needs to be used with the attached SPI devices (low clock polarity, latch on 2nd edge) is not compatible with hardware pulsing of NSS between data frames.
+
+\subsection{MCU Peripheral Assignments}
 
 \begin{table}[htbp]
 \caption{MCU Peripheral Usage}
 \begin{center}
-\begin{tabular}{|l|l|}
-\hline Peripheral & Usage \\
-\hline \texttt{ADC1} & Auxiliary analog inputs \\
+\begin{tabular}{ll} \toprule
+ Peripheral & Usage \\
+\midrule \texttt{ADC1} & Auxiliary analog inputs \\
 \texttt{ADC2} & Current Sensing \\
-\hline
+\midrule
+\texttt{TIM1} & Event counter for debugging \\
 \texttt{TIM2} & PWM Gate Driver (R,A,B,C) \\
 \texttt{TIM3} & Encoder Input \\
-\texttt{TIM4} & RGB LED PWM \\
+\texttt{TIM4} & RGB LED PWM + SYNC\\
 \texttt{TIM6} & Performance Counter / Timer \\
 \texttt{TIM15} & current sense trigger offset \\
-\hline
+\texttt{TIM16} & SPI NSS pulse timer \\
+\midrule
 \texttt{I2C3} & I2C I/O \\
 \texttt{USART1} & Debug I/O \\ 
 \texttt{SPI2} & Gate Driver and Magnetic Encoder \\
 \texttt{USB} & USB Interface \\
-\hline
+\bottomrule
 \end{tabular}
 \end{center}
 \label{tab:mcu-peripherals}
 \end{table}%
 
+\begin{longtable}[htbp]{@{}rlll@{}}%
+\caption{STM32G431 pin assignments for hardware version 0.3. \label{tab:mcu-pins}} \\
+\toprule 
+        Pin & GPIO         & Peripheral        & Usage \\
+\midrule 
+\endfirsthead
+%\midrule
+\multicolumn{4}{c}{\ldots table continued from previous page} \\
+\midrule
+         Pin & GPIO         & Peripheral        & Usage \\
+\midrule
+\endhead
+\multicolumn{4}{c}{table continues on next page \ldots} \\
+%\midrule
+\endfoot
+\bottomrule
+\endlastfoot
+          1 & \texttt{VBAT} &                   & \texttt{3V3}  \\
+\midrule  5 & \texttt{PF0}  &\texttt{ADC1 IN10} & VDDP sensing \\
+\midrule  7 & \texttt{PG10} &                   & reset input \\
+\midrule  8 & \texttt{PA0}  &\texttt{TIM2 CH1}  & Brake Resistor PWM \\
+          9 & \texttt{PA1}  &\texttt{TIM2 CH2}  & Channel A PWM \\
+         10 & \texttt{PA2}  &\texttt{TIM4 CH3}  & Channel B PWM \\
+         11 & \texttt{PA3}  &\texttt{TIM4 CH4}  & Channel C PWM \\
+\midrule 12 & \texttt{PA4}  &\texttt{ADC2 IN17} & Current Sense Channel A \\
+         13 & \texttt{PA5}  &\texttt{ADC2 IN13} & Current Sense Channel B \\
+         14 & \texttt{PA6}  &\texttt{ADC2 IN3}  & Current Sense Channel C \\
+\midrule 15 & \texttt{PA7}  &                   & DRV8323 Enable \\
+\midrule 16 & \texttt{PC4}  &                   & DRVFAULT input \\
+\midrule 17 & \texttt{PB0}  &                   & Enable Driver Channel C \\
+         18 & \texttt{PB1}  &                   & Enable Driver Channel B \\
+         19 & \texttt{PB2}  &                   & Enable Driver Channel A \\
+\midrule 22 & \texttt{PB10} &                   & SPI Select AS5047 \\
+\midrule 24 & \texttt{PB11} &\texttt{ADC1 IN14} & VBUS sensing \\
+\midrule 25 & \texttt{PB12} &\texttt{SPI2 NSS}  &  \\
+         26 & \texttt{PB13} &\texttt{SPI2 SCK}  &  \\
+         27 & \texttt{PB14} &\texttt{SPI2 MISO} &  \\
+         28 & \texttt{PB15} &\texttt{SPI2 MOSI} &  \\
+\midrule 29 & \texttt{PC6}  &                   & SPI Select DRV8323 \\
+
+\midrule 30 & \texttt{PA8}  &\texttt{I2C3 SCL}  & \\
+\midrule 31 & \texttt{PA9}  &\texttt{UART1 TX}  & Debug TX \\
+         32 & \texttt{PA10} &\texttt{UART1 RX}  & Debug RX \\
+\midrule 33 & \texttt{PA11} &\texttt{USB DM}    & \\
+         34 & \texttt{PA12} &\texttt{USB DP}    & \\
+\midrule 36 & \texttt{PA13} &\texttt{SWD SWDIO} & \\
+         37 & \texttt{PA14} &\texttt{SWD SWCLK} & \\
+\midrule 40 & \texttt{PC11} &\texttt{I2C3 SDA}  & \\
+\midrule 41 & \texttt{PB3}  &\texttt{TIM3 ETR}  & External Encoder I\\
+         42 & \texttt{PB4}  &\texttt{TIM3 CH1}  & External Encoder A\\
+         43 & \texttt{PB5}  &\texttt{TIM3 CH2}  & External Encoder B\\
+\midrule 44 & \texttt{PB6}  &\texttt{TIM4 CH1}  & LED Red \\
+         45 & \texttt{PB7}  &\texttt{TIM4 CH2}  & LED Green \\
+         46 & \texttt{PB8}  &\texttt{TIM4 CH3}  & LED Blue \\
+         47 & \texttt{PB9}  &\texttt{TIM4 CH4}  & SYNC I/O \\
+%\bottomrule
+\end{longtable}
 
 \section{PWM and Current Sensing}
 
+%\begin{figure}[htbp]
+%\begin{center}
+%\includegraphics[scale=0.4]{n17-servo-pwm-adc.pdf}
+%\caption[PWM and ADC Sync]{Temporal synchronization of PWM output and ADC sampling.}
+%\label{fig:pwm-adc}
+%\end{center}
+%\end{figure}
+
+\subsubsection{ADC Triggering}
+
+As the ADC sampling takes a finite time, it will not quite sample on-center. \texttt{TIM15} is setup to offset by $T_{\textrm{base}} - T_{\textrm{ssaa}}/2 = \unit{6.47}{\micro\second}$ or 1100 CPU cycles.
+
 \begin{figure}[htbp]
 \begin{center}
-\includegraphics[scale=0.4]{n17-servo-pwm-adc.pdf}
-\caption[PWM and ADC Sync]{Temporal synchronization of PWM output and ADC sampling.}
-\label{fig:pwm-adc}
+\includegraphics[scale=0.4]{n17-servo-pwm-adc-offset.pdf}
+\caption[PWM and ADC Sync with Offset]{Temporal synchronization of PWM output and ADC sampling with centering offset. Adding a triggered timer as a delay allows offsetting the ADC sampling to occur centered on PWM phases.}
+\label{fig:pwm-adc-offset}
 \end{center}
 \end{figure}
+
+\subsection{Sense Resistor Choice}
+
+The \em DRV8323 \em has a programmable gain between 5 and 40, with 20 being the default. 1206-size resistors can dissipate \unit{1}{\watt}\footnote{\unit{2-3}{\watt} according to datasheets for different resistors, so this is with adequate margin}. For \unit{8}{\ampere}, $P = \unit{0.96}{\watt}$ with $R=\unit{15}{\milli\ohm}$. The sense amplifiers can go up to \unit{0.25}{\volt} short of the supply rails, for a \unit{3.3V}{\volt} that leaves \unit{\pm 1.4}{\volt}. The sense voltage $U_S \ @ \  \unit{8}{A}=\unit{120}{\milli\volt}$, thus a gain factor of 5 or 10 would cover the expected current range nicely.
+
+The sense resistor could be made be smaller to reduce power dissipation.
+
+%// 	// default amp gain factor is G = 20 (5/10/20/40) are available
+%// 	// current sense shunts are Rs = 15mOhm
+%// 	// sense amp output is centered on VREF/2, max. 0.25V away from rail
+%// 	// thus +- 1.4V usable range
+%// 	// for 12V operation, 10A would give 150mV, factor of 10 gives full range for 8A
+%// 	// return Rs * G
+
 
 \section{PWM}
 
@@ -212,17 +311,9 @@ The PWM base period $T_{\textrm{base}} = \unit{10}{\micro\second}$ ($f_{\textrm{
 
 Positive currents can only be measured in low periods, when the lower switch is closed, but negative currents can be measured in both high and low periods, as the body diode will always conduct.
 
-\subsubsection{ADC Triggering}
+\subsubsection{Sampling High-Impedance Sources}
 
-As the ADC sampling takes a finite time, it will not quite sample on-center. \texttt{TIM15} is setup to offset by $T_{\textrm{base}} - T_{\textrm{ssaa}}/2 = \unit{6.47}{\micro\second}$ or 1100 CPU cycles.
-
-\begin{figure}[htbp]
-\begin{center}
-\includegraphics[scale=0.4]{n17-servo-pwm-adc-offset.pdf}
-\caption[PWM and ADC Sync with Offset]{Temporal synchronization of PWM output and ADC sampling with centering offset. Adding a triggered timer as a delay allows offsetting the ADC sampling to occur centered on PWM phases.}
-\label{fig:pwm-adc-offset}
-\end{center}
-\end{figure}
+High-impedance voltage dividers will be affected by ADC input impedance. Longest possible sampling times and additional buffer capacitors at the input are advised.
 
 
 \section{The RL-Circuit}
@@ -302,12 +393,77 @@ L &= U \frac{ \dot{\imath}}{ \dot{\imath}^2 - \ddot{\imath} \imath}
 
 \subsubsection{Time Constant}
 
-The above formulas for $R$ and $L$ show that the only difference is the appearance of the first vs. second differential of the current in the nominator. As the current curve is an exponential function, both differentials have the same shape, but differ in magnitude by $\tau=R/L$, and thus 
+The above formulas for $R$ and $L$ show that the only difference is the appearance of the first vs. second differential of the current in the nominator. As the current curve is an exponential function, both differentials have the same shape, but differ in magnitude by $\tau=L/R$, and thus 
 \begin{align}
-\tau &= - \frac{\ddot{\imath}}{\dot{\imath}}
+\tau &= - \frac{\dot{\imath}}{\ddot{\imath}}
 \end{align}
 
-\subsection{LR Estimation}
+\subsection{R Estimation}
+
+The resistance of the circuit can be easily estimated by applying some low PWM duty cycle long enough to reach steady state, and measuring the current.
+\begin{align}
+R &= D\frac{U}{\imath}
+\end{align}
+
+\subsection{L Estimation with a Known R}
+
+Reformulating
+\begin{align}
+\frac{\ud}{\ud t} i &= \frac{U - R i}{L}
+\end{align}
+into
+\begin{align}
+L &= \frac{U - R i}{\frac{\ud}{\ud t} i}
+\end{align}
+allows inductance estimation with a relatively simple formula.
+
+\subsection{Impedance Estimation}
+
+Exciting a motor coil with a sinusoidal voltage, and measuring the resulting current phase difference and amplitude, the impedance and thus inductance can be calculated. Assuming a pure sinusoidal signal without harmonics,
+\begin{gather}
+\begin{aligned}
+|Z| &= \frac{U_{\textrm{RMS}}}{i_{\textrm{RMS}}} \\
+Z &= R + j X \\
+Z &= |Z| \left(\cos \theta + j \sin \theta \right)
+\end{aligned}
+\end{gather}
+
+\subsubsection{Inductance from Impedance}
+
+\begin{gather}
+\begin{aligned}
+X &= \sqrt{|Z|^2 - R^2} \\
+X_L &= \omega L
+\end{aligned}
+\end{gather}
+
+It looks like this method yields more accurate results than anything looking at $\frac{\ud}{\ud t} i$. This is not surprising: noise and offsets can be removed more effectively as $L$ is computed from averaged current readings, vs.\ being computed from each individual current reading and then averaged.
+
+This method still seems to over-estimate inductance, but seems to get significantly closer. Interestingly, for a 2-phase motor, the estimated impedance running through both phases gets closer to the specified values than both individual phase measurements.
+
+\subsubsection{Phase Estimation}
+
+The phase angle $\theta$ between $U=U_{\textrm{peak}}\sin \omega$ and $i=i_{\textrm{peak}}\sin \left(\omega+\theta\right)$ can be found as the DC component of the composite signal $U(\omega) \times i(\omega)$:
+\begin{gather}
+\begin{aligned}
+U(\omega) \times i(\omega) &= \frac{\cos \theta - \cos\left(2\omega+\theta\right)}{2} \\
+\overline{U \times i} &= \frac{1}{2\pi}\int_0^{2\pi} U \times i \ud \omega = U_{\textrm{peak}} i_{\textrm{peak}}\frac{\cos \theta}{2} \\
+\cos \theta &= 2 \frac{\overline{U \times i}}{U_{\textrm{peak}} i_{\textrm{peak}}} =\frac{\overline{U \times i}}{U_{\textrm{RMS}} i_{\textrm{RMS}}}
+\end{aligned}
+\end{gather}
+
+\subsubsection{Resistance from Impedance and Phase}
+
+\begin{gather}
+\begin{aligned}
+R &= |Z| \cos \theta = \frac{\overline{U i}}{i_{\textrm{RMS}}^2}
+\end{aligned}
+\end{gather}
+
+As resistance depends on $R \approx \cos \theta$, it is very sensitive to phase shifts, and thus not very reliable for estimation
+
+
+\subsection{Simultaneous LR Estimation}
 
 Sampling a  applied voltage $U$ step function at fixed intervals $T$, for samples $i_0, i_1, \ldots, i_n$ with t $t>0,n=t/T$, we can compute the differentiations in different ways.
 
@@ -326,7 +482,7 @@ L &= U \frac{\dot{\imath}}{\dot{\imath}^2 - \ddot{\imath} \imath}
 
 
 
-\section{2-Phase Motor With 3-Phase Driver}
+\section[2Ph Mot w/ 3Ph Driver]{2-Phase Motor With 3-Phase Driver}
 
 In theory, all motor parameters can be estimated by sequentially turning one half bridge low, while the others are switched high, allowing current to simultaneously flow in in two places, but only out in one. However, the parameter estimation is difficult with noisy values.
 
@@ -668,11 +824,196 @@ R_{AC} &= 2 R_P + 2 R_T + R_S \\
 \end{aligned}
 \end{gather}
 
+\subsection{2-Phase Driving}
+
+Because the 2 phases share a common point, the maximum available voltage is limited to less than the line voltage. It is assumed that the phases are driven sinusoidally with a $\frac{\pi}{2}$ phase shift.
+
+With a naive approach of keeping the center point at half the nominal voltage, only half the nominal voltage is available for each phase. Moving the midpoint, too, allows us to increase phase voltage to $U_P = \sqrt{2} U$, with the following waveforms:
+\begin{gather}
+\begin{aligned}
+U_{A} &= \frac{\cos x}{\sqrt{2}} \\
+U_{C} &= \frac{\sin x}{\sqrt{2}} \\
+U_{B} &= \frac{\cos x + \sin x}{4} = \frac{\cos \left(x - \frac{\pi}{4}\right)}{2 \sqrt{2}}
+\end{aligned}
+\end{gather}
+and PWM
+\begin{gather}
+\begin{aligned}
+D_{A} &= U_{B} + U_{A} \\
+D_{B} &= U_{B} \\
+D_{C} &= U_{B} + U_{C}
+\end{aligned}
+\end{gather}
+
+The physical limiting condition to observe is that 
+\begin{gather}
+\begin{aligned}
+\forall \left( U_{A}+U_{B} \right) &\leq U_P
+\end{aligned}
+\end{gather}
+
+\section{Position Estimation}
+
+\subsection{Discrete Kalman Filter}
+
+\subsubsection{Difference Equation}
+
+Variable names after \cite{kalman-tut} with slight adjustments. The discrete stochastic time-variant system is described by
+\begin{gather}
+\begin{aligned}
+\vx_k &= \mA_{k} \vx_{k-1} +  \mB_{k} \vu_{k-1} + \vw_{k-1} \\
+\vz_k &= \mH_k \vx_k + \vv_k
+\end{aligned}
+\end{gather}
+where \vx\ is the state vector, \vu\ is the input vector, \vz\ is the observation vector, and \vw\ and \vv\ are the process and measurement noise vector vectors, respectively, for a given time step $k$.
+
+$\mH$ maps the state to the observable variables, and features prominently in the Kalman Filter equations.
+
+The noise vectors are defined by the corresponding covariance matrices $\mQ_k$ and $\mR_k$. The state covariance matrix is $\mP_k$.
+
+\subsubsection{Canonical Kalman Filter Update}
+
+The first part of the update is prediction
+\begin{gather}
+\begin{aligned}
+\vx^-_k &= \mA \vx^+_{k-1} +  \mB \vu_{k-1} \\
+\mP^-_k &= \mA\mP^+_{k-1}\mA^T + \mQ
+\end{aligned}
+\end{gather}
+which results in the \em a-priori \em (as in before measurement) estimates of $\vx^-, \mP^-$. The second part is the correction through measurement
+\begin{gather}
+\begin{aligned}
+\mK &= \mP^-_k\mH^T\left( \mH \mP^-_k \mH^T + \mR \right)^{-1}\\
+\vx^+_k &= \vx^-_k + \mK \left(\vz_k - \mH\vx^-_k \right)\\
+\mP^+_k &= \left( \mI - \mK \mH \right) \mP^-_k
+\end{aligned}
+\end{gather}
+resulting in the \em Kalman Gain \em $\mK$, and \em a-posteriori \em (post measurement) estimates of the state vector $\vx^+, \mP^+$.
+
+In this form, the computation of $\mK$ requires a matrix inversion. If the process and measurement noise covariance matrices are constant, the inversion can be avoided by pre-computing the state covariance matrix $\mP$ with the Ricatti Equation. In our case, however, both $\mQ$ and $\mR$ are time-dependent.
+
+\subsubsection{DC Motor State Equation}
+
+The electrical and mechanical DC motor model with the parameters of  electrical motor constant $k_e$, rotor inertia $J$, resistance $k_d$, and disturbance torque $\Gamma_d$:
+
+\begin{gather}
+\begin{aligned}
+L\frac{\ud }{\ud t} \imath&= U - R \imath - k_e \omega \\
+J \frac{\ud }{\ud t} \omega &= k_e \imath - k_d \omega - \Gamma_d \\
+\frac{\ud}{\ud t} x &= \omega
+\end{aligned}
+\end{gather}
+
+\subsubsection{Simplest Approximation Difference Equations}
+
+In the simplest possible form, the motor can be treated as an inertial mass without outside forces, eg.{} it having constant speed.
+
+\begin{gather}
+\begin{aligned}
+\omega &= \frac{\ud}{\ud t} x
+\end{aligned}
+\end{gather}
+
+This is a useful approximation if further motor parameters that link the electrical and mechanical models are unknown, but has the big drawback that changes in speed cannot be modeled well. Therefore, this model is only useful to determine motor position and speed from the position encoder during system identification, but not during regular operation.
+
+The mechanical position $x$ of the motor and its speed $\omega$ compromise the state vector. There are no inputs, and the only available measurement is the measured position $x'$:
+\begin{gather}
+\begin{aligned}
+\vx &= \left(
+\begin{array}{c}
+      x  \\
+ \omega \\
+%\ddot{x}   
+\end{array}
+\right) \\
+%\vu &= \left(
+%\begin{array}{c}
+%      \imath
+%\end{array}
+%\right) \\
+\vz &= \left(
+\begin{array}{c}
+      x'
+\end{array}
+\right)
+\end{aligned}
+\end{gather}
+The update/correction matrices depend only on the time step size $h$:
+\begin{gather}
+\begin{aligned}
+\mA &= \left(
+\begin{array}{cc}
+ 1 & h \\
+ 0 & 1 \\
+\end{array}
+\right) \\
+%\mB &= \left(
+%\begin{array}{c}
+% k_T \frac{h^2}{2} \\
+% k_T h   
+%\end{array}
+%\right) \\
+\mH &= \left(
+\begin{array}{c c}
+ 1 & 0
+\end{array}
+\right).
+\end{aligned}
+\end{gather}
+Without inputs, $\mB\vu = 0$ and can be ignored.
+
+The covariance matrices are the most difficult to determine. We need to take into account the effects of the applied voltage $U$ and/or current $\imath$, and balance the model and measurement covariances to get a stable prediction, but also a fast enough reaction, though such a filter will invariable react more slowly to changes than a more complete model. In addition to $h$, we might also consider the change in input voltage $\frac{\ud}{\ud t} U$ and time since the last observation $\lambda$
+\begin{gather}
+\begin{aligned}
+%\mP &= \left(
+%\begin{array}{cc}
+% ? & 0 \\
+% 0 & ? \\
+%\end{array}
+%\right) \\
+\mQ &= \left(
+\begin{array}{cc}
+ \left( k_{Q1} h \right)^2 & 0 \\
+ 0 & \left( k_{Q2} h \right)^2
+\end{array}
+\right) \\
+\mR &= \left(
+\begin{array}{c}
+ \left( k_{R1} + k_{R2} \lambda + k_{R3} \omega \lambda \right)^2\\
+\end{array}
+\right)
+\end{aligned}
+\end{gather}
+For $\mR$, we will have a noise figure from the sensor to determine $k_{R1}$. $k_{R2}$ expresses how much we trust the measurement as time goes on without further information, and $k_{R2}$ expresses uncertainty it terms of rotational speed.
+
+If the motor that isn't being driven, what is the expected amount we expect it to move? For a stepper motor, we expect it might clog to the next full step. If it is moving, and we expect it to continue so without further input, it will have moved $\omega \lambda$ plus some unmodeled effect from potential friction. 
+
+The uncertainty in the process might quantified by taking into account potential forces that are not accounted for in the model. Neglecting external forces, we have control over our target speed $\omega$ and the acceleration $\alpha_{\textrm{max}}$.
+
+For a scalar $R$, due to only having a single observed variable, $\mK$ can be calculated straight-forwardly without a matrix inversion.
+
+\begin{table}[htbp]
+\caption{Covariance parameters for constant speed motor model.}
+\begin{center}
+\begin{tabular}{llp{0.5\textwidth}} \toprule
+ Parameter & Value & Comment \\
+\midrule
+$k_{Q1}$ & $0.2\pi$ & \unit{10}{\%} of $\alpha_{\textrm{max}}$ as unmodeled disturbance\\
+$k_{Q2}$ & $2\pi$ & larger uncertainty in speed, due it being derived from position\\
+$k_{R1}$ & $0.0222$  & ONL $\sigma = \unit{0.068}{\degree}$ + INL $ = \unit{1.2}{\degree}$\\
+$k_{R2}$ & $2\pi$ & $\alpha_{\textrm{max}} = \unit{2\pi}{\radian\per\second\squared}$ acc limit \\
+$k_{R3}$ & $0$ & assuming measurement is compensated by speed est. \\
+\bottomrule
+\end{tabular}
+\end{center}
+\label{tab:cov-params-const-speed}
+\end{table}%
+
 
 \nocite{*}
 
 %\bibliographystyle{ieeetr}
-%\bibliography{nanoscan-vs-smps}
+%\bibliography{n17-servo-design}
 \printbibliography
 
 
