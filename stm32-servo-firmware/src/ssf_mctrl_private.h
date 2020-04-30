@@ -98,6 +98,8 @@ typedef enum {
 	MCTRL_PPID_FINISH,
 
 	MCTRL_EMF_PREPARE,
+	MCTRL_EMF_STALL_RAMP,
+	MCTRL_EMF_STALL_EVAL,
 	MCTRL_EMF_START,
 	MCTRL_EMF_RAMP,
 	MCTRL_EMF_DECELERATE,
@@ -149,6 +151,7 @@ typedef struct {
 
 	float angleSum;
 	float currentSqrSum[ISENSE_COUNT];
+	float stallSpeed;
 
 	size_t idRunCounter;
 	float adcZeroCalibs[ISENSE_COUNT];
@@ -203,5 +206,6 @@ static inline size_t mctrl_hiBridge(const mctrl_bridge_activation_t bridges[MCTR
 }
 
 void mctrl_updateSimpleSensorEstimate(uint32_t now_us);
+float mctrl_getSimpleMotorSpeedEstimate(void);
 
 #endif // SSF_MCTRL_PRIVATE_H

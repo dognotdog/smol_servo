@@ -274,7 +274,7 @@ static mctrl_simplePositionEstimate_t _estimateSimpleMotorPosition(const mctrl_s
 		float rawEncoderPos = (float)encoderPos.encoderPosition/0x10000*2.0f*M_PI;
 
 		// extrapolate reading to now
-		float zRaw = rawEncoderPos;// + lambda * x_pre[1][0];
+		float zRaw = rawEncoderPos + lambda * x_pre[1][0];
 		// mod angle z to be in the range  x +- pi
 		float z = x_pre[0][0] + _modAngle(zRaw - x_pre[0][0]);
 
@@ -480,6 +480,11 @@ void mctrl_dbgPrintSimpleEstimate(mctrl_simplePositionEstimate_t est)
 		);
 	dbg_printf("t =  %.7e\r\ntm = %.7e\r\n", (double)(1.0e-6f*est.timeStamp_us), (double)(1.0e-6f*est.lastMeasurementTimeStamp_us));
 
+}
+
+float mctrl_getSimpleMotorSpeedEstimate(void)
+{
+	return _simpleMotorPositionEstimate.x[1][0];
 }
 
 void mctrl_dbgPrintSimpleEstimatePair(void)

@@ -1342,6 +1342,33 @@ void mctrl_fastLoop(const uint16_t adcCounts[ISENSE_COUNT])
 			}
 			break;
 		}
+		case MCTRL_EMF_STALL_RAMP:
+		{
+			// increase speed until we stall
+			uint32_t dt_us = now - mctrl.calibCounter;
+			float estSpeed = mctrl_getSimpleMotorSpeedEstimate();
+			float dc = mctrl_params.sysId.staticIdentificationDutyCycle;
+			float speed = 2.0f*M_PI*1.0e-6*(dt_us);
+			mctrl.phase = fmodf(mctrl.phase + speed*MEAS_FULL_PERIOD, 2.0f*M_PI);
+
+			spwm_setDrvChannel(HTIM_DRV_CH_A, 0.5f+dc*sintab(mctrl.phase + M_PI*0.5f));
+			spwm_setDrvChannel(HTIM_DRV_CH_B, 0.5f);
+			spwm_setDrvChannel(HTIM_DRV_CH_C, 0.5f+dc*sintab(mctrl.phase));
+
+			// limit time to 60s
+			if ((dt_us > 60u*1000000u) 
+				|| (  (fabsf(estSpeed) < 0.5f*mctrl.stallSpeed) 
+					&& fabsf(mctrl.stallSpeed) > 0.1*2.0f*M_PI))
+			{
+				mctrl.calibCounter = now;
+				mctrl_state = MCTRL_EMF_STALL_EVAL;
+			}
+			else
+			{
+				mctrl.stallSpeed = fmaxf(fabsf(estSpeed), mctrl.stallSpeed);
+			}
+			break;
+		}
 		case MCTRL_EMF_START:
 		{
 			mctrl.calibCounter = now;

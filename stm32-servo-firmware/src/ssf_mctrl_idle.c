@@ -728,12 +728,31 @@ void mctrl_idle(uint32_t now_us)
 		case MCTRL_EMF_PREPARE:
 		{
 			mctrl.idRunCounter = 0; // up to NUM_STATIC_MEASUREMENTS
-			mctrl.calibCounter = 0; // time keeping 
+			mctrl.calibCounter = now_us; // time keeping 
 			mctrl.counter = 0; // per-run sample counting
-			mctrl.phase = 0;
+			mctrl.phase = 0.0f;
+			mctrl.stallSpeed = 0.1*2.0f*M_PI;
 			memset(mctrl.currentSqrSum, 0, sizeof(mctrl.currentSqrSum));
 
-			mctrl_state = MCTRL_EMF_START;
+			mctrl_state = MCTRL_EMF_STALL_RAMP;
+			break;
+		}
+		case MCTRL_EMF_STALL_RAMP:
+		{
+			// wait on fastloop
+			break;
+		}
+		case MCTRL_EMF_STALL_EVAL:
+		{
+			mctrl.idRunCounter = 0; // up to NUM_STATIC_MEASUREMENTS
+			mctrl.calibCounter = 0; // time keeping 
+			mctrl.counter = 0; // per-run sample counting
+			mctrl.phase = 0.0f;
+
+			dbg_println(" EMF stall speed is = %6.3f RPM", (double)(mctrl.stallSpeed*30.0f/M_PI));
+
+
+			mctrl_state = MCTRL_DEMO;
 			break;
 		}
 		case MCTRL_EMF_START:
