@@ -11,7 +11,7 @@
 	#define dbg_printf(fmt, ...) usb_printf(fmt, ##__VA_ARGS__)
 	#define dbg_println(fmt, ...) usb_printf("DBG %"PRIu32" " fmt "\r\n", HAL_GetTick(), ##__VA_ARGS__)
 	#define warn_println(fmt, ...) usb_printf("WRN %"PRIu32" " fmt "\r\n", HAL_GetTick(), ##__VA_ARGS__)
-	#define err_println(fmt, ...) usb_printf("ERR " fmt "\r\n", ##__VA_ARGS__)
+	#define err_println(fmt, ...) usb_printf("ERR %"PRIu32" " fmt "\r\n", HAL_GetTick(), ##__VA_ARGS__)
 
 #elif defined DEBUG_UART_PRINTF
 
@@ -20,7 +20,7 @@
 	#define dbg_printf(fmt, ...) uart_printf(fmt, ##__VA_ARGS__)
 	#define dbg_println(fmt, ...) uart_printf("DBG %"PRIu32" " fmt "\r\n", HAL_GetTick(), ##__VA_ARGS__)
 	#define warn_println(fmt, ...) uart_printf("WRN %"PRIu32" " fmt "\r\n", HAL_GetTick(), ##__VA_ARGS__)
-	#define err_println(fmt, ...) uart_printf("ERR " fmt "\r\n", ##__VA_ARGS__)
+	#define err_println(fmt, ...) uart_printf("ERR %"PRIu32" " fmt "\r\n", HAL_GetTick(), ##__VA_ARGS__)
 
 #else
 
@@ -29,7 +29,7 @@
 	#define dbg_printf(fmt, ...) printf(fmt, ##__VA_ARGS__)
 	#define dbg_println(fmt, ...) printf("DBG %"PRIu32" " fmt "\r\n", HAL_GetTick(), ##__VA_ARGS__)
 	#define warn_println(fmt, ...) printf("WRN %"PRIu32" " fmt "\r\n", HAL_GetTick(), ##__VA_ARGS__)
-	#define err_println(fmt, ...) printf("ERR " fmt "\r\n", ##__VA_ARGS__)
+	#define err_println(fmt, ...) printf("ERR %"PRIu32" " fmt "\r\n", HAL_GetTick(), ##__VA_ARGS__)
 
 #endif // DEBUG_CUSTOM_PRINTF
 
