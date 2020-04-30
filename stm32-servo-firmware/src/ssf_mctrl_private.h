@@ -21,21 +21,23 @@ enum {
 
 #define PHASE_BUCKETS				16
 #define NUM_STATIC_MEASUREMENTS		8
-#define NUM_PHASE_MEASUREMENTS		32
+#define NUM_PHASE_MEASUREMENTS		16
+#define NUM_ANGLE_MEASUREMENTS		32
 #define NUM_ALIGN_WAIT_ON_CYCLES	33
 #define NUM_ALIGN_WAIT_OFF_CYCLES	333
 
-#define CALIBREADS 3000
-#define NUM_INDUCTANCE_ID_CYCLES 100
+#define CALIBREADS 1000
+#define NUM_INDUCTANCE_ID_CYCLES 20
+
+#define EMFID_INITAL_SPEED	(10.0f * (2.0f*M_PI))
+#define EMFID_RUN_TIME		(3.0f)
 
 
-
-
-#define MEAS_SINGLE_PERIOD 	10.0e-6f
+#define MEAS_SINGLE_PERIOD 		(10.0e-6f)
 // #define MEAS_SAMPLES 		6
-#define MEAS_FULL_PERIOD	(MEAS_SINGLE_PERIOD*ISENSE_COUNT)
-#define NUM_ID_ALGO_SAMPLES	2
-#define NUM_ID_ALGO_ESTIMATES (2*(NUM_STATIC_MEASUREMENTS - (NUM_ID_ALGO_SAMPLES-1)))
+#define MEAS_FULL_PERIOD		(MEAS_SINGLE_PERIOD*ISENSE_COUNT)
+#define NUM_ID_ALGO_SAMPLES		2
+#define NUM_ID_ALGO_ESTIMATES 	(2*(NUM_STATIC_MEASUREMENTS - (NUM_ID_ALGO_SAMPLES-1)))
 #define NUM_IDENTIFICATION_RUNS	6
 
 #define MAX_IDENTIFICATION_REPEATS	32
@@ -90,6 +92,19 @@ typedef enum {
 	MCTRL_SYSID_FINISH,
 	MCTRL_SYSID_DONE,
 
+	MCTRL_PPID_PREPARE,
+	MCTRL_PPID_START,
+	MCTRL_PPID_RUN,
+	MCTRL_PPID_FINISH,
+
+	MCTRL_EMF_PREPARE,
+	MCTRL_EMF_START,
+	MCTRL_EMF_RAMP,
+	MCTRL_EMF_DECELERATE,
+	MCTRL_EMF_RUN,
+	MCTRL_EMF_FINISH,
+
+
 	MCTRL_DEMO,
 	// MCTRL_
 } mctrl_state_t;
@@ -114,7 +129,7 @@ typedef struct {
 		float maxCurrent;
 		float staticIdentificationDutyCycle;
 		size_t maxRampCycles;
-		mctrl_bridge_activation_t idSequence[6][MCTRL_DRIVER_PHASES];
+		mctrl_bridge_activation_t idSequence[NUM_IDENTIFICATION_RUNS][MCTRL_DRIVER_PHASES];
 	} sysId;
 } mctrl_params_t;
 
@@ -126,7 +141,14 @@ typedef struct {
 			float Lvar[NUM_IDENTIFICATION_RUNS];
 			float Rvar[NUM_IDENTIFICATION_RUNS];
 		} phases;
+		mctrl_motor_type_t motorType;
+		struct {
+			size_t stepsPerRev;
+		} ph2;
 	} sysParamEstimates;
+
+	float angleSum;
+	float currentSqrSum[ISENSE_COUNT];
 
 	size_t idRunCounter;
 	float adcZeroCalibs[ISENSE_COUNT];
@@ -180,5 +202,6 @@ static inline size_t mctrl_hiBridge(const mctrl_bridge_activation_t bridges[MCTR
 		 + (bridges[2] == MCTRL_BRIDGE_HI)*2;
 }
 
+void mctrl_updateSimpleSensorEstimate(uint32_t now_us, float alpha);
 
 #endif // SSF_MCTRL_PRIVATE_H

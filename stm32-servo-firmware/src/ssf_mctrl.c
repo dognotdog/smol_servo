@@ -12,6 +12,7 @@
 #include <float.h>
 #include <stdbool.h>
 #include <string.h>
+#include <assert.h>
 
 
 /*
@@ -985,8 +986,28 @@ static void _convertAdcToCurrent(volatile float currents[ISENSE_COUNT], const ui
 	}
 }
 
+static void _compute2PhPwm(const float phase, float pwm[3])
+{
+	float sinx = sintab(phase);
+	float cosx = sintab(phase + M_PI*0.5f);
+	float b = 0.5f-pwm[1]*0.25f*(sinx+cosx);
+	float a = b+pwm[0]*M_SQRT1_2*(cosx);
+	float c = b+pwm[2]*M_SQRT1_2*(sinx);
+	pwm[0] = a;
+	pwm[1] = b;
+	pwm[2] = c;
+}
+
 void mctrl_fastLoop(const uint16_t adcCounts[ISENSE_COUNT])
 {
+	// check if we're taking too long to execute, which is bad
+	if ((mctrl.debug.lastEventCount > 12) && (mctrl.debug.lastEventCountDelta != 6))
+	{
+		err_println("mctrl.debug.lastEventCountDelta not 6 but %u", mctrl.debug.lastEventCountDelta);
+		assert(0);
+	}
+	// assert((mctrl.debug.lastEventCount == 0) || (mctrl.debug.lastEventCountDelta == 6));
+
 	uint32_t now = utime_now();
 	uint16_t eventCount = perf_getEventCount();
 
@@ -995,6 +1016,8 @@ void mctrl_fastLoop(const uint16_t adcCounts[ISENSE_COUNT])
 
 	mctrl.debug.lastEventCountDelta = eventCount - mctrl.debug.lastEventCount;
 	mctrl.debug.lastEventCount = eventCount;
+
+	float alpha = 0.0f;
 
 	switch (mctrl_state)
 	{
@@ -1282,11 +1305,119 @@ void mctrl_fastLoop(const uint16_t adcCounts[ISENSE_COUNT])
 			else
 			{
 				// turn everything low again once we're done
-				spwm_setDrvChannel(HTIM_DRV_CH_A, 0.0);
-				spwm_setDrvChannel(HTIM_DRV_CH_B, 0.0);
-				spwm_setDrvChannel(HTIM_DRV_CH_C, 0.0);
+				spwm_setDrvChannel(HTIM_DRV_CH_A, 0.0f);
+				spwm_setDrvChannel(HTIM_DRV_CH_B, 0.0f);
+				spwm_setDrvChannel(HTIM_DRV_CH_C, 0.0f);
 
 				mctrl_state = MCTRL_IMPEDANCE_ID_FINISH;
+			}
+			break;
+		}
+		case MCTRL_PPID_START:
+		{
+			mctrl.calibCounter = now;
+			if (mctrl.sysParamEstimates.motorType == MCTRL_MOT_2PH)
+			{
+				float dc = mctrl_params.sysId.staticIdentificationDutyCycle;
+				size_t step = mctrl.counter % 4;
+				float p0[4] = {0.5f, 0.0f, -0.5f, 0.0f};
+				float p1[4] = {0.0f, 0.5f, 0.0f, -0.5f};
+				spwm_setDrvChannel(HTIM_DRV_CH_A, 0.5f + dc*p0[step]);
+				spwm_setDrvChannel(HTIM_DRV_CH_B, 0.5f);
+				spwm_setDrvChannel(HTIM_DRV_CH_C, 0.5f + dc*p1[step]);
+			}
+
+			mctrl_state = MCTRL_PPID_RUN;
+			break;
+		}
+		case MCTRL_PPID_RUN:
+		{
+			if (now - mctrl.calibCounter > 250000u)
+			{
+				spwm_setDrvChannel(HTIM_DRV_CH_A, 0.0f);
+				spwm_setDrvChannel(HTIM_DRV_CH_B, 0.0f);
+				spwm_setDrvChannel(HTIM_DRV_CH_C, 0.0f);
+
+				mctrl_state = MCTRL_PPID_FINISH;
+			}
+			break;
+		}
+		case MCTRL_EMF_START:
+		{
+			mctrl.calibCounter = now;
+			mctrl.phase = 0.0f;
+			if (mctrl.sysParamEstimates.motorType == MCTRL_MOT_2PH)
+			{
+				float dc = mctrl_params.sysId.staticIdentificationDutyCycle;
+				spwm_setDrvChannel(HTIM_DRV_CH_A, 0.5f+dc*sintab(mctrl.phase));
+				spwm_setDrvChannel(HTIM_DRV_CH_B, 0.5f);
+				spwm_setDrvChannel(HTIM_DRV_CH_C, 0.5f+dc*sintab(mctrl.phase + M_PI*0.5f));
+			}
+
+			mctrl_state = MCTRL_EMF_RAMP;
+			break;
+		}
+		case MCTRL_EMF_RAMP:
+		{
+
+			float dc = mctrl_params.sysId.staticIdentificationDutyCycle;
+			float speed = EMFID_INITAL_SPEED*fminf(1.0f, 1.0e-6*(now - mctrl.calibCounter));
+			alpha = EMFID_INITAL_SPEED;
+			mctrl.phase = fmodf(mctrl.phase + speed*MEAS_FULL_PERIOD, 2.0f*M_PI);
+
+			spwm_setDrvChannel(HTIM_DRV_CH_A, 0.5f+dc*sintab(mctrl.phase));
+			spwm_setDrvChannel(HTIM_DRV_CH_C, 0.5f+dc*sintab(mctrl.phase + M_PI*0.5f));
+
+			if (now - mctrl.calibCounter > 1000000u)
+			{
+				mctrl.calibCounter = now;
+				mctrl_state = MCTRL_EMF_RUN;
+			}
+			break;
+		}
+		case MCTRL_EMF_RUN:
+		{
+			float dc = mctrl_params.sysId.staticIdentificationDutyCycle;
+			float speed = EMFID_INITAL_SPEED*1.0f;
+			mctrl.phase = fmodf(mctrl.phase + speed*MEAS_FULL_PERIOD, 2.0f*M_PI);
+
+			spwm_setDrvChannel(HTIM_DRV_CH_A, 0.5f+dc*sintab(mctrl.phase));
+			spwm_setDrvChannel(HTIM_DRV_CH_C, 0.5f+dc*sintab(mctrl.phase + M_PI*0.5f));
+
+			float vdda = ssf_getVdda();
+			float currents[ISENSE_COUNT] = {0.0f};
+			_convertAdcToCurrent(currents, adcCounts, vdda);
+
+			for (size_t i = 0; i < ISENSE_COUNT; ++i)
+			{
+				mctrl.currentSqrSum[i] += currents[i]*currents[i];
+			}
+			++mctrl.counter;
+
+			if (now - mctrl.calibCounter > (unsigned)(1.0e6f*EMFID_RUN_TIME))
+			{
+				mctrl.calibCounter = now;
+				mctrl_state = MCTRL_EMF_DECELERATE;
+			}
+			break;
+		}
+		case MCTRL_EMF_DECELERATE:
+		{
+			float dc = mctrl_params.sysId.staticIdentificationDutyCycle;
+			float speed = EMFID_INITAL_SPEED*fmaxf(0.0f, 1.0e-6*(1000000u - (now - mctrl.calibCounter)));
+			alpha = -EMFID_INITAL_SPEED;
+			mctrl.phase = fmodf(mctrl.phase + speed*MEAS_FULL_PERIOD, 2.0f*M_PI);
+
+			spwm_setDrvChannel(HTIM_DRV_CH_A, 0.5f+dc*sintab(mctrl.phase));
+			spwm_setDrvChannel(HTIM_DRV_CH_C, 0.5f+dc*sintab(mctrl.phase + M_PI*0.5f));
+
+			if (now - mctrl.calibCounter > 1000000u)
+			{
+				spwm_setDrvChannel(HTIM_DRV_CH_A, 0.0f);
+				spwm_setDrvChannel(HTIM_DRV_CH_B, 0.0f);
+				spwm_setDrvChannel(HTIM_DRV_CH_C, 0.0f);
+				mctrl.calibCounter = now;
+				mctrl_state = MCTRL_EMF_FINISH;
 			}
 			break;
 		}
@@ -1310,12 +1441,13 @@ void mctrl_fastLoop(const uint16_t adcCounts[ISENSE_COUNT])
 			// keep the brake resistor off
 			spwm_setDrvChannel(HTIM_DRV_CH_R, 0.0f);
 
-			// keep B at 50% for 2-phase drivering
-			spwm_setDrvChannel(HTIM_DRV_CH_B, 0.5f);
+			float dc = 0.1f;
+			float pwm[3] = {dc, dc, dc};
+			_compute2PhPwm(mctrl.phase, pwm);
 
-			// vary A,C with sines
-			spwm_setDrvChannel(HTIM_DRV_CH_A, 0.5f+0.1f*sintab(mctrl.phase));
-			spwm_setDrvChannel(HTIM_DRV_CH_C, 0.5f+0.1f*sintab(mctrl.phase + M_PI*0.5f));
+			spwm_setDrvChannel(HTIM_DRV_CH_A, pwm[0]);
+			spwm_setDrvChannel(HTIM_DRV_CH_B, pwm[1]);
+			spwm_setDrvChannel(HTIM_DRV_CH_C, pwm[2]);
 
 			++mctrl.counter;
 			mctrl.phase = fmodf(mctrl.phase + step, 2.0f*M_PI);
@@ -1328,5 +1460,6 @@ void mctrl_fastLoop(const uint16_t adcCounts[ISENSE_COUNT])
 		}
 	}
 
+	mctrl_updateSimpleSensorEstimate(utime_now(), alpha);
 }
 

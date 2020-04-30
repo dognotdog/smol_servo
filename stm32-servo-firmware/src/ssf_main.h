@@ -75,10 +75,6 @@ extern float ssf_getVbus(void);
 extern float ssf_getVddp(void);
 extern float ssf_getVdda(void);
 
-extern void mctrl_init(void);
-extern void mctrl_fastLoop(const uint16_t adcCounts[6]);
-extern float* mctrl_getPhaseTable(size_t i);
-extern void mctrl_idle(uint32_t now_us);
 
 extern void ssf_ledInit(void);
 extern void ssf_ledIdle(void);

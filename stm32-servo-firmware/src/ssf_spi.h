@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include <stddef.h>
+#include <stdbool.h>
 
 // SPI chip select mux pins
 // DRV8323 is on PB11 on V0.1
@@ -28,6 +29,7 @@ typedef struct {
 	uint16_t ERRFL;
 	uint16_t DIAAGC;
 	uint16_t ANGLEUNC;
+	uint32_t start_us, end_us;
 } sspi_as5047_state_t;
 
 
@@ -79,6 +81,8 @@ extern void ssf_asyncReadHallSensorCallback(sspi_as5047_state_t sensorState);
 extern sspi_as5047_state_t ssf_readHallSensor(void);
 extern sspi_drv_state_t ssf_readMotorDriver();
 
+bool ssf_checkSpiEncoderReadOk(sspi_as5047_state_t state);
+
 extern void ssf_printMotorDriverFaults(sspi_drv_state_t state);
 extern void ssf_dbgPrintEncoderStatus(sspi_as5047_state_t state);
 
@@ -86,6 +90,7 @@ extern sspi_drv_state_t ssf_enterMotorDriverCalibrationMode(void);
 extern sspi_drv_state_t ssf_exitMotorDriverCalibrationMode(void);
 extern sspi_drv_state_t ssf_setMotorDriver3PwmMode(void);
 
+extern void spi_printTransferStatus(void);
 
 extern void ssf_spiInit(void);
 

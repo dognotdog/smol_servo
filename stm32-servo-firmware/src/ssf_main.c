@@ -9,6 +9,7 @@
 #include "ssf_main.h"
 #include "ssf_spi.h"
 #include "ssf_flash.h"
+#include "ssf_mctrl.h"
 #include "utime.h"
 
 #include "servo_hid_if.h"
@@ -16,6 +17,13 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <errno.h>
+#include <assert.h>
+
+void __assert_func(const char * file, int line, const char * function, const char * expr)
+{
+	err_println("assertion failed: `%s` in %s, file %s:%u", expr, function, file, line);
+	while (1) {};
+}
 
 
 static void _setPinAsGpioOutput(GPIO_TypeDef *gpio, uint32_t GPIO_Pin)
@@ -138,23 +146,36 @@ void ssf_usbRxCallback(const void* _data, size_t datalen)
 	}
 }
 
-static volatile sspi_as5047_state_t _hallState;
+// static volatile sspi_as5047_state_t _hallState;
+// static volatile uint32_t			_hallReadCounter;
 
-void ssf_asyncReadHallSensorCallback(sspi_as5047_state_t sensorState)
-{
-	_hallState = sensorState;
-}
+// void ssf_asyncReadHallSensorCallback(sspi_as5047_state_t sensorState)
+// {
+// 	_hallState = sensorState;
+// 	++_hallReadCounter;
+// }
 
-extern void ssf_ui1sTask(uint32_t now_us)
+// float ssf_getEncoderAngle(void)
+// {
+// 	return (float)(_hallState.ANGLEUNC & 0x3FFF) / (float)0x4000 * 2.0f*M_PI;
+// }
+
+
+void ssf_ui1sTask(uint32_t now_us)
 {
 	// dbg_println("Hello USB!");
 	// // HAL_Delay(8);
-
+	
+	// spi_printTransferStatus();
 	// ssf_asyncReadHallSensor();
-	// _hallState = ssf_readHallSensor();
-	sspi_as5047_state_t hallState = _hallState;
+	// sspi_as5047_state_t hallState = ssf_readHallSensor();
+	sspi_as5047_state_t hallState = ssf_dbgGetLastEncoderReading();
+	uint32_t readCounter = ssf_dbgGetEncoderReadCounter();
+	uint32_t errorCounter = ssf_dbgGetEncoderErrorCounter();
+	dbg_println("AS5047D %8u reads, %8u errors", readCounter, errorCounter);
+
 	ssf_dbgPrintEncoderStatus(hallState);
-	dbg_println("HALL 0x%04x, 0x%04x, 0x%04x, 0x%04x", hallState.NOP, hallState.ERRFL, hallState.DIAAGC, hallState.ANGLEUNC);
+	// dbg_println("HALL[%8u] 0x%04x, 0x%04x, 0x%04x, 0x%04x", readCounter, hallState.NOP, hallState.ERRFL, hallState.DIAAGC, hallState.ANGLEUNC);
 	{
 		sspi_drv_state_t drvState = ssf_readMotorDriver();
 		// dbg_println("DRV %04x, %04x, %04x, %04x, %04x, %04x, %04x", drvState.FAULT_STATUS.reg, drvState.VGS_STATUS.reg, drvState.DRV_CTRL.reg, drvState.DRV_HS.reg, drvState.DRV_LS.reg, drvState.OCP_CTRL.reg, drvState.CSA_CTRL.reg);
@@ -173,7 +194,21 @@ extern void ssf_ui1sTask(uint32_t now_us)
 	// dbg_println("iA = %8.3f %8.3f, iB = %8.3f %8.3f, iC = %8.3f %8.3f", (double)currentSensed[0], (double)currentSensed[1], (double)currentSensed[2], (double)currentSensed[3], (double)currentSensed[4], (double)currentSensed[5]);
 	// dbg_println("iA = %5u %5u, iB = %5u %5u, iC = %5u %5u", (int)an1_buf[0], (int)an1_buf[1], (int)an1_buf[2], (int)an1_buf[3], (int)an1_buf[4], (int)an1_buf[5]);
 
+	mctrl_simplePositionEstimate_t posEst = mctrl_getSimpleMotorPositionEstimate();
+
+	dbg_println("x_est %8.3f deg, speed = %8.3f rpm", (double)(posEst.x[0][0]*180.0f/M_PI), (double)(posEst.x[1][0]*30.0f/M_PI));
+	// mctrl_dbgPrintSimpleEstimatePair();
+	// dbg_println("P =  %8.3g %8.3g", (double)(sqrtf(posEst.P[0][0])), (double)(sqrtf(posEst.P[0][1])));
+	// dbg_println("     %8.3g %8.3g", (double)(sqrtf(posEst.P[1][0])), (double)(sqrtf(posEst.P[1][1])));
+	// dbg_println("Q =  %8.3g %8.3g", (double)(sqrtf(posEst.debug.Q[0][0])), (double)(sqrtf(posEst.debug.Q[0][1])));
+	// dbg_println("     %8.3g %8.3g", (double)(sqrtf(posEst.debug.Q[1][0])), (double)(sqrtf(posEst.debug.Q[1][1])));
+	// dbg_println("K =  %8.3g", (double)((posEst.debug.K[0][0])));
+	// dbg_println("     %8.3g", (double)((posEst.debug.K[1][0])));
+	// dbg_println("R =  %8.3g", (double)(sqrtf(posEst.debug.R)));
+	// dbg_println("t =  %8.3f, tm = %8.3f", (double)(1.0e-6f*posEst.timeStamp_us), (double)(1.0e-6f*posEst.lastMeasurementTimeStamp_us));
+
 	dbg_println("VBUS = %.3f, VDDA = %.3f, VDDP = %.3f", (double)ssf_getVbus(), (double)ssf_getVdda(), (double)ssf_getVddp());
+
 
 	// float* phaseCurrents0 = mctrl_getPhaseTable(2);
 	// float* phaseCurrents1 = mctrl_getPhaseTable(3);

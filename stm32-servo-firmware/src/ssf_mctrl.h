@@ -1,0 +1,43 @@
+#ifndef SSF_MCTRL_H
+#define SSF_MCTRL_H
+
+#include "ssf_spi.h"
+
+#include <stdint.h>
+#include <stddef.h>
+
+typedef struct {
+	float x[2][1];
+	float P[2][2];
+	struct {
+		float z[1][1];
+		float x_pre[2][1];
+		float x_post[2][1];
+		float Kz_Hx[2][1];
+		float R;
+		float Q[2][2];
+		float K[2][1];
+	} debug;
+	uint32_t timeStamp_us;
+	uint32_t lastMeasurementTimeStamp_us;
+} mctrl_simplePositionEstimate_t;
+
+
+// mctrl
+extern float ssf_getEncoderAngle(void);
+bool ssf_atomicTryGetEncoderAngle(float* val, uint32_t* time_us);
+extern uint32_t ssf_dbgGetEncoderReadCounter(void);
+extern uint32_t ssf_dbgGetEncoderErrorCounter(void);
+extern sspi_as5047_state_t ssf_dbgGetLastEncoderReading(void);
+
+extern void mctrl_init(void);
+extern void mctrl_fastLoop(const uint16_t adcCounts[6]);
+extern float* mctrl_getPhaseTable(size_t i);
+extern void mctrl_idle(uint32_t now_us);
+
+extern mctrl_simplePositionEstimate_t mctrl_getSimpleMotorPositionEstimate(void);
+
+extern void mctrl_dbgPrintSimpleEstimatePair(void);
+extern void mctrl_dbgPrintSimpleEstimate(mctrl_simplePositionEstimate_t est);
+
+#endif // SSF_MCTRL_H

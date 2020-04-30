@@ -1,5 +1,6 @@
 
 #include "ssf_mctrl_private.h"
+#include "ssf_mctrl.h"
 
 #include "ssf_spi.h"
 #include "ssf_main.h"
@@ -7,6 +8,7 @@
 #include "debug.h"
 
 #include <string.h>
+#include <assert.h>
 
 void mctrl_idle(uint32_t now_us)
 {
@@ -20,6 +22,8 @@ void mctrl_idle(uint32_t now_us)
 	static float inductanceVariance = 0.0f;
 
 	uint32_t waitElapsed = now_us - waitStart;
+
+	// assert((mctrl.debug.lastEventCount == 0) || (mctrl.debug.lastEventCountDelta == 6));
 
 	switch(mctrl_state)
 	{
@@ -660,14 +664,109 @@ void mctrl_idle(uint32_t now_us)
 			else if (ph3Weight > ph2Weight)
 			{
 				dbg_println("Looks like we have a 2-Phase motor.");
+				mctrl.sysParamEstimates.motorType = MCTRL_MOT_2PH;
 			}
 			else
 			{
 				dbg_println("Looks like we have a 3-Phase motor.");		
+				mctrl.sysParamEstimates.motorType = MCTRL_MOT_3PH;
 			}
 
 			spwm_enableHalfBridges(0x7);
-			mctrl_state = MCTRL_DEMO;
+			mctrl_state = MCTRL_PPID_PREPARE;
+			break;
+		}
+		case MCTRL_PPID_PREPARE:
+		{
+			mctrl.calibCounter = 0;
+			mctrl.counter = 0;
+			mctrl.phase = 0;
+
+			mctrl_state = MCTRL_PPID_START;
+			break;
+		}
+		case MCTRL_PPID_START:
+		case MCTRL_PPID_RUN:
+		{
+			// wait on fastloop
+			break;
+		}
+		case MCTRL_PPID_FINISH:
+		{
+			float angle = ssf_getEncoderAngle();
+
+			dbg_println("Encoder angle = %.3f deg", (double)(angle*180.0f/M_PI));
+
+			if (mctrl.counter == 0)
+			{
+				mctrl.phase = angle;
+				mctrl.angleSum = 0.0f;
+			}
+
+			if (mctrl.counter < NUM_ANGLE_MEASUREMENTS)
+			{
+				++mctrl.counter;
+				mctrl_state = MCTRL_PPID_START;
+			}
+			else
+			{
+				float delta = angle - mctrl.phase;
+				mctrl.phase = angle;
+				mctrl.angleSum += fabsf(delta);
+
+				float stepSize = mctrl.angleSum*(1.0f/NUM_ANGLE_MEASUREMENTS);
+				dbg_println("Encoder step angle = %.3f deg", (double)(stepSize*180.0f/M_PI));
+
+				mctrl.sysParamEstimates.ph2.stepsPerRev = 2.0f*M_PI*NUM_ANGLE_MEASUREMENTS/fabsf(mctrl.angleSum) + 0.5f;
+
+				dbg_println("Steps per rev = %u", mctrl.sysParamEstimates.ph2.stepsPerRev);
+
+				mctrl_state = MCTRL_EMF_PREPARE;
+			}
+			break;
+		}
+		case MCTRL_EMF_PREPARE:
+		{
+			mctrl.idRunCounter = 0; // up to NUM_STATIC_MEASUREMENTS
+			mctrl.calibCounter = 0; // time keeping 
+			mctrl.counter = 0; // per-run sample counting
+			mctrl.phase = 0;
+			memset(mctrl.currentSqrSum, 0, sizeof(mctrl.currentSqrSum));
+
+			mctrl_state = MCTRL_EMF_START;
+			break;
+		}
+		case MCTRL_EMF_START:
+		case MCTRL_EMF_RAMP:
+		case MCTRL_EMF_RUN:
+		case MCTRL_EMF_DECELERATE:
+		{
+			// wait on fastloop
+			break;
+		}
+		case MCTRL_EMF_FINISH:
+		{
+			dbg_println("MCTRL_EMF_FINISH");
+
+			float rmsCurrents[ISENSE_COUNT] = {0.0f};
+			for (size_t i = 0; i < ISENSE_COUNT; ++i)
+			{
+				rmsCurrents[i] = sqrtf(mctrl.currentSqrSum[i]/(mctrl.counter));
+				mctrl.lastMeasurement[mctrl.idRunCounter][i] = rmsCurrents[i];
+				dbg_println(" RMS current[%u] = %6.3f", i, (double)rmsCurrents[i]);
+			}
+
+			++mctrl.idRunCounter;
+
+			if (mctrl.idRunCounter < NUM_STATIC_MEASUREMENTS)
+			{
+				memset(mctrl.currentSqrSum, 0, sizeof(mctrl.currentSqrSum));
+				mctrl_state = MCTRL_EMF_START;
+			}
+			else
+			{
+				mctrl_state = MCTRL_DEMO;
+			}
 			break;
 		}
 		case MCTRL_DEMO:
