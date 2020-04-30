@@ -1017,7 +1017,7 @@ void mctrl_fastLoop(const uint16_t adcCounts[ISENSE_COUNT])
 	mctrl.debug.lastEventCountDelta = eventCount - mctrl.debug.lastEventCount;
 	mctrl.debug.lastEventCount = eventCount;
 
-	float alpha = 0.0f;
+	// float alpha = 0.0f;
 
 	switch (mctrl_state)
 	{
@@ -1362,7 +1362,7 @@ void mctrl_fastLoop(const uint16_t adcCounts[ISENSE_COUNT])
 
 			float dc = mctrl_params.sysId.staticIdentificationDutyCycle;
 			float speed = EMFID_INITAL_SPEED*fminf(1.0f, 1.0e-6*(now - mctrl.calibCounter));
-			alpha = EMFID_INITAL_SPEED;
+			// alpha = EMFID_INITAL_SPEED;
 			mctrl.phase = fmodf(mctrl.phase + speed*MEAS_FULL_PERIOD, 2.0f*M_PI);
 
 			spwm_setDrvChannel(HTIM_DRV_CH_A, 0.5f+dc*sintab(mctrl.phase));
@@ -1405,7 +1405,7 @@ void mctrl_fastLoop(const uint16_t adcCounts[ISENSE_COUNT])
 		{
 			float dc = mctrl_params.sysId.staticIdentificationDutyCycle;
 			float speed = EMFID_INITAL_SPEED*fmaxf(0.0f, 1.0e-6*(1000000u - (now - mctrl.calibCounter)));
-			alpha = -EMFID_INITAL_SPEED;
+			// alpha = -EMFID_INITAL_SPEED;
 			mctrl.phase = fmodf(mctrl.phase + speed*MEAS_FULL_PERIOD, 2.0f*M_PI);
 
 			spwm_setDrvChannel(HTIM_DRV_CH_A, 0.5f+dc*sintab(mctrl.phase));
@@ -1460,6 +1460,6 @@ void mctrl_fastLoop(const uint16_t adcCounts[ISENSE_COUNT])
 		}
 	}
 
-	mctrl_updateSimpleSensorEstimate(utime_now(), alpha);
+	mctrl_updateSimpleSensorEstimate(utime_now());
 }
 

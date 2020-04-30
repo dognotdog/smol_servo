@@ -214,7 +214,7 @@ static inline float _modAngle(const float a)
 }
 
 
-static mctrl_simplePositionEstimate_t _estimateSimpleMotorPosition(const mctrl_simplePositionEstimate_t prev, const float alpha, uint32_t now_us)
+static mctrl_simplePositionEstimate_t _estimateSimpleMotorPosition(const mctrl_simplePositionEstimate_t prev, uint32_t now_us)
 {
 	// static ssf_encoderPosition_t oldEncoderPos = {.timeSpan_us = -1};
 	ssf_encoderPosition_t encoderPos = {.timeSpan_us = -1};
@@ -355,9 +355,9 @@ mctrl_simplePositionEstimate_t mctrl_getSimpleMotorPositionEstimate(void)
 	return _simpleMotorPositionEstimate;
 }
 
-void mctrl_updateSimpleSensorEstimate(uint32_t now_us, float alpha)
+void mctrl_updateSimpleSensorEstimate(uint32_t now_us)
 {
-	mctrl_simplePositionEstimate_t newEstimate = _estimateSimpleMotorPosition(_simpleMotorPositionEstimate, alpha, now_us);
+	mctrl_simplePositionEstimate_t newEstimate = _estimateSimpleMotorPosition(_simpleMotorPositionEstimate, now_us);
 
 	_simpleMotorPositionEstimate = newEstimate;
 }

@@ -202,6 +202,6 @@ static inline size_t mctrl_hiBridge(const mctrl_bridge_activation_t bridges[MCTR
 		 + (bridges[2] == MCTRL_BRIDGE_HI)*2;
 }
 
-void mctrl_updateSimpleSensorEstimate(uint32_t now_us, float alpha);
+void mctrl_updateSimpleSensorEstimate(uint32_t now_us);
 
 #endif // SSF_MCTRL_PRIVATE_H
