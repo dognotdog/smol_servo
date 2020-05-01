@@ -25,8 +25,8 @@ linregResult_t linreg_solve(incrementalLinreg_t self)
 	float nom = (self.n*self.sumxy - self.sumx*self.sumy);
 	float den = (self.n*self.sumx2 - self.sumx*self.sumx) * (self.n*self.sumy2 - self.sumy*self.sumy);
 	linregResult_t result = {
-		.intercept = (self.n * self.sumxy  -  self.sumx*self.sumy) / denom,
-		.slope = (self.sumy * self.sumx2  -  self.sumx*self.sumxy) / denom,
+		.slope = (self.n * self.sumxy  -  self.sumx*self.sumy) / denom,
+		.intercept = (self.sumy * self.sumx2  -  self.sumx*self.sumxy) / denom,
 	    .rsqr =  nom*nom / den,
 	    .ok = true,
 	};
