@@ -120,9 +120,9 @@ float ssf_getVddp(void)
 	const float bridgeHi = 22.0e3f;
 	// guess at parasitic resistance
 	// zener data: VR = 1V, IRmax = 25uA
-	const float rParasitic = 60.0e3f;
-	const float bridgeLo = (5.11e3f*rParasitic)/(5.11e3f+rParasitic);
-	// const float bridgeLo = 5.11e3f;
+	// const float rParasitic = 60.0e3f;
+	// const float bridgeLo = (5.11e3f*rParasitic)/(5.11e3f+rParasitic);
+	const float bridgeLo = 5.11e3f;
 
 	// const float Ir = 5.0e-6f;
 	// const float vddp = vdiv * (1.0f + bridgeHi/bridgeLo) + Ir*bridgeHi;
@@ -142,9 +142,9 @@ float ssf_getVbus(void)
 	// guess at parasitic resistance
 	// zener data: VR = 1V, IRmax = 25uA
 	// STM32 analog input impedance spec'd at ~50k input impedance with a 5p sample-and-hold capacitor
-	const float rParasitic = 500.0e3f;
-	const float bridgeLo = (5.11e3f*rParasitic)/(5.11e3f+rParasitic);
-	// const float bridgeLo = 5.11e3f;
+	// const float rParasitic = 500.0e3f;
+	// const float bridgeLo = (5.11e3f*rParasitic)/(5.11e3f+rParasitic);
+	const float bridgeLo = 5.11e3f;
 
 	// const float Ir = 5.0e-6f;
 	// const float vbus = vdiv * (1.0f + bridgeHi/bridgeLo) + Ir*bridgeHi;
