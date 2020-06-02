@@ -298,6 +298,19 @@ OPENOCD_COMMON += set CLOCK_FREQ 4000;
 OPENOCD_COMMON += source [find target/stm32g4x.cfg]; 
 # OPENOCD_COMMON += gdb_port disabled; 
 
+ifeq ($(BMP_PORT),)
+BMP_PORT_CANDIDATES := $(wildcard \
+/dev/serial/by-id/usb-Black_Sphere_Technologies_Black_Magic_Probe_*-if00 \
+/dev/cu.usbmodem*1)
+ifeq ($(words $(BMP_PORT_CANDIDATES)),1)
+BMP_PORT := $(BMP_PORT_CANDIDATES)
+else
+BMP_PORT = $(error Black Magic Probe gdb serial port not found, please provide the device name via the BMP_PORT variable parameter$(if \
+$(BMP_PORT_CANDIDATES), (found $(BMP_PORT_CANDIDATES))))
+endif
+endif
+
+
 .PHONY: program
 program: $(BUILD_DIR)/$(TARGET).hex
 	openocd --command "$(OPENOCD_COMMON) init; reset halt; program $(BUILD_DIR)/$(TARGET).hex verify reset; sleep 100; reset halt; reset run; exit"
@@ -321,6 +334,14 @@ gdbserver:
 .PHONY: debug
 debug:
 	$(GDB) --eval-command="target remote localhost:3333"  $(BUILD_DIR)/$(TARGET).elf
+
+.PHONY: dmagic
+dmagic:
+	$(GDB) --eval-command="target extended-remote $(BMP_PORT)" --eval-command="monitor swdp_scan" --eval-command="attach 1"  $(BUILD_DIR)/$(TARGET).elf
+
+.PHONY: fmagic
+fmagic:
+	$(GDB) -nx --batch -ex "target extended-remote $(BMP_PORT)" -ex "monitor swdp_scan" -ex "attach 1"  -ex "load" -ex "compare-sections" -ex "detach" -ex "kill" $(BUILD_DIR)/$(TARGET).elf
 
 .PHONY: nm
 nm:
