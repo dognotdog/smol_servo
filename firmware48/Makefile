@@ -341,7 +341,11 @@ dmagic:
 
 .PHONY: fmagic
 fmagic:
-	$(GDB) -nx --batch -ex "target extended-remote $(BMP_PORT)" -ex "monitor swdp_scan" -ex "attach 1"  -ex "load" -ex "compare-sections" -ex "detach" -ex "kill" $(BUILD_DIR)/$(TARGET).elf
+	$(GDB) -nx --batch -ex "target extended-remote $(BMP_PORT)" -ex "monitor swdp_scan" -ex "attach 1"  -ex "load" -ex "compare-sections" -ex "detach" $(BUILD_DIR)/$(TARGET).elf
+
+.PHONY: rmagic
+rmagic:
+	$(GDB) -nx --batch -ex "target extended-remote $(BMP_PORT)" -ex "monitor swdp_scan" -ex "attach 1"  -ex "start" -ex "detach" $(BUILD_DIR)/$(TARGET).elf
 
 .PHONY: nm
 nm:
