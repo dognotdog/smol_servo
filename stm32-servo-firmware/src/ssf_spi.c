@@ -95,7 +95,7 @@ typedef enum {
 struct spi_transfer_s;
 typedef struct spi_transfer_s spi_transfer_t;
 
-typedef void (*spi_transferCallback_t)(const spi_transfer_t* const transfer);
+typedef void (*spi_transferCallback_t)(const spi_transfer_t* const transfer, const bool transferOk);
 
 struct spi_transfer_s {
 	const uint16_t* src;
@@ -316,7 +316,7 @@ static void _spi_asyncStartTransferWord(spi_transfer_t transfer, size_t wordInde
 									}
 
 									if (spi.currentTransfer.callback)
-										spi.currentTransfer.callback(&spi.currentTransfer);
+										spi.currentTransfer.callback(&spi.currentTransfer, true);
 
 									while (1)
 									{
@@ -517,7 +517,7 @@ void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef *hspi)
 				}
 
 				if (spi.currentTransfer.callback)
-					spi.currentTransfer.callback(&spi.currentTransfer);
+					spi.currentTransfer.callback(&spi.currentTransfer, true);
 
 				while (1)
 				{
@@ -563,7 +563,7 @@ void HAL_SPI_ErrorCallback(SPI_HandleTypeDef *hspi)
 	atomic_store(&_transferStatus, SPI_XFER_ERROR);
 	err_println("HAL_SPI_ErrorCallback");
 	if (spi.currentTransfer.callback)
-		spi.currentTransfer.callback(&spi.currentTransfer);
+		spi.currentTransfer.callback(&spi.currentTransfer, false);
 	atomic_store(&_transferStatus, SPI_XFER_IDLE);
 
 }
@@ -573,7 +573,7 @@ void HAL_SPI_AbortCallback(SPI_HandleTypeDef *hspi)
 	atomic_store(&_transferStatus, SPI_XFER_ERROR);
 	err_println("HAL_SPI_AbortCallback");
 	if (spi.currentTransfer.callback)
-		spi.currentTransfer.callback(&spi.currentTransfer);
+		spi.currentTransfer.callback(&spi.currentTransfer, false);
 	atomic_store(&_transferStatus, SPI_XFER_IDLE);
 
 }
@@ -652,7 +652,7 @@ static uint16_t _hallSensorRxBuf[4] = {0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF};
 
 static uint32_t _asyncReadHallSensorTick = 0;
 
-static void _readHallSensorCallback(const spi_transfer_t* const transfer)
+static void _readHallSensorCallback(const spi_transfer_t* const transfer, bool transferOk)
 {
 	// dbg_println("_readHallSensorCallback()...");
 
@@ -667,7 +667,7 @@ static void _readHallSensorCallback(const spi_transfer_t* const transfer)
 		.end_us = tock,
 	};	
 
-	ssf_asyncReadHallSensorCallback(state);
+	ssf_asyncReadHallSensorCallback(state, transferOk);
 }
 
 
@@ -875,17 +875,22 @@ static bool _checkSpiEncoderRegReadOk(uint16_t reg)
 	return (_PAR(reg) == reg) && ((reg & 0x4000) == 0);
 }
 
-bool ssf_checkSpiEncoderReadOk(sspi_as5047_state_t state)
+bool ssf_checkSpiEncoderReadOk(sspi_as5047_state_t state, bool* formatError, bool* valueError)
 {
-	return _checkSpiEncoderRegReadOk(state.ERRFL) 
-		&& _checkSpiEncoderRegReadOk(state.DIAAGC) 
-		&& _checkSpiEncoderRegReadOk(state.ERRFL) 
-		&& _checkSpiEncoderRegReadOk(state.ANGLEUNC) 
-		&& ((state.ERRFL  & 0x0007) == 0) // no SPI error flags
-		&& ((state.DIAAGC & 0x0100) != 0) // offset loops ready
-		&& ((state.DIAAGC & 0x0200) == 0) // no cordic overflow
-		&& ((state.DIAAGC & 0x0C00) != 0x0C00) // mag-hi and mag-lo not active at once
-		;
+	bool formatOk = _checkSpiEncoderRegReadOk(state.NOP) 
+					&& _checkSpiEncoderRegReadOk(state.DIAAGC) 
+					&& _checkSpiEncoderRegReadOk(state.ERRFL) 
+					&& _checkSpiEncoderRegReadOk(state.ANGLEUNC);
+	bool valueOk = ((state.ERRFL  & 0x0007) == 0) // no SPI error flags
+					&& ((state.DIAAGC & 0x0100) != 0) // offset loops ready
+					&& ((state.DIAAGC & 0x0200) == 0) // no cordic overflow
+					&& ((state.DIAAGC & 0x0C00) != 0x0C00) // mag-hi and mag-lo not active at once
+					;
+	if (formatError)
+		*formatError = !formatOk;
+	if (valueError)
+		*valueError = !valueOk;
+	return formatOk && valueOk;
 }
 
 void ssf_dbgPrintEncoderStatus(sspi_as5047_state_t state)
@@ -918,6 +923,12 @@ void ssf_dbgPrintEncoderStatus(sspi_as5047_state_t state)
 			err_println("AS5047D Magnetic Field Strength Too High");
 		if (state.DIAAGC & 0x0800)
 			warn_println("AS5047D Magnetic Field Strength Too Low");
+		// if ((state.DIAAGC & 0x0E00) != 0)
+		// {
+		// 	warn_println("AS5047D NOP   =0x%04X", state.NOP);
+		// 	warn_println("AS5047D ERRFL =0x%04X", state.ERRFL);
+		// 	warn_println("AS5047D DIAAGC=0x%04X", state.DIAAGC);
+		// }
 		// dbg_println("AS5047D AGC = %u", state.DIAAGC & 0xFF);
 	}
 

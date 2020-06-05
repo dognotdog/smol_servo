@@ -171,8 +171,9 @@ void ssf_ui1sTask(uint32_t now_us)
 	// sspi_as5047_state_t hallState = ssf_readHallSensor();
 	sspi_as5047_state_t hallState = ssf_dbgGetLastEncoderReading();
 	uint32_t readCounter = ssf_dbgGetEncoderReadCounter();
-	uint32_t errorCounter = ssf_dbgGetEncoderErrorCounter();
-	dbg_println("AS5047D %8u reads, %8u errors", readCounter, errorCounter);
+	uint32_t formatErrorCounter = 0, valueErrorCounter = 0;
+	uint32_t errorCounter = ssf_dbgGetEncoderErrorCounter(&formatErrorCounter, &valueErrorCounter);
+	dbg_println("AS5047D %8u reads, %8u errors (%8u fmt, %8u val)", readCounter, errorCounter, formatErrorCounter, valueErrorCounter);
 
 	ssf_dbgPrintEncoderStatus(hallState);
 	// dbg_println("HALL[%8u] 0x%04x, 0x%04x, 0x%04x, 0x%04x", readCounter, hallState.NOP, hallState.ERRFL, hallState.DIAAGC, hallState.ANGLEUNC);

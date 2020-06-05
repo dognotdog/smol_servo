@@ -77,11 +77,11 @@ typedef struct {
 
 
 extern int ssf_asyncReadHallSensor(void);
-extern void ssf_asyncReadHallSensorCallback(sspi_as5047_state_t sensorState);
+extern void ssf_asyncReadHallSensorCallback(sspi_as5047_state_t sensorState, bool transferOk);
 extern sspi_as5047_state_t ssf_readHallSensor(void);
 extern sspi_drv_state_t ssf_readMotorDriver();
 
-bool ssf_checkSpiEncoderReadOk(sspi_as5047_state_t state);
+bool ssf_checkSpiEncoderReadOk(sspi_as5047_state_t state, bool* formatError, bool* valueError);
 
 extern void ssf_printMotorDriverFaults(sspi_drv_state_t state);
 extern void ssf_dbgPrintEncoderStatus(sspi_as5047_state_t state);

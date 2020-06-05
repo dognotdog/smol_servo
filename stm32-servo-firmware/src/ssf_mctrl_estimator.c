@@ -38,6 +38,8 @@ static ssf_encoderPosition_t _lastEncoderPosition;
 static volatile sspi_as5047_state_t _hallState;
 static volatile uint32_t			_hallReadCounter;
 static volatile uint32_t			_hallErrorCounter;
+static volatile uint32_t			_hallFormatErrorCounter;
+static volatile uint32_t			_hallValueErrorCounter;
 
 bool ssf_atomicTryGetEncoderPosition(ssf_encoderPosition_t* val)
 {
@@ -362,12 +364,14 @@ void mctrl_updateSimpleSensorEstimate(uint32_t now_us)
 	_simpleMotorPositionEstimate = newEstimate;
 }
 
-void ssf_asyncReadHallSensorCallback(sspi_as5047_state_t sensorState)
+void ssf_asyncReadHallSensorCallback(sspi_as5047_state_t sensorState, bool transferOk)
 {
 	uint32_t timeSpan = sensorState.end_us - sensorState.start_us;
 	uint32_t midTime = sensorState.start_us + timeSpan/2u;
 
-	if (ssf_checkSpiEncoderReadOk(sensorState))
+	bool formatError = false, valueError = false;
+
+	if (ssf_checkSpiEncoderReadOk(sensorState, &formatError, &valueError))
 	{
 		uint16_t encoderRead = (sensorState.ANGLEUNC & 0x3FFF) << 2;
 		uint16_t delta = encoderRead - _lastEncoderPosition.encoderPosition;
@@ -384,9 +388,13 @@ void ssf_asyncReadHallSensorCallback(sspi_as5047_state_t sensorState)
 		_lastEncoderPosition = pos;
 		atomic_store(&_encoderPosUpdateCounter, _encoderPosUpdateCounter+1);
 	}
-	else
+	else if (transferOk)
 	{
 		++_hallErrorCounter;
+		if (formatError)
+			++_hallFormatErrorCounter;
+		if (valueError)
+			++_hallValueErrorCounter;
 		// ssf_dbgPrintEncoderStatus(sensorState); 
 	}
 
@@ -397,7 +405,7 @@ void ssf_asyncReadHallSensorCallback(sspi_as5047_state_t sensorState)
 
 float ssf_getEncoderAngle(void)
 {
-	return (float)_lastEncoderPosition.encoderPosition / (float)0x10000 * 2.0f*M_PI;
+	return (float)(uint32_t)_lastEncoderPosition.encoderPosition * (2.0f*M_PI / (float)0x10000);
 }
 
 /**
@@ -424,8 +432,12 @@ uint32_t ssf_dbgGetEncoderReadCounter(void)
 {
 	return _hallReadCounter;
 }
-uint32_t ssf_dbgGetEncoderErrorCounter(void)
+uint32_t ssf_dbgGetEncoderErrorCounter(uint32_t* formatErrors, uint32_t* valueErrors)
 {
+	if (formatErrors)
+		*formatErrors = _hallFormatErrorCounter;
+	if (valueErrors)
+		*valueErrors = _hallValueErrorCounter;
 	return _hallErrorCounter;
 }
 
