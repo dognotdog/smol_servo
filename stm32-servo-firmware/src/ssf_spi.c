@@ -300,7 +300,7 @@ static void _spi_asyncStartTransferWord(spi_transfer_t transfer, size_t wordInde
 						{
 							if (target == SPI_XFER_WORD_COMPLETE)
 							{
-								if (spi.wordsTransferred == spi.currentTransfer.len)
+								if (spi.wordsTransferred < spi.currentTransfer.len)
 								{
 									_spi_asyncStartTransferWord(spi.currentTransfer, spi.wordsTransferred);									
 								}
