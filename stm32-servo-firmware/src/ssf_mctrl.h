@@ -23,11 +23,13 @@ typedef struct {
 } mctrl_simplePositionEstimate_t;
 
 
-// mctrl
+// constrain angle to +-pi
+float mctrl_modAngle(const float a);
+
 extern float ssf_getEncoderAngle(void);
 bool ssf_atomicTryGetEncoderAngle(float* val, uint32_t* time_us);
 extern uint32_t ssf_dbgGetEncoderReadCounter(void);
-extern uint32_t ssf_dbgGetEncoderErrorCounter(void);
+extern uint32_t ssf_dbgGetEncoderErrorCounter(uint32_t* formatErrors, uint32_t* valueErrors);
 extern sspi_as5047_state_t ssf_dbgGetLastEncoderReading(void);
 
 extern void mctrl_init(void);

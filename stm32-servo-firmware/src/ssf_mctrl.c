@@ -13,6 +13,7 @@
 #include <stdbool.h>
 #include <string.h>
 #include <assert.h>
+#include <stdlib.h>
 
 
 /*
@@ -240,7 +241,7 @@ as well as
 
 Finding ABBC config values from measurements
 
-Assuming an RH/RL being equal at Rt, Rp being being equal cross phases, and Ra,Rb,Rc being the measured values on each phase:
+Assuming an RH/RL being equal at Rt, Rp being being equal cross phases, and Ra,Rb,Rc being the measured values on each phase for 2 phases:
 	Rp = (Ra - 4Rt + sqrt(Ra^2 + 4 Rt^2)) / 2 
 	Rp = 2 Rb - 3 Rt
 
@@ -974,7 +975,7 @@ static float _getCurrentSenseFactor(void)
 }
 
 
-static void _convertAdcToCurrent(volatile float currents[ISENSE_COUNT], const uint16_t adcCounts[ISENSE_COUNT], const float vdda)
+static void _convertAdcToCurrent(volatile float currents[ISENSE_COUNT], const uint16_t adcCounts[ISENSE_COUNT], const float lowSideOnFraction[ISENSE_COUNT], const float vdda)
 {
 	float gain = (1.0f/(ADC2_OVERSAMPLING_FACTOR*ADC2_NOMINAL_MAXCOUNT))*vdda*_getCurrentSenseFactor();
 	for (size_t i = 0; i < ISENSE_COUNT; ++i)
@@ -1064,7 +1065,7 @@ void mctrl_fastLoop(const uint16_t adcCounts[ISENSE_COUNT])
 			if (mctrl.calibCounter < NUM_ALIGN_WAIT_ON_CYCLES)
 			{
 				// ramp up the current to not cause a huge jerk bringing the rotor into alignment
-				float ramp = 1.0f - fabsf(mctrl.calibCounter - NUM_ALIGN_WAIT_ON_CYCLES/2);
+				float ramp = 1.0f - fabsf((float)(mctrl.calibCounter - NUM_ALIGN_WAIT_ON_CYCLES/2));
 
 				const mctrl_bridge_activation_t* bridges = mctrl_params.sysId.idSequence[mctrl.idRunCounter];
 				spwm_setDrvChannel(HTIM_DRV_CH_A, ramp*(bridges[0] == MCTRL_BRIDGE_HI));
@@ -1320,8 +1321,8 @@ void mctrl_fastLoop(const uint16_t adcCounts[ISENSE_COUNT])
 			{
 				float dc = mctrl_params.sysId.staticIdentificationDutyCycle;
 				size_t step = mctrl.counter % 4;
-				float p0[4] = {0.5f, 0.0f, -0.5f, 0.0f};
-				float p1[4] = {0.0f, 0.5f, 0.0f, -0.5f};
+				float p0[4] = { 0.5f, 0.5f, -0.5f, -0.5f};
+				float p1[4] = {-0.5f, 0.5f,  0.5f, -0.5f};
 				spwm_setDrvChannel(HTIM_DRV_CH_A, 0.5f + dc*p0[step]);
 				spwm_setDrvChannel(HTIM_DRV_CH_B, 0.5f);
 				spwm_setDrvChannel(HTIM_DRV_CH_C, 0.5f + dc*p1[step]);
@@ -1332,7 +1333,7 @@ void mctrl_fastLoop(const uint16_t adcCounts[ISENSE_COUNT])
 		}
 		case MCTRL_PPID_RUN:
 		{
-			if (now - mctrl.calibCounter > 250000u)
+			if (now - mctrl.calibCounter > 100000u)
 			{
 				spwm_setDrvChannel(HTIM_DRV_CH_A, 0.0f);
 				spwm_setDrvChannel(HTIM_DRV_CH_B, 0.0f);
@@ -1348,7 +1349,7 @@ void mctrl_fastLoop(const uint16_t adcCounts[ISENSE_COUNT])
 			uint32_t dt_us = now - mctrl.calibCounter;
 			float estSpeed = mctrl_getSimpleMotorSpeedEstimate();
 			float dc = mctrl_params.sysId.staticIdentificationDutyCycle;
-			float speed = 2.0f*M_PI*1.0e-6*(dt_us);
+			float speed = 5.0*2.0f*M_PI*1.0e-6*(dt_us);
 			mctrl.phase = fmodf(mctrl.phase + speed*MEAS_FULL_PERIOD, 2.0f*M_PI);
 
 			spwm_setDrvChannel(HTIM_DRV_CH_A, 0.5f+dc*sintab(mctrl.phase + M_PI*0.5f));
@@ -1386,9 +1387,9 @@ void mctrl_fastLoop(const uint16_t adcCounts[ISENSE_COUNT])
 		}
 		case MCTRL_EMF_RAMP:
 		{
-
+			float maxSpeed = 0.9f*mctrl.stallSpeed*(1.0f+mctrl.idRunCounter)/NUM_STATIC_MEASUREMENTS*(mctrl.sysParamEstimates.ph2.stepsPerRev/4);
 			float dc = mctrl_params.sysId.staticIdentificationDutyCycle;
-			float speed = EMFID_INITAL_SPEED*fminf(1.0f, 1.0e-6*(now - mctrl.calibCounter));
+			float speed = maxSpeed*fminf(1.0f, 1.0e-6*(now - mctrl.calibCounter));
 			// alpha = EMFID_INITAL_SPEED;
 			mctrl.phase = fmodf(mctrl.phase + speed*MEAS_FULL_PERIOD, 2.0f*M_PI);
 
@@ -1404,8 +1405,9 @@ void mctrl_fastLoop(const uint16_t adcCounts[ISENSE_COUNT])
 		}
 		case MCTRL_EMF_RUN:
 		{
+			float maxSpeed = 0.9f*mctrl.stallSpeed*(1.0f+mctrl.idRunCounter)/NUM_STATIC_MEASUREMENTS*(mctrl.sysParamEstimates.ph2.stepsPerRev/4);
 			float dc = mctrl_params.sysId.staticIdentificationDutyCycle;
-			float speed = EMFID_INITAL_SPEED*1.0f;
+			float speed = maxSpeed*1.0f;
 			mctrl.phase = fmodf(mctrl.phase + speed*MEAS_FULL_PERIOD, 2.0f*M_PI);
 
 			spwm_setDrvChannel(HTIM_DRV_CH_A, 0.5f+dc*sintab(mctrl.phase));
@@ -1430,8 +1432,9 @@ void mctrl_fastLoop(const uint16_t adcCounts[ISENSE_COUNT])
 		}
 		case MCTRL_EMF_DECELERATE:
 		{
+			float maxSpeed = 0.9f*mctrl.stallSpeed*(1.0f+mctrl.idRunCounter)/NUM_STATIC_MEASUREMENTS*(mctrl.sysParamEstimates.ph2.stepsPerRev/4);
 			float dc = mctrl_params.sysId.staticIdentificationDutyCycle;
-			float speed = EMFID_INITAL_SPEED*fmaxf(0.0f, 1.0e-6*(1000000u - (now - mctrl.calibCounter)));
+			float speed = maxSpeed*fmaxf(0.0f, 1.0e-6*(1000000u - (now - mctrl.calibCounter)));
 			// alpha = -EMFID_INITAL_SPEED;
 			mctrl.phase = fmodf(mctrl.phase + speed*MEAS_FULL_PERIOD, 2.0f*M_PI);
 

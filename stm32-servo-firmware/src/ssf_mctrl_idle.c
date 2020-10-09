@@ -259,13 +259,14 @@ void mctrl_idle(uint32_t now_us)
 				float i0 = mctrl.lastMeasurement[j][(2*loBridgeId+0)];
 				float i1 = mctrl.lastMeasurement[j][(2*loBridgeId+1)];
 
-				i += (i0+i1);
+				i += 0.5f*(i0+i1);
+				// i += i1;
 
 				vbus += mctrl.lastVbus[j];
 
 			}
 
-			i *= 1.0f/NUM_STATIC_MEASUREMENTS;
+			i *= 2.0f/NUM_STATIC_MEASUREMENTS;
 			vbus *= 2.0f/NUM_STATIC_MEASUREMENTS;
 
 			float dc = mctrl_params.sysId.staticIdentificationDutyCycle;
@@ -710,7 +711,7 @@ void mctrl_idle(uint32_t now_us)
 			}
 			else
 			{
-				float delta = angle - mctrl.phase;
+				float delta = mctrl_modAngle(angle - mctrl.phase);
 				mctrl.phase = angle;
 				mctrl.angleSum += fabsf(delta);
 
@@ -718,6 +719,8 @@ void mctrl_idle(uint32_t now_us)
 				dbg_println("Encoder step angle = %.3f deg", (double)(stepSize*180.0f/M_PI));
 
 				mctrl.sysParamEstimates.ph2.stepsPerRev = 2.0f*M_PI*NUM_ANGLE_MEASUREMENTS/fabsf(mctrl.angleSum) + 0.5f;
+				// round to nearest 4
+				mctrl.sysParamEstimates.ph2.stepsPerRev = ((mctrl.sysParamEstimates.ph2.stepsPerRev + 2)/4)*4;
 
 				dbg_println("Steps per rev = %u", mctrl.sysParamEstimates.ph2.stepsPerRev);
 
@@ -732,7 +735,6 @@ void mctrl_idle(uint32_t now_us)
 			mctrl.counter = 0; // per-run sample counting
 			mctrl.phase = 0.0f;
 			mctrl.stallSpeed = 0.1*2.0f*M_PI;
-			memset(mctrl.currentSqrSum, 0, sizeof(mctrl.currentSqrSum));
 
 			mctrl_state = MCTRL_EMF_STALL_RAMP;
 			break;
@@ -748,11 +750,13 @@ void mctrl_idle(uint32_t now_us)
 			mctrl.calibCounter = 0; // time keeping 
 			mctrl.counter = 0; // per-run sample counting
 			mctrl.phase = 0.0f;
+			memset(mctrl.currentSqrSum, 0, sizeof(mctrl.currentSqrSum));
+			memset(mctrl.emfRegressions, 0, sizeof(mctrl.emfRegressions));
 
 			dbg_println(" EMF stall speed is = %6.3f RPM", (double)(mctrl.stallSpeed*30.0f/M_PI));
 
 
-			mctrl_state = MCTRL_DEMO;
+			mctrl_state = MCTRL_EMF_START;
 			break;
 		}
 		case MCTRL_EMF_START:
@@ -767,12 +771,13 @@ void mctrl_idle(uint32_t now_us)
 		{
 			dbg_println("MCTRL_EMF_FINISH");
 
-			float rmsCurrents[ISENSE_COUNT] = {0.0f};
 			for (size_t i = 0; i < ISENSE_COUNT; ++i)
 			{
-				rmsCurrents[i] = sqrtf(mctrl.currentSqrSum[i]/(mctrl.counter));
-				mctrl.lastMeasurement[mctrl.idRunCounter][i] = rmsCurrents[i];
-				dbg_println(" RMS current[%u] = %6.3f", i, (double)rmsCurrents[i]);
+				float y = sqrtf(mctrl.currentSqrSum[i]/(mctrl.counter));
+				// mctrl.lastMeasurement[mctrl.idRunCounter][i] = y;
+				float x = 0.9f*mctrl.stallSpeed*(1.0f+mctrl.idRunCounter)/NUM_STATIC_MEASUREMENTS;
+				mctrl.emfRegressions[i] = linreg_addSample(mctrl.emfRegressions[i], x, y);
+				dbg_println(" RMS current[%u] = %6.3f @ %6.3f rpm", i, (double)y, (double)(x*30.0f/M_PI));
 			}
 
 			++mctrl.idRunCounter;
@@ -784,6 +789,20 @@ void mctrl_idle(uint32_t now_us)
 			}
 			else
 			{
+				float vbus = ssf_getVbus();
+				float u = 1.0f/M_SQRT2*vbus*mctrl_params.sysId.staticIdentificationDutyCycle;
+				// evaluate regressions
+				for (size_t i = 1; i < ISENSE_COUNT; i += 2)
+				{
+					linregResult_t res = linreg_solve(mctrl.emfRegressions[i]);
+					float amp_per_rev = res.slope;
+					float zamp = res.intercept;
+
+					dbg_println(" EMF[%u] = %8.3f mA/rpm", i, (double)(amp_per_rev*1000.0f/(30.0f/M_PI)));
+					dbg_println("           %8.3f mA @ 0 rpm", (double)(zamp*1000.0f));
+					dbg_println("           %8.3f R  @ 0 rpm", (double)(u/zamp));
+				}
+
 				mctrl_state = MCTRL_DEMO;
 			}
 			break;

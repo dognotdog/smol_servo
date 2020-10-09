@@ -2,6 +2,7 @@
 #define SSF_MCTRL_PRIVATE_H
 
 #include "ssf_main.h"
+#include "ssf_linreg.h"
 
 #include <math.h>
 #include <float.h>
@@ -22,7 +23,7 @@ enum {
 #define PHASE_BUCKETS				16
 #define NUM_STATIC_MEASUREMENTS		8
 #define NUM_PHASE_MEASUREMENTS		16
-#define NUM_ANGLE_MEASUREMENTS		32
+#define NUM_ANGLE_MEASUREMENTS		64
 #define NUM_ALIGN_WAIT_ON_CYCLES	33
 #define NUM_ALIGN_WAIT_OFF_CYCLES	333
 
@@ -151,7 +152,10 @@ typedef struct {
 
 	float angleSum;
 	float currentSqrSum[ISENSE_COUNT];
+
+	// EMF stall ramp
 	float stallSpeed;
+	incrementalLinreg_t emfRegressions[ISENSE_COUNT];
 
 	size_t idRunCounter;
 	float adcZeroCalibs[ISENSE_COUNT];
