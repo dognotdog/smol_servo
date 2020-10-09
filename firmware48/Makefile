@@ -113,7 +113,7 @@ startup_stm32g431xx.s
 #######################################
 # binaries
 #######################################
-GCC_PATH = /Users/dog/Applications/ARM-Toolchain/gcc-arm-none-eabi-8-2019-q3-update/bin
+GCC_PATH = /Users/dog/Applications/ARM-Toolchain/gcc-arm-none-eabi-9-2020-q2-update/bin
 
 PREFIX = arm-none-eabi-
 # The gcc compiler bin path can be either defined in make command via GCC_PATH variable (> make GCC_PATH=xxx)
@@ -211,6 +211,10 @@ CFLAGS += -Wno-comment
 CFLAGS += -Werror=implicit-int
 CFLAGS += -Werror=array-bounds
 CFLAGS += -Warray-bounds=2
+CFLAGS += -Werror=format-overflow
+CFLAGS += -Werror=format-truncation
+CFLAGS += -Werror=stringop-truncation
+CFLAGS += -Werror=absolute-value
 # flags for using floats 
 CFLAGS += -Werror=double-promotion
 CFLAGS += -fsingle-precision-constant
@@ -340,7 +344,7 @@ dmagic:
 	$(GDB) --eval-command="target extended-remote $(BMP_PORT)" --eval-command="monitor swdp_scan" --eval-command="attach 1"  $(BUILD_DIR)/$(TARGET).elf
 
 .PHONY: fmagic
-fmagic:
+fmagic: $(BUILD_DIR)/$(TARGET).hex
 	$(GDB) -nx --batch -ex "target extended-remote $(BMP_PORT)" -ex "monitor swdp_scan" -ex "attach 1"  -ex "load" -ex "compare-sections" -ex "detach" $(BUILD_DIR)/$(TARGET).elf
 
 .PHONY: rmagic
