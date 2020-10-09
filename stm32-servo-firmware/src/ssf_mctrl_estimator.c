@@ -210,7 +210,7 @@ Matrix multiplication indices
 // 	_mmul2x2t(dst, ab, a);
 // }
 
-static inline float _modAngle(const float a)
+float mctrl_modAngle(const float a)
 {
 	return fmodf(fmodf(a, 2.0f*M_PI) + M_PI + (a < 0.0f)*(2.0f*M_PI), 2.0f*M_PI) - M_PI;
 }
@@ -248,7 +248,7 @@ static mctrl_simplePositionEstimate_t _estimateSimpleMotorPosition(const mctrl_s
 	float x_pre[2][1] = {};
 
 	MMUL(x_pre, A, prev.x, 2,1,2)
-	// x_pre[0][0] = _modAngle(x_pre[0][0]);
+	// x_pre[0][0] = mctrl_modAngle(x_pre[0][0]);
 
 	// P + A*P*A' + Q
 	float APA[2][2] = {};
@@ -278,7 +278,7 @@ static mctrl_simplePositionEstimate_t _estimateSimpleMotorPosition(const mctrl_s
 		// extrapolate reading to now
 		float zRaw = rawEncoderPos + lambda * x_pre[1][0];
 		// mod angle z to be in the range  x +- pi
-		float z = x_pre[0][0] + _modAngle(zRaw - x_pre[0][0]);
+		float z = x_pre[0][0] + mctrl_modAngle(zRaw - x_pre[0][0]);
 
 		float Rsqrt = 0.0222f;// + 2.0f*M_PI*lambda;
 		float R = Rsqrt*Rsqrt;
@@ -302,7 +302,7 @@ static mctrl_simplePositionEstimate_t _estimateSimpleMotorPosition(const mctrl_s
 		float x_post[2][1] = {};
 		MADD(x_post, x_pre, Kz_Hx, 2,1);
 
-		// x_post[0][0] = _modAngle(x_post[0][0]);
+		// x_post[0][0] = mctrl_modAngle(x_post[0][0]);
 
 		// P = (I-K*H)*P
 		float KH[2][2] = {};
@@ -339,7 +339,7 @@ static mctrl_simplePositionEstimate_t _estimateSimpleMotorPosition(const mctrl_s
 	// result.P[1][0] = 0.0f;
 	// result.P[0][1] = 0.0f;
 
-	result.x[0][0] = _modAngle(result.x[0][0]);
+	result.x[0][0] = mctrl_modAngle(result.x[0][0]);
 
 	if ((now_us -_lastDebugTimestamp > 1000000u) && haveMeasurement && (prev.lastMeasurementTimeStamp_us != encoderPos.timeStamp_us))
 	{
