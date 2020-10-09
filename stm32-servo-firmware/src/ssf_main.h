@@ -81,7 +81,7 @@ extern void ssf_ledIdle(void);
 
 extern void spwm_init(void);
 extern void spwm_idle(void);
-extern void spwm_setDrvChannel(mctrl_pwmChannelId_t ch, float normValue);
+extern uint16_t spwm_setDrvChannel(mctrl_pwmChannelId_t ch, float normValue);
 extern void spwm_enableHalfBridges(uint32_t outputMask);
 
 extern void ssf_ui1sTask(uint32_t now_us);

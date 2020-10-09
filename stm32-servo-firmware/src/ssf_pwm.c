@@ -49,6 +49,7 @@ PWMing a 2 phase stepper. UVW corresponds to ABC drivers
 
 #define DRV_PWM_DITHER	(16)
 #define DRV_PWM_PERIOD	(1700*DRV_PWM_DITHER)
+#define DRV_PWM_MAX		(DRV_PWM_PERIOD - DRV_PWM_DITHER)
 // #define DRV_PWM_PERIOD	(850*DRV_PWM_DITHER)
 
 #define DRV_PWM_MOT_MAX		(DRV_PWM_PERIOD-DRV_PWM_DITHER)
@@ -169,22 +170,27 @@ void spwm_init(void)
 
 }
 
-void spwm_setDrvChannel(mctrl_pwmChannelId_t ch, float normValue)
+/**
+	@return the number of pwm cycles actually set in hardware
+*/
+uint16_t spwm_setDrvChannel(mctrl_pwmChannelId_t ch, float normValue)
 {
-	float pwmIn = normValue*(DRV_PWM_PERIOD - DRV_PWM_DITHER);
+	uint16_t pwmIn = normValue*(DRV_PWM_MAX);
 	switch (ch)
 	{
 		case HTIM_DRV_CH_R:
 		{
-			__HAL_TIM_SET_COMPARE(HTIM_DRV, HTIM_DRV_CH_R, fclampf(pwmIn, DRV_PWM_BRK_MIN, DRV_PWM_BRK_MAX));
-			break;
+			uint16_t pwm = uclamp(pwmIn, DRV_PWM_BRK_MIN, DRV_PWM_BRK_MAX);
+			__HAL_TIM_SET_COMPARE(HTIM_DRV, HTIM_DRV_CH_R, pwm);
+			return pwm;
 		}
 		case HTIM_DRV_CH_A:
 		case HTIM_DRV_CH_B:
 		case HTIM_DRV_CH_C:
 		{
-			__HAL_TIM_SET_COMPARE(HTIM_DRV, ch, fclampf(pwmIn, DRV_PWM_MOT_MIN, DRV_PWM_MOT_MAX));
-			break;
+			uint16_t pwm = uclamp(pwmIn, DRV_PWM_MOT_MIN, DRV_PWM_MOT_MAX);
+			__HAL_TIM_SET_COMPARE(HTIM_DRV, ch, pwm);
+			return pwm ;
 		}
 	}
 }
