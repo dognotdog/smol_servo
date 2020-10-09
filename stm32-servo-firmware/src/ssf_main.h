@@ -107,5 +107,10 @@ static inline uint32_t umax(uint32_t const a, uint32_t const b)
 	return a > b ? a : b;
 }
 
+static inline uint32_t uclamp(uint32_t a, uint32_t minv, uint32_t maxv)
+{
+	return umin(umax(a, minv), maxv);
+}
+
 
 #endif // SSF_MAIN_H
