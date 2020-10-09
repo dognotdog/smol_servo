@@ -201,8 +201,23 @@ static void _spi_syncTransferWord(spi_transfer_t transfer, size_t wordIndex)
 	return;
 }
 
+static void _recoverSpiError(void)
+{
+	// error recovery
+	spi_transferStatus_t expected = SPI_XFER_ERROR;
+	while (!atomic_compare_exchange_weak(&_transferStatus, &expected, SPI_XFER_IDLE)) 
+	{ 
+		if (expected != SPI_XFER_ERROR)
+			break;
+		expected = SPI_XFER_ERROR;
+	};
+
+}
+
 static void _spiSyncTransfer(spi_transfer_t transfer)
 {
+	_recoverSpiError();
+
 	// wait until we can start a sync transfer
 	spi_transferStatus_t expected = SPI_XFER_IDLE;
 	while (!atomic_compare_exchange_weak(&_transferStatus, &expected, SPI_XFER_SYNC)) 
@@ -461,6 +476,7 @@ static void _spi_finishTransferWord(void)
 }
 
 
+
 int spi_startTransfer(spi_transfer_t transfer)
 {
 	// wait until we can start a sync transfer
@@ -468,8 +484,12 @@ int spi_startTransfer(spi_transfer_t transfer)
 	// if (!atomic_compare_exchange_strong(&_currentTransfer.status, &expected, SPI_XFER_IN_PROGRESS))
 	// 	return -1;
 
+	_recoverSpiError();
+
 	spi.currentTransfer = transfer;
 	spi.wordsTransferred = 0;
+
+
 
 	_spi_asyncStartTransferWord(transfer, spi.wordsTransferred);
 
