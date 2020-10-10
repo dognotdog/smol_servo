@@ -706,23 +706,44 @@ void mctrl_idle(uint32_t now_us)
 
 			if (mctrl.counter < NUM_ANGLE_MEASUREMENTS)
 			{
+				float delta = mctrl_modAngle(angle - mctrl.phase);
+				mctrl.phase = angle;
+				mctrl.angleSum += fabsf(delta);
+
 				++mctrl.counter;
 				mctrl_state = MCTRL_PPID_START;
 			}
 			else
 			{
-				float delta = mctrl_modAngle(angle - mctrl.phase);
-				mctrl.phase = angle;
-				mctrl.angleSum += fabsf(delta);
 
-				float stepSize = mctrl.angleSum*(1.0f/NUM_ANGLE_MEASUREMENTS);
+				float stepSize = mctrl.angleSum*(1.0f/(NUM_ANGLE_MEASUREMENTS-1));
 				dbg_println("Encoder step angle = %.3f deg", (double)(stepSize*180.0f/M_PI));
 
-				mctrl.sysParamEstimates.ph2.stepsPerRev = 2.0f*M_PI*NUM_ANGLE_MEASUREMENTS/fabsf(mctrl.angleSum) + 0.5f;
-				// round to nearest 4
-				mctrl.sysParamEstimates.ph2.stepsPerRev = ((mctrl.sysParamEstimates.ph2.stepsPerRev + 2)/4)*4;
+				mctrl.sysParamEstimates.stepsPerRev = 2.0f*M_PI*NUM_ANGLE_MEASUREMENTS/fabsf(mctrl.angleSum) + 0.5f;
 
-				dbg_println("Steps per rev = %u", mctrl.sysParamEstimates.ph2.stepsPerRev);
+				switch(mctrl.sysParamEstimates.motorType)
+				{
+					case MCTRL_MOT_2PH:
+					{
+						// round to nearest 4
+						mctrl.sysParamEstimates.stepsPerRev = ((mctrl.sysParamEstimates.stepsPerRev + 2)/4)*4;
+
+						break;
+					}
+					case MCTRL_MOT_3PH:
+					{
+						// round to nearest 6
+						mctrl.sysParamEstimates.stepsPerRev = ((mctrl.sysParamEstimates.stepsPerRev + 3)/6)*6;
+						
+						break;
+					}
+					default:
+					{
+						break;
+					}
+				}
+
+				dbg_println("Steps per rev = %u", mctrl.sysParamEstimates.stepsPerRev);
 
 				mctrl_state = MCTRL_EMF_PREPARE;
 			}
@@ -734,7 +755,7 @@ void mctrl_idle(uint32_t now_us)
 			mctrl.calibCounter = now_us; // time keeping 
 			mctrl.counter = 0; // per-run sample counting
 			mctrl.phase = 0.0f;
-			mctrl.stallSpeed = 0.1*2.0f*M_PI;
+			mctrl.stallSpeed = 0.1f*2.0f*M_PI;
 
 			mctrl_state = MCTRL_EMF_STALL_RAMP;
 			break;
@@ -803,6 +824,7 @@ void mctrl_idle(uint32_t now_us)
 					dbg_println("           %8.3f R  @ 0 rpm", (double)(u/zamp));
 				}
 
+				spwm_enableHalfBridges(0x7);
 				mctrl_state = MCTRL_DEMO;
 			}
 			break;
