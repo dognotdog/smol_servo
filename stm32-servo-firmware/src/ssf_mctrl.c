@@ -975,7 +975,7 @@ static float _getCurrentSenseFactor(void)
 }
 
 
-static void _convertAdcToCurrent(volatile float currents[ISENSE_COUNT], const uint16_t adcCounts[ISENSE_COUNT], const float lowSideOnFraction[ISENSE_COUNT], const float vdda)
+static void _convertAdcToCurrent(volatile float currents[ISENSE_COUNT], const uint16_t adcCounts[ISENSE_COUNT], /*const float lowSideOnFraction[ISENSE_COUNT],*/ const float vdda)
 {
 	float gain = (1.0f/(ADC2_OVERSAMPLING_FACTOR*ADC2_NOMINAL_MAXCOUNT))*vdda*_getCurrentSenseFactor();
 	for (size_t i = 0; i < ISENSE_COUNT; ++i)
