@@ -155,6 +155,7 @@ static bool _eraseConfigPages(size_t start, size_t count)
 	// for some reason PG bit was set prior to calling this, so reset it
 	// even though in theory it should only be set during write ops
 	CLEAR_BIT(FLASH->CR, FLASH_CR_PG);
+	uint32_t errpage = -1;
 	// err_println("  pre-erase error 0x%08X SR 0x%08X.", HAL_FLASH_GetError(), FLASH->SR);
 	HAL_StatusTypeDef status = HAL_FLASHEx_Erase(&erase, &errpage);
 

@@ -51,7 +51,7 @@ extern uint8_t const __configflash_end;
 		1. all preserved blocks together not to exceed a single page size
 		2. 64bit words as allocation unit
 			block structs need to have 64bit sizing
-		3. apparently, flash write operations block normal code execution on single bank devices
+		3. apparently, flash write operations block normal code execution on single bank devices, thus realtime stuff has to be paused
 
 	INIT
 		1. determine beginning end of used space
