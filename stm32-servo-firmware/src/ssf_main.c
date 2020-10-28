@@ -290,11 +290,11 @@ void RTC_WKUP_IRQHandler(void)
 	while (1) {++irqDummyCounter;};
 }
 
-void FLASH_IRQHandler(void)
-{
-	// uart_printf("WWDG_IRQHandler!\r\n");
-	while (1) {++irqDummyCounter;};
-}
+// void FLASH_IRQHandler(void)
+// {
+// 	// uart_printf("WWDG_IRQHandler!\r\n");
+// 	while (1) {++irqDummyCounter;};
+// }
 
 void RCC_IRQHandler(void)
 {
