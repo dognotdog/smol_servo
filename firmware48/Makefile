@@ -120,12 +120,14 @@ PREFIX = arm-none-eabi-
 # either it can be added to the PATH environment variable.
 ifdef GCC_PATH
 CC = $(GCC_PATH)/$(PREFIX)gcc
+NM = $(GCC_PATH)/$(PREFIX)nm
 GDB = $(GCC_PATH)/$(PREFIX)gdb
 AS = $(GCC_PATH)/$(PREFIX)gcc -x assembler-with-cpp
 CP = $(GCC_PATH)/$(PREFIX)objcopy
 SZ = $(GCC_PATH)/$(PREFIX)size
 else
 CC = $(PREFIX)gcc
+NM = $(PREFIX)nm
 AS = $(PREFIX)gcc -x assembler-with-cpp
 CP = $(PREFIX)objcopy
 SZ = $(PREFIX)size
@@ -353,11 +355,11 @@ rmagic:
 
 .PHONY: nm
 nm:
-	$(GNM) -n $(BUILD_DIR)/$(TARGET).elf
+	$(NM) -n $(BUILD_DIR)/$(TARGET).elf
 
 .PHONY: size
 size:
-	$(GSIZE) -t $(BUILD_DIR)/$(TARGET).elf
+	$(SZ) -t $(BUILD_DIR)/$(TARGET).elf
 
 
 

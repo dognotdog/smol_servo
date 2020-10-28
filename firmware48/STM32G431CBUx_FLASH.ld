@@ -59,10 +59,20 @@ _Min_Heap_Size = 0x100;      /* required amount of heap  */
 _Min_Stack_Size = 0x800; /* required amount of stack */
 
 /* Specify the memory areas */
+/* Flash is divided into regular and config flash areas */
+/* 
+  0x0400 = 1k
+  0x0800 = 2k
+  0x1000 = 4k
+  0x2000 = 8k
+  0x4000 = 16k
+  0x8000 = 32k
+*/
 MEMORY
 {
   RAM (xrw)      : ORIGIN = 0x20000000, LENGTH = 32K
-  FLASH (rx)     : ORIGIN = 0x08000000, LENGTH = 128K
+  FLASH (rx)     : ORIGIN = 0x08000000, LENGTH = 112K
+  CONF (rx)      : ORIGIN = 0x0801C000, LENGTH = 16K
 }
 
 /* Define output sections */
@@ -187,6 +197,17 @@ SECTIONS
 /*    BYTE(0xFF) */
   } > FLASH
   
+
+  .configflash :
+  {
+    __configflash_start = .;
+    . = ALIGN(2048);
+    __configflash_firstPage = .;
+    __configflash_end = ABSOLUTE(ORIGIN(CONF) + LENGTH(CONF));
+    __configflash_lastPage = ABSOLUTE(ORIGIN(CONF) + LENGTH(CONF) - 2048);
+    . = ABSOLUTE(__configflash_end)-1;
+  } > CONF
+
 
   /* Remove information from the standard libraries */
   /DISCARD/ :
