@@ -31,6 +31,8 @@ extern uint8_t const __configflash_end;
 #define FLASH_CONFIG_MAX_TYPES				(16u)
 #define FLASH_CONFIG_MAX_PRESERVED_TYPES	(8u)
 
+#define FLASH_CONFIG_TYPE_DEVICECONF_V1		(0)
+
 /*
 	This is a logging file system for storing configuration data. 
 	- data is stored in blocks
@@ -49,6 +51,7 @@ extern uint8_t const __configflash_end;
 		1. all preserved blocks together not to exceed a single page size
 		2. 64bit words as allocation unit
 			block structs need to have 64bit sizing
+		3. apparently, flash write operations block normal code execution on single bank devices
 
 	INIT
 		1. determine beginning end of used space
@@ -91,6 +94,7 @@ bool ssf_flash_tryWriteBlock(uint8_t flags, uintptr_t dataAddr, size_t datalen);
 bool ssf_flash_tryReadLastBlock(uint8_t flags, void* dst, size_t* len);
 
 bool ssf_flash_clearWriteError(void);
+bool ssf_flash_clearConfigFlash(void);
 
 device_config_t* ssf_flash_getCurrentDeviceConfig(void);
 bool ssf_flash_readDeviceConfigFromFlash(void);

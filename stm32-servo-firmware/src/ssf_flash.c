@@ -144,6 +144,31 @@ static void _sequenceScanBlockFun(const flash_blockInfo_t* blockInfo, void* cont
 
 }
 
+static bool _eraseConfigPages(size_t start, size_t count)
+{
+	FLASH_EraseInitTypeDef erase = {
+		.TypeErase = FLASH_TYPEERASE_PAGES,
+		.Page = (self.configFlashStart-FLASH_BASE)/FLASH_PAGE_SIZE + start,
+		.NbPages = count,
+		.Banks = FLASH_BANK_1,
+	};
+	// for some reason PG bit was set prior to calling this, so reset it
+	// even though in theory it should only be set during write ops
+	CLEAR_BIT(FLASH->CR, FLASH_CR_PG);
+	// err_println("  pre-erase error 0x%08X SR 0x%08X.", HAL_FLASH_GetError(), FLASH->SR);
+	HAL_StatusTypeDef status = HAL_FLASHEx_Erase(&erase, &errpage);
+
+	if (status != HAL_OK)
+	{
+		uint32_t error = HAL_FLASH_GetError();
+		err_println("  erase failed with status 0x%08X, page %d, error 0x%08X.", status, errpage, error);
+		err_println("  SR 0x%08X.", FLASH->SR);
+		return false;
+	}
+
+	return true;
+}
+
 
 static void _configFlashInit(void)
 {
@@ -160,6 +185,17 @@ static void _configFlashInit(void)
 	self.configFlashEnd = (uintptr_t)__configflash_end_addr;
 	self.numPages = numFreePages;
 	self.sequenceCounter = -1;
+
+	// unlock flash for writing
+	{
+		HAL_StatusTypeDef status = HAL_FLASH_Unlock();
+		if (status != HAL_OK)
+		{
+			err_println("  failed to unlock flash.");
+			atomic_flag_clear(&self.writeLock);
+			return;
+		}
+	}
 
 /*
 	config flash has to be scanned to
@@ -401,10 +437,10 @@ static void _deleteOldestPage(void)
 	// it is assumed that there is always at least one more page with written data, eg. the page being deleted is not the last page
 	size_t oldPage = _blockAddrToPageNumber(self.firstEntry);
 
-	FLASH_PageErase((self.configFlashStart-FLASH_BASE)/FLASH_PAGE_SIZE + oldPage, FLASH_BANK_1);
+	_eraseConfigPages(oldPage, 1);
 
 	// increment entry counter
-	self.firstEntry = self.configFlashStart + ((oldPage+1) % self.numPages);
+	self.firstEntry = self.configFlashStart + ((oldPage+1) % self.numPages)*FLASH_PAGE_SIZE;
 
 }
 
@@ -499,12 +535,14 @@ bool ssf_flash_tryWriteBlock(uint8_t flags, uintptr_t dataAddr, size_t datalen)
 	bool writeLocked = atomic_flag_test_and_set(&self.writeLock);
 	if (writeLocked)
 	{
+		dbg_println("ssf_flash_tryWriteBlock() already locked, aborting.");
 		// if the lock was already taken, return false because we can't perform the write
 		return false;
 	}
 	if (self.writeError)
 	{
 		// if we're in a write error state, don't try to write
+		dbg_println("ssf_flash_tryWriteBlock() in write error, aborting.");
 		atomic_flag_clear(&self.writeLock);
 		return false;
 	}
@@ -513,6 +551,7 @@ bool ssf_flash_tryWriteBlock(uint8_t flags, uintptr_t dataAddr, size_t datalen)
 
 	if (!_prepareForWrite(numWords))
 	{
+		dbg_println("ssf_flash_tryWriteBlock() failed to prep write, aborting.");
 		atomic_flag_clear(&self.writeLock);
 		return false;
 	}
@@ -525,6 +564,7 @@ bool ssf_flash_tryWriteBlock(uint8_t flags, uintptr_t dataAddr, size_t datalen)
 
 	if (!_writeBlock(blockInfo, dataAddr))
 	{
+		dbg_println("ssf_flash_tryWriteBlock() failed to write block, aborting.");
 		atomic_flag_clear(&self.writeLock);
 		return false;
 	}
@@ -535,6 +575,46 @@ bool ssf_flash_tryWriteBlock(uint8_t flags, uintptr_t dataAddr, size_t datalen)
 
 
 	atomic_flag_clear(&self.writeLock);
+	dbg_println("ssf_flash_tryWriteBlock() done.");
+	return true;
+}
+
+
+bool ssf_flash_clearConfigFlash(void)
+{
+	dbg_println("ssf_flash_clearConfigFlash()...");
+	bool writeLocked = atomic_flag_test_and_set(&self.writeLock);
+	if (writeLocked)
+	{
+		// if the lock was already taken, return false because we can't perform our task
+		return false;
+	}
+
+	FLASH_EraseInitTypeDef erase = {
+		.TypeErase = FLASH_TYPEERASE_PAGES,
+		.Page = (self.configFlashStart-FLASH_BASE)/FLASH_PAGE_SIZE,
+		.NbPages = self.numPages,
+		.Banks = FLASH_BANK_1,
+	};
+
+	dbg_println("  erasing %d pages starting at %d", erase.NbPages, erase.Page);
+
+	_eraseConfigPages(0, self.numPages);
+
+	// for (size_t i = 0; i < self.numPages; ++i)
+	// {
+	// 	FLASH_PageErase((self.configFlashStart-FLASH_BASE)/FLASH_PAGE_SIZE + i, FLASH_BANK_1);
+ //        FLASH_WaitForLastOperation((uint32_t)FLASH_TIMEOUT_VALUE);
+
+ //        /* If the erase operation is completed, disable the PER Bit */
+ //        CLEAR_BIT(FLASH->CR, (FLASH_CR_PER | FLASH_CR_PNB));
+
+	// }
+
+	self.writeError = false;
+
+	atomic_flag_clear(&self.writeLock);
+	dbg_println("ssf_flash_clearConfigFlash() done.");
 	return true;
 }
 
