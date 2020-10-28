@@ -192,6 +192,10 @@ uint16_t spwm_setDrvChannel(mctrl_pwmChannelId_t ch, float normValue)
 			__HAL_TIM_SET_COMPARE(HTIM_DRV, ch, pwm);
 			return pwm ;
 		}
+		default:
+		{
+			return 0;
+		}
 	}
 }
 
