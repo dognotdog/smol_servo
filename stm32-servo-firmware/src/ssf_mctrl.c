@@ -1065,27 +1065,25 @@ static void _compute3PhPwmTrap(const float phase, float pwm[3])
 	}
 }
 
-void _setPhasorPwmSin(float phase, float vRmsPhase, mctrl_motor_type_t motorType)
+void mctrl_getPhasorVoltagesSin(float phase, mctrl_motor_type_t motorType, float v[3])
 {
 	switch(motorType)
 	{
 		case MCTRL_MOT_2PH:
 		{
-			float dc = M_SQRT1_2*vRmsPhase;
 			float sinv = M_SQRT2*sintab(phase + M_PI*1.25f); // 135deg behind A
 			float sina = sintab(phase + M_PI*0.0f);
 			float sinb = sintab(phase + M_PI*0.5f);
 			float sinu = sinv + sina;
 			float sinw = sinv + sinb;
-			spwm_setDrvChannel(HTIM_DRV_CH_A, 0.5f+dc*sinu);
-			spwm_setDrvChannel(HTIM_DRV_CH_B, 0.5f+dc*sinv);
-			spwm_setDrvChannel(HTIM_DRV_CH_C, 0.5f+dc*sinw);
+			v[0] = sinu;
+			v[1] = sinv;
+			v[2] = sinw;
 
 			break;
 		}
 		case MCTRL_MOT_3PH:
 		{
-			float dc = M_SQRT1_2*vRmsPhase;
 			float sina = sintab(phase + M_PI*0.0f/3.0f);
 			float sinb = sintab(phase + M_PI*2.0f/3.0f);
 			float sinc = sintab(phase + M_PI*4.0f/3.0f);
@@ -1101,17 +1099,34 @@ void _setPhasorPwmSin(float phase, float vRmsPhase, mctrl_motor_type_t motorType
 			float sinv = -n + sinb;
 			float sinw = -n + sinc;
 
-			spwm_setDrvChannel(HTIM_DRV_CH_A, 0.5f+dc*sinu);
-			spwm_setDrvChannel(HTIM_DRV_CH_B, 0.5f+dc*sinv);
-			spwm_setDrvChannel(HTIM_DRV_CH_C, 0.5f+dc*sinw);
+			v[0] = sinu;
+			v[1] = sinv;
+			v[2] = sinw;
 			
 			break;
 		}
 		default:
 		{
+			v[0] = 0.0f;
+			v[1] = 0.0f;
+			v[2] = 0.0f;
 			break;
 		}
 	}
+}
+
+void mctrl_setPhasorPwmSin(float phase, float vRmsPhase, mctrl_motor_type_t motorType)
+{
+	float u[3] = {};
+	mctrl_getPhasorVoltagesSin(phase, motorType, u);
+
+	float dc = M_SQRT1_2*vRmsPhase;
+
+	spwm_setDrvChannel(HTIM_DRV_CH_A, 0.5f+dc*u[0]);
+	spwm_setDrvChannel(HTIM_DRV_CH_B, 0.5f+dc*u[1]);
+	spwm_setDrvChannel(HTIM_DRV_CH_C, 0.5f+dc*u[2]);
+			
+
 }
 
 
@@ -1481,6 +1496,30 @@ void mctrl_fastLoop(const uint16_t adcCounts[ISENSE_COUNT])
 			}
 			break;
 		}
+		case MCTRL_MAPSTEP_START:
+		{
+			mctrl.calibCounter = now;
+
+			float dc = 2.0f*mctrl_params.sysId.staticIdentificationDutyCycle;
+
+			mctrl_setPhasorPwmSin(mctrl.counter*(2.0f*M_PI/NUM_MAPSTEP_MEASUREMENTS), dc, mctrl.sysParamEstimates.motorType);
+
+
+			mctrl_state = MCTRL_MAPSTEP_RUN;
+			break;
+		}
+		case MCTRL_MAPSTEP_RUN:
+		{
+			if (now - mctrl.calibCounter > 100000u)
+			{
+				// spwm_setDrvChannel(HTIM_DRV_CH_A, 0.0f);
+				// spwm_setDrvChannel(HTIM_DRV_CH_B, 0.0f);
+				// spwm_setDrvChannel(HTIM_DRV_CH_C, 0.0f);
+
+				mctrl_state = MCTRL_MAPSTEP_FINISH;
+			}
+			break;
+		}
 		case MCTRL_EMF_STALL_RAMP:
 		{
 			// increase speed until we stall
@@ -1490,7 +1529,7 @@ void mctrl_fastLoop(const uint16_t adcCounts[ISENSE_COUNT])
 			float speed = 5.0*2.0f*M_PI*1.0e-6*(dt_us);
 			mctrl.phase = fmodf(mctrl.phase + speed*MEAS_FULL_PERIOD, 2.0f*M_PI);
 
-			_setPhasorPwmSin(mctrl.phase, dc, mctrl.sysParamEstimates.motorType);
+			mctrl_setPhasorPwmSin(mctrl.phase, dc, mctrl.sysParamEstimates.motorType);
 
 			// limit time to 60s
 			if ((dt_us > 60u*1000000u) 
@@ -1512,7 +1551,7 @@ void mctrl_fastLoop(const uint16_t adcCounts[ISENSE_COUNT])
 			mctrl.phase = 0.0f;
 			float dc = mctrl_params.sysId.staticIdentificationDutyCycle;
 
-			_setPhasorPwmSin(mctrl.phase, dc, mctrl.sysParamEstimates.motorType);
+			mctrl_setPhasorPwmSin(mctrl.phase, dc, mctrl.sysParamEstimates.motorType);
 
 			mctrl_state = MCTRL_EMF_RAMP;
 			break;
@@ -1525,7 +1564,7 @@ void mctrl_fastLoop(const uint16_t adcCounts[ISENSE_COUNT])
 			// alpha = EMFID_INITAL_SPEED;
 			mctrl.phase = fmodf(mctrl.phase + speed*MEAS_FULL_PERIOD, 2.0f*M_PI);
 
-			_setPhasorPwmSin(mctrl.phase, dc, mctrl.sysParamEstimates.motorType);
+			mctrl_setPhasorPwmSin(mctrl.phase, dc, mctrl.sysParamEstimates.motorType);
 
 			if (now - mctrl.calibCounter > 1000000u)
 			{
@@ -1541,7 +1580,7 @@ void mctrl_fastLoop(const uint16_t adcCounts[ISENSE_COUNT])
 			float speed = maxSpeed*1.0f;
 			mctrl.phase = fmodf(mctrl.phase + speed*MEAS_FULL_PERIOD, 2.0f*M_PI);
 
-			_setPhasorPwmSin(mctrl.phase, dc, mctrl.sysParamEstimates.motorType);
+			mctrl_setPhasorPwmSin(mctrl.phase, dc, mctrl.sysParamEstimates.motorType);
 
 			float vdda = ssf_getVdda();
 			float currents[ISENSE_COUNT] = {0.0f};
@@ -1568,7 +1607,7 @@ void mctrl_fastLoop(const uint16_t adcCounts[ISENSE_COUNT])
 			// alpha = -EMFID_INITAL_SPEED;
 			mctrl.phase = fmodf(mctrl.phase + speed*MEAS_FULL_PERIOD, 2.0f*M_PI);
 
-			_setPhasorPwmSin(mctrl.phase, dc, mctrl.sysParamEstimates.motorType);
+			mctrl_setPhasorPwmSin(mctrl.phase, dc, mctrl.sysParamEstimates.motorType);
 
 			if (now - mctrl.calibCounter > 1000000u)
 			{
@@ -1601,7 +1640,7 @@ void mctrl_fastLoop(const uint16_t adcCounts[ISENSE_COUNT])
 			spwm_setDrvChannel(HTIM_DRV_CH_R, 0.0f);
 
 			float dc = 0.1f;
-			_setPhasorPwmSin(mctrl.phase, dc, mctrl.sysParamEstimates.motorType);
+			mctrl_setPhasorPwmSin(mctrl.phase, dc, mctrl.sysParamEstimates.motorType);
 			// float pwm[3] = {dc, dc, dc};
 
 			// switch(mctrl.sysParamEstimates.motorType)

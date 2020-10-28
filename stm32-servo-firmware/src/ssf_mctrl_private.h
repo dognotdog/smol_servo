@@ -23,7 +23,8 @@ enum {
 #define PHASE_BUCKETS				16
 #define NUM_STATIC_MEASUREMENTS		8
 #define NUM_PHASE_MEASUREMENTS		16
-#define NUM_ANGLE_MEASUREMENTS		64
+#define NUM_ANGLE_MEASUREMENTS		32
+#define NUM_MAPSTEP_MEASUREMENTS	(4*6*4)
 #define NUM_ALIGN_WAIT_ON_CYCLES	33
 #define NUM_ALIGN_WAIT_OFF_CYCLES	333
 
@@ -54,6 +55,7 @@ typedef enum {
 
 	MCTRL_DRIVER_RESET_START,
 	MCTRL_DRIVER_RESET_WAIT,
+	MCTRL_DRIVER_RESET_COOLDOWN,
 
 	MCTRL_DRIVER_INIT_START,
 	MCTRL_DRIVER_INIT_WAIT,
@@ -93,10 +95,18 @@ typedef enum {
 	MCTRL_SYSID_FINISH,
 	MCTRL_SYSID_DONE,
 
+	// pole-pair identification (angle per step)
 	MCTRL_PPID_PREPARE,
 	MCTRL_PPID_START,
 	MCTRL_PPID_RUN,
 	MCTRL_PPID_FINISH,
+
+	// step nonlinearities
+	MCTRL_MAPSTEP_PREPARE,
+	MCTRL_MAPSTEP_START,
+	MCTRL_MAPSTEP_RUN,
+	MCTRL_MAPSTEP_FINISH,
+
 
 	MCTRL_EMF_PREPARE,
 	MCTRL_EMF_STALL_RAMP,
@@ -145,9 +155,7 @@ typedef struct {
 			float Rvar[NUM_IDENTIFICATION_RUNS];
 		} phases;
 		mctrl_motor_type_t motorType;
-		struct {
-			size_t stepsPerRev;
-		} ph2;
+		size_t stepsPerRev;
 	} sysParamEstimates;
 
 	float angleSum;
@@ -162,6 +170,9 @@ typedef struct {
 	volatile size_t calibCounter;
 	volatile float lastMeasurement[NUM_STATIC_MEASUREMENTS][ISENSE_COUNT];
 	volatile float lastVbus[NUM_STATIC_MEASUREMENTS];
+
+	float stepmap_i[NUM_MAPSTEP_MEASUREMENTS];
+	float stepmap_a[NUM_MAPSTEP_MEASUREMENTS];
 
 	float phasePwm[NUM_PHASE_MEASUREMENTS];
 	float phaseCurrents[NUM_PHASE_MEASUREMENTS][ISENSE_COUNT];
@@ -211,5 +222,8 @@ static inline size_t mctrl_hiBridge(const mctrl_bridge_activation_t bridges[MCTR
 
 void mctrl_updateSimpleSensorEstimate(uint32_t now_us);
 float mctrl_getSimpleMotorSpeedEstimate(void);
+
+void mctrl_setPhasorPwmSin(float phase, float vRmsPhase, mctrl_motor_type_t motorType);
+void mctrl_getPhasorVoltagesSin(float phase, mctrl_motor_type_t motorType, float v[3]);
 
 #endif // SSF_MCTRL_PRIVATE_H

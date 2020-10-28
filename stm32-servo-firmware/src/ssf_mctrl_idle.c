@@ -55,6 +55,15 @@ void mctrl_idle(uint32_t now_us)
 			}
 			break;
 		}
+		case MCTRL_DRIVER_RESET_COOLDOWN:
+		{
+			if (waitElapsed >= 3000000)
+			{
+				waitStart = now_us;
+				mctrl_state = MCTRL_DRIVER_RESET_START;
+			}
+			break;
+		}
 		case MCTRL_DRIVER_INIT_START:
 		{
 			if (waitElapsed >= 2000)
@@ -158,7 +167,8 @@ void mctrl_idle(uint32_t now_us)
 			if (!calibOk)
 			{
 				err_println("Restarting motor control init...");
-				mctrl_state = MCTRL_DRIVER_RESET_START;
+				waitStart = now_us;
+				mctrl_state = MCTRL_DRIVER_RESET_COOLDOWN;
 				break;
 			}
 
@@ -702,15 +712,19 @@ void mctrl_idle(uint32_t now_us)
 			{
 				mctrl.phase = angle;
 				mctrl.angleSum = 0.0f;
+				++mctrl.counter;
 			}
-
-			if (mctrl.counter < NUM_ANGLE_MEASUREMENTS)
+			else
 			{
 				float delta = mctrl_modAngle(angle - mctrl.phase);
 				mctrl.phase = angle;
 				mctrl.angleSum += fabsf(delta);
 
 				++mctrl.counter;
+			}
+
+			if (mctrl.counter < NUM_ANGLE_MEASUREMENTS)
+			{
 				mctrl_state = MCTRL_PPID_START;
 			}
 			else
@@ -745,10 +759,99 @@ void mctrl_idle(uint32_t now_us)
 
 				dbg_println("Steps per rev = %u", mctrl.sysParamEstimates.stepsPerRev);
 
+				mctrl_state = MCTRL_MAPSTEP_PREPARE;
+			}
+			break;
+		}
+		case MCTRL_MAPSTEP_PREPARE:
+		{
+			mctrl.calibCounter = 0;
+			mctrl.counter = 0;
+			mctrl.phase = 0;
+			memset(mctrl.stepmap_i, 0, sizeof(mctrl.stepmap_i));
+			memset(mctrl.stepmap_a, 0, sizeof(mctrl.stepmap_a));
+
+			float dc = 2.0f*mctrl_params.sysId.staticIdentificationDutyCycle;
+
+			mctrl_setPhasorPwmSin(0.0f, dc, mctrl.sysParamEstimates.motorType);
+
+			mctrl_state = MCTRL_MAPSTEP_START;
+			break;
+		}
+		case MCTRL_MAPSTEP_START:
+		case MCTRL_MAPSTEP_RUN:
+		{
+			// wait on fastloop
+			break;
+		}
+		case MCTRL_MAPSTEP_FINISH:
+		{
+			// add an extra electrical cycle at the beginning to start measurement at steady state
+			int substepsPerStep = mctrl.sysParamEstimates.motorType == MCTRL_MOT_3PH ? 6 : 4;
+			int electricalRotations = mctrl.sysParamEstimates.stepsPerRev/substepsPerStep;
+			const size_t limit = (electricalRotations+1)*NUM_MAPSTEP_MEASUREMENTS;
+			float angle = ssf_getEncoderAngle();
+
+
+			if (mctrl.counter == 0)
+			{
+				mctrl.phase = angle;
+				mctrl.angleSum = 0.0f;
+
+				dbg_println("Mapstep with %.1f*%d steps for %d steps/rev", (double)(electricalRotations), NUM_MAPSTEP_MEASUREMENTS, mctrl.sysParamEstimates.stepsPerRev);
+
+				++mctrl.counter;
+			}
+			else
+			{
+				float delta = mctrl_modAngle(angle - mctrl.phase);
+				mctrl.phase = angle;
+				mctrl.angleSum += fabsf(delta);
+
+
+				// the first cycle is just to get things going, we don't want to measure, yet.
+				if (mctrl.counter > NUM_MAPSTEP_MEASUREMENTS)
+				{
+					size_t i = mctrl.counter % NUM_MAPSTEP_MEASUREMENTS;
+					mctrl.stepmap_a[i] += delta;
+					mctrl.stepmap_i[i] += 0.0f;					
+				}
+
+				++mctrl.counter;
+			}
+
+
+			dbg_println("Mapstep encoder angle = %.3f deg", (double)(angle*180.0f/M_PI));
+
+			if (mctrl.counter < limit)
+			{
+				mctrl_state = MCTRL_MAPSTEP_START;				
+			}
+			else
+			{
+				spwm_setDrvChannel(HTIM_DRV_CH_A, 0.0f);
+				spwm_setDrvChannel(HTIM_DRV_CH_B, 0.0f);
+				spwm_setDrvChannel(HTIM_DRV_CH_C, 0.0f);
+
+				dbg_println("Mapstep angleSum = %.3f deg after %d counts", (double)(mctrl.angleSum*180.0f/M_PI), mctrl.counter);
+
+				dbg_println("Step Mapping is [phasor_angle, encoder_delta, current]:");
+				for (size_t i = 0; i < NUM_MAPSTEP_MEASUREMENTS; ++i)
+				{
+					float scaleAngle = 1.0f/NUM_MAPSTEP_MEASUREMENTS;
+					float scaleSum = 1.0f/electricalRotations;
+					dbg_printf("[%.4f, %.4f, %.4f], \r\n", 
+						(double)(i*(2.0f*M_PI)*scaleAngle), 
+						(double)(mctrl.stepmap_a[i]), // angles have to add up to 2pi
+						(double)(mctrl.stepmap_i[i]*scaleSum)
+					);
+				}
+
 				mctrl_state = MCTRL_EMF_PREPARE;
 			}
 			break;
 		}
+
 		case MCTRL_EMF_PREPARE:
 		{
 			mctrl.idRunCounter = 0; // up to NUM_STATIC_MEASUREMENTS
