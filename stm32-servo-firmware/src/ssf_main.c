@@ -119,10 +119,60 @@ static void _processUsbRx(void)
 		// dbg_println("received something USB");
 		switch (_usbcmd)
 		{
+			case 'b':
+			{
+				printf("Creating BLDC motor config...\r\n");
+
+				device_config_t conf = {
+					.blockInfo = { .flags = FLASH_CONFIG_TYPE_DEVICECONF_V1 },
+					.userParams = {
+						.ratedCurrent_A = 1.61f,
+						.peakCurrent_A = 4.6f,
+						.torqueConstant_Nm_per_A = 0.18f/4.6f,
+						.rotorInertia_kgm2 = 24.0e-6f,
+						.senseResistance_Ohm = 0.015f,
+					},
+				};
+
+				ssf_flash_tryWriteBlock(
+					conf.blockInfo.flags, 
+					((uintptr_t)&conf) + sizeof(conf.blockInfo), 
+					sizeof(conf) - sizeof(conf.blockInfo)
+				);
+
+				break;
+			}
+			case 'c':
+			{
+				printf("Clearing config flash...\r\n");
+				ssf_flash_clearConfigFlash();
+				printf("... clearing config flash done.\r\n");
+
+				break;
+			}
+			case 'h':
+			{
+				printf("**** N17-SERVO HELP ****\r\n");
+				printf("The following commands are available:\r\n");
+				printf("  i - reset motor driver and parameter identification\r\n");
+				printf("  b - create 42BLF01 BLDC motor config\r\n");
+				printf("  r - reset MCU\r\n");
+				printf("  c - clear config flash\r\n");
+				break;
+			}
 			case 'i':
 			{
-				dbg_println("received mctrl reset through USB");
+				printf("Resetting Motor Driver...\r\n");
 				mctrl_init();
+				break;
+			}
+			case 'r':
+			{
+				printf("Resetting...\r\n");
+				printf("3...\r\n");
+				printf("2...\r\n");
+				printf("1...\r\n");
+				NVIC_SystemReset();
 				break;
 			}
 			default:
