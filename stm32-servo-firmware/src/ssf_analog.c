@@ -264,6 +264,25 @@ static void _setOversamplingMode(ADC_HandleTypeDef* hadc, uint32_t oversamplingR
 	_setOversamplingModeRaw(hadc, enable, ovsr, ovss);
 }
 
+void ssf_analogStartRealtimeSampling(void)
+{
+	_setOversamplingMode(&hadc2, ADC2_OVERSAMPLING_COUNT, ADC2_SHIFT);
+	HAL_ADC_Start_DMA(&hadc2, (uint32_t*) an1_buf, sizeof(an1_buf)/sizeof(an1_buf[0]));
+	// HAL_ADC_Start_DMA(&hadc2, (uint32_t*) an1_buf, 3);
+	// HAL_ADC_StartSampling(&hadc2);
+	// HAL_TIM_Base_Start_IT(&htim2);
+	// HAL_TIM_Base_Start_DMA(&htim3, (uint32_t*) adcBuffer, sizeof(adcBuffer)/4);
+}
+
+void ssf_analogStopRealtimeSampling(void)
+{
+	HAL_ADC_Stop_DMA(&hadc2);
+	// HAL_ADC_Start_DMA(&hadc2, (uint32_t*) an1_buf, 3);
+	// HAL_ADC_StartSampling(&hadc2);
+	// HAL_TIM_Base_Start_IT(&htim2);
+	// HAL_TIM_Base_Start_DMA(&htim3, (uint32_t*) adcBuffer, sizeof(adcBuffer)/4);
+}
+
 void ssf_analogInit(void)
 {
 	HAL_ADCEx_Calibration_Start(&hadc1, ADC_SINGLE_ENDED);
@@ -287,11 +306,6 @@ void ssf_analogInit(void)
 	HAL_ADC_Start_DMA(&hadc1, (uint32_t*) an0_buf, sizeof(an0_buf)/sizeof(an0_buf[0]));
 	HAL_ADC_StartSampling(&hadc1);
 
-	_setOversamplingMode(&hadc2, ADC2_OVERSAMPLING_COUNT, ADC2_SHIFT);
-	HAL_ADC_Start_DMA(&hadc2, (uint32_t*) an1_buf, sizeof(an1_buf)/sizeof(an1_buf[0]));
-	// HAL_ADC_Start_DMA(&hadc2, (uint32_t*) an1_buf, 3);
-	// HAL_ADC_StartSampling(&hadc2);
-	// HAL_TIM_Base_Start_IT(&htim2);
-	// HAL_TIM_Base_Start_DMA(&htim3, (uint32_t*) adcBuffer, sizeof(adcBuffer)/4);
+	ssf_analogStartRealtimeSampling();
 
 }
