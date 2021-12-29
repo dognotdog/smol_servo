@@ -120,37 +120,16 @@ void spwm_enableHalfBridges(uint32_t outputMask)
 
 }
 
-void spwm_init(void)
+void spwm_startRealtime(void)
 {
-	HAL_GPIO_WritePin(PIN_DRVEN, GPIO_PIN_RESET);
-
-	spwm_enableHalfBridges(0x0);
-
-	HAL_Delay(1);
-	HAL_GPIO_WritePin(PIN_DRVEN, GPIO_PIN_SET);
-	HAL_Delay(1);
-
-	HAL_GPIO_WritePin(PIN_ENA, GPIO_PIN_SET);
-	HAL_GPIO_WritePin(PIN_ENB, GPIO_PIN_SET);
-	HAL_GPIO_WritePin(PIN_ENC, GPIO_PIN_SET);
-
-	spwm_enableHalfBridges(0x7);
-
 	HAL_TIM_Base_Stop(HTIM_DRV);
 	HAL_TIM_Base_Stop(HTIM_ISENSE_OFFSET);
-
-	dbg_println("spwm_init() iSense ADC computed to take %u cycles (%.3f us)", ISENSE_SSAA_CPU_CYCLES, (double)(ISENSE_SSAA_CPU_CYCLES/170.0e0f));
-
 
 	// setup triggered ADC offset timer
 	__HAL_TIM_SET_AUTORELOAD(HTIM_ISENSE_OFFSET, 1699);
 	__HAL_TIM_SET_COMPARE(HTIM_ISENSE_OFFSET, TIM_CHANNEL_1, 1699 - ISENSE_SSAA_CPU_CYCLES/2);
 
-
 	HAL_TIM_Base_Start(HTIM_ISENSE_OFFSET);
-
-
-
 
 	// with dithering, subtract 16
 	__HAL_TIM_SET_AUTORELOAD(HTIM_DRV, (DRV_PWM_PERIOD - DRV_PWM_DITHER));
@@ -167,7 +146,37 @@ void spwm_init(void)
 	HAL_TIM_PWM_Start(HTIM_DRV, HTIM_DRV_CH_B);  
 	HAL_TIM_PWM_Start(HTIM_DRV, HTIM_DRV_CH_C);  
 
+}
 
+void spwm_stopRealtime(void)
+{
+	// turn off power to the motor
+	spwm_enableHalfBridges(0x0);
+
+	// stop the realtime relevant timers
+	HAL_TIM_Base_Stop(HTIM_DRV);
+	HAL_TIM_Base_Stop(HTIM_ISENSE_OFFSET);
+}
+
+void spwm_init(void)
+{
+	HAL_GPIO_WritePin(PIN_DRVEN, GPIO_PIN_RESET);
+
+	spwm_enableHalfBridges(0x0);
+
+	HAL_Delay(1);
+	HAL_GPIO_WritePin(PIN_DRVEN, GPIO_PIN_SET);
+	HAL_Delay(1);
+
+	HAL_GPIO_WritePin(PIN_ENA, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(PIN_ENB, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(PIN_ENC, GPIO_PIN_SET);
+
+	spwm_enableHalfBridges(0x7);
+
+	dbg_println("spwm_init() iSense ADC computed to take %u cycles (%.3f us)", ISENSE_SSAA_CPU_CYCLES, (double)(ISENSE_SSAA_CPU_CYCLES/170.0e0f));
+
+	spwm_startRealtime();
 }
 
 /**
