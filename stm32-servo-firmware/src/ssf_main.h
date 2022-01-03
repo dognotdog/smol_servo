@@ -71,6 +71,8 @@ extern void ssf_init(void);
 extern void ssf_idle(void);
 
 extern void ssf_analogInit(void);
+extern void ssf_analogStartRealtime(void);
+extern void ssf_analogStopRealtime(void);
 extern float ssf_getVbus(void);
 extern float ssf_getVddp(void);
 extern float ssf_getVdda(void);
@@ -80,6 +82,9 @@ extern void ssf_ledInit(void);
 extern void ssf_ledIdle(void);
 
 extern void spwm_init(void);
+extern void spwm_startRealtime(void);
+extern void spwm_stopRealtime(void);
+
 extern void spwm_idle(void);
 extern uint16_t spwm_setDrvChannel(mctrl_pwmChannelId_t ch, float normValue);
 extern void spwm_enableHalfBridges(uint32_t outputMask);
