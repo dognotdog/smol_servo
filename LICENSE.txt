@@ -1,0 +1,5 @@
+The hardware design documents in this project are covered by the CERN-OHL-S v2 license, unless noted otherwise in specific subcomponents.
+
+Original software components are covered under the GPL v3 license, unless noted otherwise. Code from 3rd party libraries that is included for completeness is covered by their respective licenses. 
+
+Other documents, images, etc, are covered by the Creative Commons CC BY-NC-SA license.
