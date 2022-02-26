@@ -12,6 +12,10 @@ Firmware for Mechaduino's SAMD21G18A Cortex M0+.
 
 Hardware design files for Schematic and PCB.
 
+## tests
+
+There is a basic harness in place to use [Unity](https://github.com/ThrowTheSwitch/Unity) for unit testing. Create `foo_test.c` modules for testing, and `foo_test.mk` makefiles for additional setup.
+
 # Calculations
 
 ### Current Sense Shunt Resistor Value
@@ -226,9 +230,49 @@ TIM6: Timer for performance counter with PSC=169 to get a 1us count resolution @
 
 TIM1,TIM7,TIM8,TIM15,TIM16,TIM17: unused
 
+# Blackmagic Probe debugging
+
+Firmware update for probe:
+`dfu-util -d 1d50:6018,:6017 -s 0x08002000:leave -D <blackmagic-native.bin>`
+
+## GDB
+
+```
+~/Applications/ARM-Toolchain/gcc-arm-none-eabi-8-2019-q3-update/bin/arm-none-eabi-gdb
+target extended-remote /dev/cu.usbmodem79A760B81
+monitor swdp_scan
+attach 1
+```
+
 # Board Revisions
 
+## V0.4
+
+### Changes
+ - Change to 4-layer board for better power planes, and to de-clutter some of the signal paths.
+ - Change USB-C socket footprint to be compatible two variants
+
+## V0.3.1
+
+### Known Bugs
+ - (16.b) no zeners on VBUS/VDDP monitor taps means no chip protection
+
+### Bugfixes
+ - (15) move motor connector out by another 25mil
+ - (16.a) 100n cap instead of zeners on VBUS/VDDP give much better accuracy
+ - (17) add ground traces for current sense amps
+
+### Observations
+ - (17) it looks as though A and C bridges are measuring current much closer together with the dedicated ground traces
+
+
+
 ## V0.3
+
+### Known Bugs
+ - (15) motor connector does not have enough clearance for connection from back
+ - (16) adding small buffer caps (100n) on voltage dividers for VBUS/VDDP would help with inaccuracy due to high-impedance source.
+ - (17) current sense traces are not routed differentially, need ground lines directly to sense resistors instead of via ground plane to prevent induced effects
 
 ### Bugfixes
  - (3) change footprint of L2 from 0806 to 1005
@@ -244,6 +288,8 @@ TIM1,TIM7,TIM8,TIM15,TIM16,TIM17: unused
  - change D2 to bigger footprint to be able to fit bigger diode with appropriate voltage rating
 
 ### Software Differences
+
+Correction: Hardware NSS does NOT work because it requires opposite clock signal polarity :/
 
 Enable hardware NSS control as master with pulsing between data words
 
