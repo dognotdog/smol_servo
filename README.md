@@ -49,12 +49,17 @@ I_VCP = 1.78 mA @ 50kHz
 
 Charge pump current capacity is well over required charge pump current.
 
-#### FDMC86570L‎
+#### FDMC86570L
 
 Q_G < 88 nC
 
 I_VCP = 8.8 mA @ 100kHz
 I_VCP = 4.4 mA @ 50kHz
+
+#### FDMC86183
+
+Q_G ~ 15 nC
+Q_gd ~ 3.4 nC
 
 ### Passive NSS OR circuit
 
@@ -363,5 +368,51 @@ Power connectors have been moved to portrude from the 42x42mm footprint, so that
  - SPI to both AD5047D and DRV8323 work after fixing bug (9)
  - all power transistors are switched under a no load condition, with DRV8323 in 3xPWM mode
 
+# Alternate Parts
+
+## STM32G431CxU
+G441, G491, GG4A1, G473, G483, G474, G484
+
+### NRF5340
+
+The nRF5340 is the successor of the nRF52 series, and is a dual-core design at 128MHz and 64MHz, respectively
+
+#### ADC
+
+The ADC can be configured for acquisition times between 3 and 40 us, with a minimum of 10us for VDD monitoring. The conversion time is 2us, giving us a max. sample rate of 200kHz
+
+#### Timers / PWM
+
+The timers only run at 16MHz, which at 100kHz would only give a resolution of 160 counts for a PWM signal. This is compared to the full 168MHz resolution of the STM32G4, giving 1680 counts, roughly 10x the resolution, for an effective 10 bits vs 7 bits.
+
+### LPC5528JEV98K
+
+An ARM Cortex M33 core @ 150MHz, in a 0.5mm pitch BGA package.
+
+### ADuCM410
+
+2 MSPS 16bit ADC, 160 MHz ARM Cortex M33, 5x5mm, 0.5mm pitch BGA
+
+### ATSAM4S
+
+120MHz ARM Cortex M4, no FPU though.
+
+## DRV8323RS
+
+This part has both the 3ph driver and current sense.
+
+### DRV8353R
+
+Higher voltage, similar part
+
+### DRV8300NRGR + INAxxx
+
+The DRV8300 needs extra current sense amplifiers and a high-side bootstrap, pluss VDD supply. Looks like INA190 or INA210 can do bidirectional sensing
+
+### TMC6200
+
+### FDMF2011
+
+interesting integrated half bridge for up to 20A
 
 
