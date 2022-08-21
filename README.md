@@ -251,6 +251,9 @@ attach 1
 
 # Board Revisions
 
+## V0.6.0 (TMC6200)
+ - C22 (0.022uF 100V) is not available in 0402, thus 2 10n caps in parallel have to be used, stacked on top of each other.
+
 ## V0.4
 
 ### Changes
@@ -395,7 +398,7 @@ An ARM Cortex M33 core @ 150MHz, in a 0.5mm pitch BGA package.
 
 ### ATSAM4S
 
-120MHz ARM Cortex M4, no FPU though.
+120MHz ARM Cortex M4, no FPU though. 100pin BGA 7x7, 0.65mm pitch.
 
 ## DRV8323RS
 
