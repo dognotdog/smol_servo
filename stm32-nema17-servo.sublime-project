@@ -22,6 +22,9 @@
             "cmd": ["make", "-j8", "all"],
    			"selector" : "source.*",
 			"file_patterns":["*.c", "*.h"],
+			"env" : {
+				"BMP_PORT" : "/dev/cu.usbmodem79A760B81"
+			},
 			// "file_regex": "^\\s*(\\S[^:]*):(\\d+)(?::(\\d+))?: ([^\\n]+)",
 			// attempt to build regex that also matches included from... messages, 
 			"file_regex": "^(?:[^:]+from\\s|\\s*)(\\S[^:]*):(\\d+)(?::(\\d+))?(?::|,)(:? ([^\\n]+))?",
@@ -32,11 +35,100 @@
 					"cmd": ["make", "clean"]
 				},
 				{
+					"name": "Reset Target",
+					"cmd": ["make", "rmagic"]
+				},
+				{
 					"name": "Program",
-            		"cmd": ["make", "-j8", "program"]
+            		"cmd": ["make", "-j8", "fmagic"]
+				},
+				{
+					"name": "nm",
+            		"cmd": ["make", "-j8", "nm"]
+				},
+				{
+					"name": "size",
+            		"cmd": ["make", "-j8", "size"]
 				}
 			]
-        }
-    ]
+        },
+        {
+            "name": "G491",
+        	"working_dir": "${project_path}/firmware48_G491",
+            "cmd": ["make", "-j8", "all"],
+   			"selector" : "source.*",
+			"file_patterns":["*.c", "*.h"],
+			"env" : {
+				"BMP_PORT" : "/dev/cu.usbmodem79A760B81"
+			},
+			// "file_regex": "^\\s*(\\S[^:]*):(\\d+)(?::(\\d+))?: ([^\\n]+)",
+			// attempt to build regex that also matches included from... messages, 
+			"file_regex": "^(?:[^:]+from\\s|\\s*)(\\S[^:]*):(\\d+)(?::(\\d+))?(?::|,)(:? ([^\\n]+))?",
+			"variants":
+			[
+				{
+					"name": "Clean",
+					"cmd": ["make", "clean"]
+				},
+				{
+					"name": "Reset Target",
+					"cmd": ["make", "rmagic"]
+				},
+				{
+					"name": "Program",
+            		"cmd": ["make", "-j8", "fmagic"]
+				},
+				{
+					"name": "nm",
+            		"cmd": ["make", "-j8", "nm"]
+				},
+				{
+					"name": "size",
+            		"cmd": ["make", "-j8", "size"]
+				}
+			]
+        },
+    ],
+    "settings": {
+		"sublimegdb_workingdir": "${folder:${project_path:your_executable_name}}",
+		// NOTE: You MUST provide --interpreter=mi for the plugin to work
+		"sublimegdb_commandline": "/Users/dog/Applications/ARM-Toolchain/gcc-arm-none-eabi-9-2020-q2-update/bin/arm-none-eabi-gdb --interpreter=mi ./your_executable_name",
+		// set server when working via openocd
+		// blackmagic probe doesn't need it though
+	    "sublimegdb_server_workingdir": "notset",
+	    "sublimegdb_server_commandline": "notset",
 
+    	"SublimeLinter.linters.gcc.executable" : ["/Users/dog/Applications/ARM-Toolchain/gcc-arm-none-eabi-9-2020-q2-update/bin/arm-none-eabi-gcc"],
+    	"SublimeLinter.linters.gcc.args" : [
+    		"-fsyntax-only",
+    		"-std=gnu11",
+    		"-Wall",
+    		"-DSTM32G431xx",
+    		"-DSTM32G431",
+    		"-DSTM32",
+    		"-DUSE_HAL_DRIVER",
+    		"-DSSF_HARDWARE_VERSION=0x000300",
+    		"-DDEBUG_UART_PRINTF=1",
+    	],
+    	"SublimeLinter.linters.gcc.I" : [
+    		"${project_path}/firmware48/Inc",
+    		"${project_path}/firmware48/Drivers/STM32G4xx_HAL_Driver/Inc",
+    		"${project_path}/firmware48/Drivers/CMSIS/Include",
+    		"${project_path}/firmware48/Drivers/CMSIS/Device/ST/STM32G4xx/Include",
+    		"${project_path}/stm32-servo-firmware/src"
+    	],
+    	"SublimeLinter.linters.g++.executable" : ["/Users/dog/Applications/ARM-Toolchain/gcc-arm-none-eabi-9-2020-q2-update/bin/arm-none-eabi-g++"],
+    	"SublimeLinter.linters.g++.args" : [
+    		"-fsyntax-only",
+    		"-std=c++11",
+    		"-DSTM32G431xx=1",
+    	],
+    	"SublimeLinter.linters.g++.I" : [
+    		"${project_path}/firmware48/Inc",
+    		"${project_path}/firmware48/Drivers/STM32G4xx_HAL_Driver/Inc",
+    		"${project_path}/firmware48/Drivers/CMSIS/Include",
+    		"${project_path}/firmware48/Drivers/CMSIS/Device/ST/STM32G4xx/Include",
+    		"${project_path}/stm32-servo-firmware/src"
+    	],
+   },
 }

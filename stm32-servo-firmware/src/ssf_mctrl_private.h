@@ -59,6 +59,7 @@ typedef enum {
 
 	MCTRL_DRIVER_INIT_START,
 	MCTRL_DRIVER_INIT_WAIT,
+	MCTRL_DRIVER_DETECT_START,
 	MCTRL_DRIVER_CALIB_ENTER,
 	MCTRL_DRIVER_CALIB_WAIT,
 	MCTRL_DRIVER_CALIB_EXIT,
@@ -101,6 +102,11 @@ typedef enum {
 	MCTRL_PPID_RUN,
 	MCTRL_PPID_FINISH,
 
+	MCTRL_COGID_PREPARE,
+	MCTRL_COGID_START,
+	MCTRL_COGID_RUN,
+	MCTRL_COGID_FINISH,
+
 	// step nonlinearities
 	MCTRL_MAPSTEP_PREPARE,
 	MCTRL_MAPSTEP_START,
@@ -125,7 +131,8 @@ typedef enum {
 typedef enum {
 	MCTRL_MOT_UNKNOWN,
 	MCTRL_MOT_2PH,
-	MCTRL_MOT_3PH,
+	MCTRL_MOT_3PH_SIN,
+	MCTRL_MOT_3PH_TRAP,
 	MCTRL_MOT_
 } mctrl_motor_type_t;
 
@@ -145,6 +152,11 @@ typedef struct {
 		mctrl_bridge_activation_t idSequence[NUM_IDENTIFICATION_RUNS][MCTRL_DRIVER_PHASES];
 	} sysId;
 } mctrl_params_t;
+
+typedef struct {
+	float pwm[3];
+	float u[3];
+} mctrl_pwm_t;
 
 typedef struct {
 	struct {
@@ -179,6 +191,7 @@ typedef struct {
 
 	float demoPhasedCurrents[ISENSE_COUNT][PHASE_BUCKETS];
 	float phase;
+	mctrl_pwm_t pwm;
 	size_t counter;
 
 	struct {
@@ -192,6 +205,7 @@ typedef struct {
 	} debug;
 
 } mctrl_controller_t;
+
 
 extern mctrl_params_t mctrl_params;
 
@@ -223,7 +237,7 @@ static inline size_t mctrl_hiBridge(const mctrl_bridge_activation_t bridges[MCTR
 void mctrl_updateSimpleSensorEstimate(uint32_t now_us);
 float mctrl_getSimpleMotorSpeedEstimate(void);
 
-void mctrl_setPhasorPwmSin(float phase, float vRmsPhase, mctrl_motor_type_t motorType);
+mctrl_pwm_t mctrl_setPhasorPwmSin(float phase, float vRmsPhase, mctrl_motor_type_t motorType);
 void mctrl_getPhasorVoltagesSin(float phase, mctrl_motor_type_t motorType, float v[3]);
 
 #endif // SSF_MCTRL_PRIVATE_H

@@ -7,7 +7,7 @@
 #include "main.h"
 #include "ssf_main.h"
 
-#ifdef STM32G431xx
+#if defined(STM32G431xx) || defined(STM32G491xx)
 	#include "stm32g4xx_hal.h"
 #else
 	#include "stm32f0xx_hal.h"
@@ -19,7 +19,7 @@
 #ifdef PERF_MONITOR_ENABLED
 
 // select which timer to use
-#ifdef STM32G431xx
+#if defined(STM32G431xx) || defined(STM32G491xx)
 	#define PERF_TIM 		TIM6
 	#define PERF_EVENT_TIM	TIM1
 #endif

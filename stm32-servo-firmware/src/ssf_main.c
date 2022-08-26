@@ -10,6 +10,7 @@
 #include "ssf_spi.h"
 #include "ssf_flash.h"
 #include "ssf_mctrl.h"
+#include "ssf_supervisor.h"
 #include "utime.h"
 
 #include "servo_hid_if.h"
@@ -76,6 +77,8 @@ void test_chipSelects(void)
 void ssf_init(void)
 {
 	do {dbg_println("ssf_init()...");} while (0);
+
+	ssf_supervisorInit();
 
 	ssf_flashInit();
 
@@ -220,15 +223,15 @@ void ssf_ui1sTask(uint32_t now_us)
 	// ssf_asyncReadHallSensor();
 	// sspi_as5047_state_t hallState = ssf_readHallSensor();
 	sspi_as5047_state_t hallState = ssf_dbgGetLastEncoderReading();
-	uint32_t readCounter = ssf_dbgGetEncoderReadCounter();
-	uint32_t formatErrorCounter = 0, valueErrorCounter = 0;
-	uint32_t errorCounter = ssf_dbgGetEncoderErrorCounter(&formatErrorCounter, &valueErrorCounter);
-	dbg_println("AS5047D %8u reads, %8u errors (%8u fmt, %8u val)", readCounter, errorCounter, formatErrorCounter, valueErrorCounter);
+	// uint32_t readCounter = ssf_dbgGetEncoderReadCounter();
+	// uint32_t formatErrorCounter = 0, valueErrorCounter = 0;
+	// uint32_t errorCounter = ssf_dbgGetEncoderErrorCounter(&formatErrorCounter, &valueErrorCounter);
+	// dbg_println("AS5047D %8u reads, %8u errors (%8u fmt, %8u val)", readCounter, errorCounter, formatErrorCounter, valueErrorCounter);
 
 	ssf_dbgPrintEncoderStatus(hallState);
 	// dbg_println("HALL[%8u] 0x%04x, 0x%04x, 0x%04x, 0x%04x", readCounter, hallState.NOP, hallState.ERRFL, hallState.DIAAGC, hallState.ANGLEUNC);
 	{
-		sspi_drv_state_t drvState = ssf_readMotorDriver();
+		sspi_drv_state_t drvState = sspi_drv_readMotorDriver();
 		// dbg_println("DRV %04x, %04x, %04x, %04x, %04x, %04x, %04x", drvState.FAULT_STATUS.reg, drvState.VGS_STATUS.reg, drvState.DRV_CTRL.reg, drvState.DRV_HS.reg, drvState.DRV_LS.reg, drvState.OCP_CTRL.reg, drvState.CSA_CTRL.reg);
 		ssf_printMotorDriverFaults(drvState);
 	}

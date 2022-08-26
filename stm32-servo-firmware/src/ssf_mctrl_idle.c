@@ -87,6 +87,11 @@ void mctrl_idle(uint32_t now_us)
 				mctrl_state = MCTRL_DRIVER_CALIB_ENTER;
 			break;
 		}
+		case MCTRL_DRIVER_DETECT_START:
+		{
+			
+			break;
+		}
 		case MCTRL_DRIVER_CALIB_ENTER:
 		{
 			// dbg_println("MCTRL_DRIVER_CALIB_ENTER");
@@ -554,7 +559,7 @@ void mctrl_idle(uint32_t now_us)
 			float Rphase0 = uiMean0/currentSqr[j0];
 			float Rphase1 = uiMean1/currentSqr[j1];
 			float iphase = acos(iiMean/(currentRms[j0]*currentRms[j1]));
-			if (0 && (k == 0))
+			if (1 && (k == 0))
 			{
 				dbg_println("  Rphase0 = %6.3f R, Z0 = %6.3f, X0 = %6.3f", (double)(Rphase0*1.0e0), (double)Z0, (double)X0);
 				dbg_println("  Rphase1 = %6.3f R, Z1 = %6.3f, X1 = %6.3f", (double)(Rphase1*1.0e0), (double)Z1, (double)X1);				
@@ -680,7 +685,7 @@ void mctrl_idle(uint32_t now_us)
 			else
 			{
 				dbg_println("Looks like we have a 3-Phase motor.");		
-				mctrl.sysParamEstimates.motorType = MCTRL_MOT_3PH;
+				mctrl.sysParamEstimates.motorType = MCTRL_MOT_3PH_TRAP;
 			}
 
 			spwm_enableHalfBridges(0x7);
@@ -744,7 +749,8 @@ void mctrl_idle(uint32_t now_us)
 
 						break;
 					}
-					case MCTRL_MOT_3PH:
+					case MCTRL_MOT_3PH_SIN:
+					case MCTRL_MOT_3PH_TRAP:
 					{
 						// round to nearest 6
 						mctrl.sysParamEstimates.stepsPerRev = ((mctrl.sysParamEstimates.stepsPerRev + 3)/6)*6;
@@ -762,6 +768,37 @@ void mctrl_idle(uint32_t now_us)
 				mctrl_state = MCTRL_MAPSTEP_PREPARE;
 			}
 			break;
+		}
+		case MCTRL_COGID_PREPARE:
+		{
+			mctrl.calibCounter = 0;
+			mctrl.counter = 0;
+			mctrl.phase = 0;
+
+			// Cog identification. We need energize around the neutral points, where one phase is fully energized and the other two are halfway energized.
+			// Then, we wiggle around a bit. How much? we want to stay as close to the neutral as possible, and certainly not move the rotor past max cogging torque (1/4 step).
+
+			// How to deal with hysterisis / static friction?
+
+
+			break;
+		}
+		case MCTRL_COGID_START: 
+		{
+			int k = (mctrl.sysParamEstimates.motorType == MCTRL_MOT_2PH) ? 6 : 4;
+
+			float lambda = mctrl.counter*2.0f*M_PI/(float)k;
+
+
+			break;
+		}
+		case MCTRL_COGID_FINISH:
+		{
+			mctrl.counter++;
+
+			if (mctrl.counter == mctrl.sysParamEstimates.stepsPerRev) {
+				// we are done
+			}
 		}
 		case MCTRL_MAPSTEP_PREPARE:
 		{
@@ -787,7 +824,7 @@ void mctrl_idle(uint32_t now_us)
 		case MCTRL_MAPSTEP_FINISH:
 		{
 			// add an extra electrical cycle at the beginning to start measurement at steady state
-			int substepsPerStep = mctrl.sysParamEstimates.motorType == MCTRL_MOT_3PH ? 6 : 4;
+			int substepsPerStep = mctrl.sysParamEstimates.motorType == MCTRL_MOT_3PH_TRAP ? 6 : 4;
 			int electricalRotations = mctrl.sysParamEstimates.stepsPerRev/substepsPerStep;
 			const size_t limit = (electricalRotations+1)*NUM_MAPSTEP_MEASUREMENTS;
 			float angle = ssf_getEncoderAngle();
@@ -822,6 +859,9 @@ void mctrl_idle(uint32_t now_us)
 
 
 			dbg_println("Mapstep encoder angle = %.3f deg", (double)(angle*180.0f/M_PI));
+			dbg_println("   ph = %.3f", (double)mctrl.phase);
+			dbg_println("  u   = %.3f,%.3f,%.3f", (double)mctrl.pwm.u[0], (double)mctrl.pwm.u[1], (double)mctrl.pwm.u[2]);
+			dbg_println("  pwm = %.3f,%.3f,%.3f", (double)mctrl.pwm.pwm[0], (double)mctrl.pwm.pwm[1], (double)mctrl.pwm.pwm[2]);
 
 			if (mctrl.counter < limit)
 			{

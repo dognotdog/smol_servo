@@ -81,11 +81,15 @@ C_SOURCES += ../stm32-servo-firmware/src/ssf_tasks.c
 C_SOURCES += ../stm32-servo-firmware/src/ssf_linreg.c
 C_SOURCES += ../stm32-servo-firmware/src/ssf_led.c
 C_SOURCES += ../stm32-servo-firmware/src/ssf_spi.c
+C_SOURCES += ../stm32-servo-firmware/src/ssf_spi_as5047d.c
+C_SOURCES += ../stm32-servo-firmware/src/ssf_spi_drv83xx.c
+C_SOURCES += ../stm32-servo-firmware/src/ssf_spi_tmc6200.c
 C_SOURCES += ../stm32-servo-firmware/src/ssf_pwm.c
 C_SOURCES += ../stm32-servo-firmware/src/ssf_analog.c
 C_SOURCES += ../stm32-servo-firmware/src/ssf_mctrl.c
 C_SOURCES += ../stm32-servo-firmware/src/ssf_mctrl_idle.c
 C_SOURCES += ../stm32-servo-firmware/src/ssf_mctrl_estimator.c
+C_SOURCES += ../stm32-servo-firmware/src/ssf_supervisor.c
 C_SOURCES += ../stm32-servo-firmware/src/utime.c
 C_SOURCES += ../stm32-servo-firmware/src/debug_uart.c
 C_SOURCES += ../stm32-servo-firmware/src/ssf_main.c
@@ -163,7 +167,7 @@ C_DEFS += -DSTM32G431
 C_DEFS += -DSTM32 
 C_DEFS += -DPERF_MONITOR_ENABLED
 # Hardware version 0.1.0
-C_DEFS += -DSSF_HARDWARE_VERSION=0x000300
+C_DEFS += -DSSF_HARDWARE_VERSION=0x00000300
 # use UART_PRINTF to output debug info through UART instead of stdout
 C_DEFS += -DDEBUG_UART_PRINTF=1
 # use USB_PRINTF when stdio is not USB but you want output on it

@@ -44,16 +44,20 @@ extern TIM_HandleTypeDef htim16;	// SPI timing
 #define ISENSE_SSAA_CPU_CYCLES		(ISENSE_SSAA_ADC_CYCLES*3)
 
 
-#define PIN_DRVEN		GPIOA, GPIO_PIN_7
-#define PIN_ENA			GPIOB, GPIO_PIN_2
-#define PIN_ENB			GPIOB, GPIO_PIN_1
-#define PIN_ENC			GPIOB, GPIO_PIN_0
+#if SSF_HARDWARE_VERSION <= 0x00000600
+	#define PIN_DRVEN		GPIOA, GPIO_PIN_7
+	#define PIN_ENA			GPIOB, GPIO_PIN_2
+	#define PIN_ENB			GPIOB, GPIO_PIN_1
+	#define PIN_ENC			GPIOB, GPIO_PIN_0
 
-#define HTIM_LED 		(&htim4)
-#define HTIM_ENC 		(&htim3)
-#define HTIM_DRV 		(&htim2)
-#define HTIM_ISENSE_OFFSET	(&htim15)
-#define HTIM_SPI		(&htim16)
+	#define HTIM_LED 		(&htim4)
+	#define HTIM_ENC 		(&htim3)
+	#define HTIM_DRV 		(&htim2)
+	#define HTIM_ISENSE_OFFSET	(&htim15)
+	#define HTIM_SPI		(&htim16)
+#else
+	#error oops, dont have peripheral defs for this hardware version
+#endif
 
 typedef enum {
 	HTIM_DRV_CH_R = TIM_CHANNEL_1,

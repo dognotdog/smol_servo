@@ -930,8 +930,8 @@ void mctrl_init(void)
 		float Ra = mctrl.sysParamEstimates.phases.Rest[0];
 		float Rc = mctrl.sysParamEstimates.phases.Rest[2];
 		float Rs = 0.015f;
-		float Rt = Ra - 0.5f*Rc - 0.5*Rs;
-		float Rp = 0.5*Rc - Rt - 0.5*Rs;
+		float Rt = Ra - 0.5f*Rc - 0.5f*Rs;
+		float Rp = 0.5f*Rc - Rt - 0.5f*Rs;
 		dbg_println("Rt[A/C] is %8.3f R", (double)Rt);
 		dbg_println("Rp[A/C] is %8.3f R", (double)Rp);
 	}
@@ -939,8 +939,8 @@ void mctrl_init(void)
 		float Rb = mctrl.sysParamEstimates.phases.Rest[1];
 		float Rc = mctrl.sysParamEstimates.phases.Rest[2];
 		float Rs = 0.015f;
-		float Rt = Rb - 0.5f*Rc - 0.5*Rs;
-		float Rp = 0.5*Rc - Rt - 0.5*Rs;
+		float Rt = Rb - 0.5f*Rc - 0.5f*Rs;
+		float Rp = 0.5f*Rc - Rt - 0.5f*Rs;
 		dbg_println("Rt[B/C] is %8.3f R", (double)Rt);
 		dbg_println("Rp[B/C] is %8.3f R", (double)Rp);
 	}
@@ -1065,6 +1065,9 @@ static void _compute3PhPwmTrap(const float phase, float pwm[3])
 	}
 }
 
+/**
+ * This function is supposed to compute the 2ph and 3ph target output voltages for maximum voltage swing
+ */
 void mctrl_getPhasorVoltagesSin(float phase, mctrl_motor_type_t motorType, float v[3])
 {
 	switch(motorType)
@@ -1082,7 +1085,7 @@ void mctrl_getPhasorVoltagesSin(float phase, mctrl_motor_type_t motorType, float
 
 			break;
 		}
-		case MCTRL_MOT_3PH:
+		case MCTRL_MOT_3PH_SIN:
 		{
 			float sina = sintab(phase + M_PI*0.0f/3.0f);
 			float sinb = sintab(phase + M_PI*2.0f/3.0f);
@@ -1105,6 +1108,57 @@ void mctrl_getPhasorVoltagesSin(float phase, mctrl_motor_type_t motorType, float
 			
 			break;
 		}
+		case MCTRL_MOT_3PH_TRAP:
+		{
+			float ph = fmodf(phase/(M_PI*2.0f)*6.0f, 6.0f);
+			float ph1 = fmodf(ph, 1.0f);
+			switch ((int)ph)
+			{
+				case 0:
+				{
+					v[0] = ph1;
+					v[1] = 0.0f;
+					v[2] = 1.0f;
+					break;
+				}
+				case 1:
+				{
+					v[0] = 1.0f;
+					v[1] = 0.0f;
+					v[2] = 1.0f - ph1;
+					break;
+				}
+				case 2:
+				{
+					v[0] = 1.0f;
+					v[1] = ph1;
+					v[2] = 0.0f;
+					break;
+				}
+				case 3:
+				{
+					v[0] = 1.0f - ph1;
+					v[1] = 1.0f;
+					v[2] = 0.0f;
+					break;
+				}
+				case 4:
+				{
+					v[0] = 0.0f;
+					v[1] = 1.0f;
+					v[2] = ph1;
+					break;
+				}
+				case 5:
+				{
+					v[0] = 0.0f;
+					v[1] = 1.0f - ph1;
+					v[2] = 1.0f;
+					break;
+				}
+			}
+			break;
+		}
 		default:
 		{
 			v[0] = 0.0f;
@@ -1115,18 +1169,22 @@ void mctrl_getPhasorVoltagesSin(float phase, mctrl_motor_type_t motorType, float
 	}
 }
 
-void mctrl_setPhasorPwmSin(float phase, float vRmsPhase, mctrl_motor_type_t motorType)
+mctrl_pwm_t mctrl_setPhasorPwmSin(float phase, float vRmsPhase, mctrl_motor_type_t motorType)
 {
-	float u[3] = {};
-	mctrl_getPhasorVoltagesSin(phase, motorType, u);
+	mctrl_pwm_t pwm = {};
+	mctrl_getPhasorVoltagesSin(phase, motorType, pwm.u);
 
 	float dc = M_SQRT1_2*vRmsPhase;
 
-	spwm_setDrvChannel(HTIM_DRV_CH_A, 0.5f+dc*u[0]);
-	spwm_setDrvChannel(HTIM_DRV_CH_B, 0.5f+dc*u[1]);
-	spwm_setDrvChannel(HTIM_DRV_CH_C, 0.5f+dc*u[2]);
-			
+	pwm.pwm[0] = 0.5f+dc*pwm.u[0];
+	pwm.pwm[1] = 0.5f+dc*pwm.u[1];
+	pwm.pwm[2] = 0.5f+dc*pwm.u[2];
 
+	spwm_setDrvChannel(HTIM_DRV_CH_A, pwm.pwm[0]);
+	spwm_setDrvChannel(HTIM_DRV_CH_B, pwm.pwm[1]);
+	spwm_setDrvChannel(HTIM_DRV_CH_C, pwm.pwm[2]);
+			
+	return pwm;
 }
 
 
@@ -1334,10 +1392,20 @@ void mctrl_fastLoop(const uint16_t adcCounts[ISENSE_COUNT])
 		case MCTRL_RESISTANCE_ID_START:
 		{
 			// turn on PWM and wait for it to settle
+			const mctrl_bridge_activation_t* bridges = mctrl_params.sysId.idSequence[mctrl.idRunCounter];
+			float dc = mctrl_params.sysId.staticIdentificationDutyCycle;
+
 			if (mctrl.calibCounter < NUM_ALIGN_WAIT_OFF_CYCLES)
 			{
-				float dc = mctrl_params.sysId.staticIdentificationDutyCycle;
-				const mctrl_bridge_activation_t* bridges = mctrl_params.sysId.idSequence[mctrl.idRunCounter];
+				spwm_setDrvChannel(HTIM_DRV_CH_A, dc*(bridges[0] == MCTRL_BRIDGE_HI));
+				spwm_setDrvChannel(HTIM_DRV_CH_B, dc*(bridges[1] == MCTRL_BRIDGE_HI));
+				spwm_setDrvChannel(HTIM_DRV_CH_C, dc*(bridges[2] == MCTRL_BRIDGE_HI));
+
+
+				++mctrl.calibCounter;
+			}
+			if (mctrl.calibCounter < 2*NUM_ALIGN_WAIT_OFF_CYCLES)
+			{
 				spwm_setDrvChannel(HTIM_DRV_CH_A, dc*(bridges[0] == MCTRL_BRIDGE_HI));
 				spwm_setDrvChannel(HTIM_DRV_CH_B, dc*(bridges[1] == MCTRL_BRIDGE_HI));
 				spwm_setDrvChannel(HTIM_DRV_CH_C, dc*(bridges[2] == MCTRL_BRIDGE_HI));
@@ -1462,13 +1530,17 @@ void mctrl_fastLoop(const uint16_t adcCounts[ISENSE_COUNT])
 
 					break;
 				}
-				case MCTRL_MOT_3PH:
+				case MCTRL_MOT_3PH_SIN:
+				case MCTRL_MOT_3PH_TRAP:
 				{
 					float dc = mctrl_params.sysId.staticIdentificationDutyCycle;
 					size_t step = mctrl.counter % 6;
-					float p0[6] = { 0.5f, 0.5f, 0.0f,-0.5f,-0.5f, 0.0f};
-					float p1[6] = {-0.5f, 0.0f, 0.5f, 0.5f, 0.0f,-0.5f};
-					float p2[6] = { 0.0f,-0.5f,-0.5f, 0.0f, 0.5f, 0.5f};
+					// float p0[6] = { 0.5f, 0.5f, 0.0f,-0.5f,-0.5f, 0.0f};
+					// float p1[6] = {-0.5f, 0.0f, 0.5f, 0.5f, 0.0f,-0.5f};
+					// float p2[6] = { 0.0f,-0.5f,-0.5f, 0.0f, 0.5f, 0.5f};
+					float p0[6] = { 0.5f, 0.5f,-0.5f,-0.5f,-0.5f, 0.5f};
+					float p1[6] = {-0.5f,-0.5f,-0.5f, 0.5f, 0.5f, 0.5f};
+					float p2[6] = {-0.5f, 0.5f, 0.5f, 0.5f,-0.5f,-0.5f};
 					spwm_setDrvChannel(HTIM_DRV_CH_A, 0.5f + dc*p0[step]);
 					spwm_setDrvChannel(HTIM_DRV_CH_B, 0.5f + dc*p1[step]);
 					spwm_setDrvChannel(HTIM_DRV_CH_C, 0.5f + dc*p2[step]);
@@ -1502,7 +1574,8 @@ void mctrl_fastLoop(const uint16_t adcCounts[ISENSE_COUNT])
 
 			float dc = 2.0f*mctrl_params.sysId.staticIdentificationDutyCycle;
 
-			mctrl_setPhasorPwmSin(mctrl.counter*(2.0f*M_PI/NUM_MAPSTEP_MEASUREMENTS), dc, mctrl.sysParamEstimates.motorType);
+			mctrl_pwm_t pwm = mctrl_setPhasorPwmSin(mctrl.counter*(2.0f*M_PI/NUM_MAPSTEP_MEASUREMENTS), dc, mctrl.sysParamEstimates.motorType);
+			mctrl.pwm = pwm;
 
 
 			mctrl_state = MCTRL_MAPSTEP_RUN;
