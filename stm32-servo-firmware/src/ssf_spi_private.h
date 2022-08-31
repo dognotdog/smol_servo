@@ -21,13 +21,15 @@
  */
 typedef enum {
 	SSPI_DEVICE_UNKNOWN,
-	SSPI_DEVICE_HALL,
+	SSPI_DEVICE_AS5047D,
 	SSPI_DEVICE_DRV83XX,
 	SSPI_DEVICE_TMC6200,
 } sspi_deviceId_t;
 
 struct spi_transfer_s;
+struct spi_block_s;
 typedef struct spi_transfer_s spi_transfer_t;
+typedef struct spi_block_s spi_block_t;
 
 typedef void (*spi_transferCallback_t)(const spi_transfer_t* const transfer, const bool transferOk);
 
@@ -42,17 +44,43 @@ struct spi_transfer_s {
 	spi_transferCallback_t callback;
 };
 
+struct spi_block_s {
+	const void* 	src;
+	volatile void* 	dst;
+	size_t			numWords;
+
+	sspi_deviceId_t	deviceId;
+
+	bool transferComplete;
+};
+
+
+typedef struct {
+	spi_transfer_t 	currentTransfer;
+	size_t 			wordsTransferred;
+	sspi_deviceId_t currentDevice;
+	// need to deassert/assert NSS every word per transfer
+	size_t wordsPerTransfer;
+
+	spi_block_t* currentBlock;
+	bool blockIdle;
+
+	sspi_deviceId_t encDevice;
+	sspi_deviceId_t drvDevice;
+} sspi_t;
+
+extern sspi_t sspi;
+
 extern void sspi_syncTransfer(spi_transfer_t transfer);
 extern void sspi_initAs5047d(void);
 extern void sspi_initDrv83xx(void);
 extern void sspi_initTmc6200(void);
 
-extern bool sspi_detectAs5047d(void);
-extern bool sspi_detectDrv83xx(void);
-extern bool sspi_detectTmc6200(void);
-
 extern uint16_t sspi_drv_writeDrvMotorDriverReg(size_t addr, uint16_t data);
 extern sspi_drv_state_t sspi_drv_setMotorDriver3PwmMode(void);
 extern sspi_tmc_state_t sspi_tmc_setMotorDriver3PwmMode(void);
+
+
+int sspi_transmitBlock(spi_block_t* block);
 
 #endif // SSF_SPI_PRIVATE_H

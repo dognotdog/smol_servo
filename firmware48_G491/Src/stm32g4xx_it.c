@@ -51,6 +51,8 @@
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN PFP */
 
+extern void spi_rxDmaCompleteHandler(DMA_TypeDef* rx_dma);
+
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -320,6 +322,9 @@ void USART1_IRQHandler(void)
 void DMA2_Channel1_IRQHandler(void)
 {
   /* USER CODE BEGIN DMA2_Channel1_IRQn 0 */
+
+  // corresponding to hdma_spi2_rx
+  spi_rxDmaCompleteHandler(DMA2);
 
   /* USER CODE END DMA2_Channel1_IRQn 0 */
   HAL_DMA_IRQHandler(&hdma_spi2_rx);

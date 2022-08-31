@@ -64,6 +64,37 @@ void mctrl_idle(uint32_t now_us)
 			}
 			break;
 		}
+		case MCTRL_DRIVER_DETECT_START:
+		{
+
+			// auto-detect available hardware
+
+			if (sspi_detectAs5047d()) 
+			{
+				dbg_println("AS5047D detected!");
+			}
+			else
+			{
+				warn_println("AS5047D not detected!");
+			}
+
+			if (sspi_detectTmc6200()) 
+			{
+				dbg_println("TMC6200 detected!");
+			}
+			else if (sspi_detectDrv83xx()) 
+			{
+				dbg_println("DRV83xx detected!");
+			}
+			else
+			{
+				warn_println("No gate driver detected!");
+			}
+
+			mctrl_state = MCTRL_DRIVER_INIT_START;
+			break;
+		}
+
 		case MCTRL_DRIVER_INIT_START:
 		{
 			if (waitElapsed >= 2000)
@@ -85,11 +116,6 @@ void mctrl_idle(uint32_t now_us)
 		{
 			if (waitElapsed >= 20000)
 				mctrl_state = MCTRL_DRIVER_CALIB_ENTER;
-			break;
-		}
-		case MCTRL_DRIVER_DETECT_START:
-		{
-			
 			break;
 		}
 		case MCTRL_DRIVER_CALIB_ENTER:
@@ -173,7 +199,7 @@ void mctrl_idle(uint32_t now_us)
 			{
 				err_println("Restarting motor control init...");
 				waitStart = now_us;
-				mctrl_state = MCTRL_DRIVER_RESET_COOLDOWN;
+				mctrl_state = MCTRL_DRIVER_RESET_START;
 				break;
 			}
 

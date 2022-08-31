@@ -1193,7 +1193,7 @@ void mctrl_fastLoop(const uint16_t adcCounts[ISENSE_COUNT])
 	// check if we're taking too long to execute, which is bad
 	if ((mctrl.debug.lastEventCount > 12) && (mctrl.debug.lastEventCountDelta != 6))
 	{
-		err_println("mctrl.debug.lastEventCountDelta not 6 but %u", mctrl.debug.lastEventCountDelta);
+		// err_println("mctrl.debug.lastEventCountDelta not 6 but %u", mctrl.debug.lastEventCountDelta);
 		assert(0);
 	}
 	// assert((mctrl.debug.lastEventCount == 0) || (mctrl.debug.lastEventCountDelta == 6));

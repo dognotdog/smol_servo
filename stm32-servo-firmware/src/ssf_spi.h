@@ -192,7 +192,9 @@ extern void spi_printTransferStatus(void);
 
 extern void ssf_spiInit(void);
 
-
-
+// autodetect attached parts
+extern bool sspi_detectAs5047d(void);
+extern bool sspi_detectDrv83xx(void);
+extern bool sspi_detectTmc6200(void);
 
 #endif // SSF_SPI_H

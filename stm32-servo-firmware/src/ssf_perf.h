@@ -100,6 +100,7 @@ static inline void perf_tock(const perf_counter_t counterId)
 }
 
 #else // PERF_MONITOR_ENABLED is false, disable perf counter
+
 #define perf_init()
 #define perf_tick(...)
 #define perf_tock(...)
@@ -110,6 +111,7 @@ static inline uint32_t perf_now(void)
 	return now*1000;
 }
 
+static inline uint16_t perf_getEventCount(void) { return 0; }
 
 #endif // PERF_MONITOR_ENABLED
 

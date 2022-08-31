@@ -73,20 +73,24 @@ void test_chipSelects(void)
 
 }
 
+void spi_blockTest(void);
 
 void ssf_init(void)
 {
 	do {dbg_println("ssf_init()...");} while (0);
 
 	ssf_supervisorInit();
+	utime_init();
 
 	ssf_flashInit();
 
+	spi_blockTest();
+
+	ssf_spiInit();
+
 	ssf_analogInit();
-	utime_init();
 	ssf_ledInit();
 	spwm_init();
-	ssf_spiInit();
 
 	ssf_scheduleInit();
 

@@ -60,7 +60,29 @@ bool sspi_detectDrv83xx(void) {
 				  && (state.OCP_CTRL.reg == 0x0159)
 				  && (state.CSA_CTRL.reg == 0x0283);
 
+	if (isPresent)
+		sspi.drvDevice = SSPI_DEVICE_DRV83XX;
+
 	return isPresent;
+}
+
+void drv83xx_readRegisters(uint8_t* addr, uint16_t* result, size_t numregs)
+{
+	uint16_t* cmd = result;
+	for (size_t i = 0; i < numregs; ++i)
+	{
+		cmd[i] = (1 << 15) | ((addr[i] & 0x0F) << 11);
+
+		spi_block_t block = {
+			.numWords = 1,
+			.deviceId = SSPI_DEVICE_DRV83XX,
+			.src = cmd,
+			.dst = result,
+		};
+
+		sspi_transmitBlock(&block);
+	}
+
 }
 
 uint16_t sspi_drv_writeDrvMotorDriverReg(size_t addr, uint16_t data)
@@ -120,28 +142,13 @@ sspi_drv_state_t ssf_exitMotorDriverCalibrationMode(void)
 
 sspi_drv_state_t sspi_drv_readMotorDriver(void)
 {
-	uint16_t cmd[7] = {
-		(1 << 15) | (0 << 11),
-		(1 << 15) | (1 << 11),
-		(1 << 15) | (2 << 11),
-		(1 << 15) | (3 << 11),
-		(1 << 15) | (4 << 11),
-		(1 << 15) | (5 << 11),
-		(1 << 15) | (6 << 11),
-		// (1 << 15) | (0 << 11),
+	uint8_t cmd[7] = {
+		0,1,2,3,4,5,6,
 	};
 
 	uint16_t rx[7] = {0xFFFF,0xFFFF,0xFFFF,0xFFFF,0xFFFF,0xFFFF,0xFFFF};
 
-	spi_transfer_t transfer = {
-		.len = sizeof(cmd),
-		.numWords = sizeof(cmd)/2,
-		.src = cmd,
-		.dst = rx,
-		.deviceId = SSPI_DEVICE_DRV83XX,
-	};
-
-	sspi_syncTransfer(transfer);
+	drv83xx_readRegisters(cmd, rx, 7);
 
 	// for (size_t i = 0; i < 7; ++i)
 	// {

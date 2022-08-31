@@ -9,7 +9,7 @@
 #include <assert.h>
 
 /**
- * The TMC6200 does 40bit transfers at a time, with the first 8bit being the register address, and the last 32bit being the data.
+ * The TMC6200 does 40bit transfers at a time, with the first 8bit being the register address, and the last 32bit being the data. CLK is inverted, CPOL=1 CPHA=1, Mode=3.
  * 
  * MSB is READ=0, WRITE=1.
  * 
@@ -47,7 +47,7 @@ void sspi_initTmc6200(void)
 		.Mode = SPI_MODE_MASTER,
 		.Direction = SPI_DIRECTION_2LINES,
 		.DataSize = SPI_DATASIZE_8BIT,
-		.CLKPolarity = SPI_POLARITY_LOW,
+		.CLKPolarity = SPI_POLARITY_HIGH,
 		.CLKPhase = SPI_PHASE_2EDGE,
 		.NSS = SPI_NSS_HARD_OUTPUT,
 		.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_128,
@@ -64,28 +64,38 @@ void sspi_initTmc6200(void)
 	assert(HAL_SPI_Init(&tmc6200Spi) == HAL_OK);
 }
 
+void tmc6200_readRegisters(uint8_t cmd[], uint8_t result[][5], size_t numregs)
+{
+	for (size_t i = 0; i < numregs; ++i)
+	{
+		result[i][0] = cmd[i];
+		spi_block_t block = {
+			.numWords = 5,
+			.deviceId = SSPI_DEVICE_TMC6200,
+			.src = result[i],
+			.dst = result[i],
+		};
+
+		sspi_transmitBlock(&block);
+	}
+
+}
+
 sspi_tmc_state_t _readState(void) {
 	// read 5 registers
-	uint8_t cmd[5][5] = {
-		{TMC6200_REG_GCONF},
-		{TMC6200_REG_GSTAT},
-		{TMC6200_REG_IOIN},
-		{TMC6200_REG_SHORT_CONF},
-		{TMC6200_REG_DRV_CONF},
+	uint8_t cmd[5] = {
+		TMC6200_REG_GCONF,
+		TMC6200_REG_GSTAT,
+		TMC6200_REG_IOIN,
+		TMC6200_REG_SHORT_CONF,
+		TMC6200_REG_DRV_CONF,
 	};
+
 
 	uint8_t rx[5][5];
 	memset(rx, 0xFF, sizeof(rx));
 
-	spi_transfer_t transfer = {
-		.len = sizeof(cmd),
-		.numWords = sizeof(cmd),
-		.src = cmd,
-		.dst = rx,
-		.deviceId = SSPI_DEVICE_TMC6200,
-	};
-
-	sspi_syncTransfer(transfer);
+	tmc6200_readRegisters(cmd, rx, 5);
 
 	return (sspi_tmc_state_t){
 		.GCONF.reg = (rx[0][1] << 24) | (rx[0][2] << 16) | (rx[0][3] << 8) | (rx[0][4] << 0),
@@ -96,31 +106,7 @@ sspi_tmc_state_t _readState(void) {
 	};
 }
 
-bool sspi_detectTmc6200(void) {
-	// read 5 registers
-	sspi_tmc_state_t state = _readState();
-/**
- * GSTAT:0 indicates state after reset
- * IOIN bits 31:24 contain the version, should be 0x10
- */
-
-	dbg_println("TMC6200 GSTAT      = 0x%08"PRIx32, state.GSTAT.reg);
-	dbg_println("TMC6200 IOIN       = 0x%08"PRIx32, state.IOIN.reg);
-	dbg_println("TMC6200 SHORT_CONF = 0x%08"PRIx32, state.SHORT_CONF.reg);
-	dbg_println("TMC6200 DRV_CONF   = 0x%08"PRIx32, state.DRV_CONF.reg);
-
-	bool isPresent = (state.GSTAT.reset == 1) 
-				  && (state.IOIN.VERSION == 0x10);
-
-	return isPresent;
-
-}
-
-extern sspi_tmc_state_t sspi_tmc_setMotorDriver3PwmMode(void) {
-
-	sspi_tmc_state_t state = _readState();
-
-	state.GCONF.singleline = 1;
+static sspi_tmc_state_t _writeGconf(sspi_tmc_state_t state) {
 	
 	// write GCONF
 	uint8_t cmd[1][5] = {
@@ -136,15 +122,67 @@ extern sspi_tmc_state_t sspi_tmc_setMotorDriver3PwmMode(void) {
 	uint8_t rx[1][5];
 	memset(rx, 0xFF, sizeof(rx));
 
-	spi_transfer_t transfer = {
-		.len = sizeof(cmd),
-		.numWords = sizeof(cmd),
+	spi_block_t block = {
+		.numWords = 5,
+		.deviceId = SSPI_DEVICE_TMC6200,
 		.src = cmd,
 		.dst = rx,
-		.deviceId = SSPI_DEVICE_TMC6200,
 	};
 
-	sspi_syncTransfer(transfer);
+	sspi_transmitBlock(&block);
 
 	return state;
 }
+
+static sspi_tmc_state_t _disableDriver(void) {
+
+	sspi_tmc_state_t state = _readState();
+
+	state.GCONF.disable = 1;
+
+	return _writeGconf(state);
+	
+}
+
+
+sspi_tmc_state_t sspi_tmc_setMotorDriver3PwmMode(void) {
+
+	sspi_tmc_state_t state = _readState();
+
+	state.GCONF.singleline = 1;
+
+	return _writeGconf(state);
+}
+
+bool sspi_detectTmc6200(void) {
+	// read 5 registers
+	sspi_tmc_state_t state = _readState();
+/**
+ * GSTAT:0 indicates state after reset
+ * IOIN bits 31:24 contain the version, should be 0x10
+ */
+
+	dbg_println("TMC6200 IOIN       = 0x%08"PRIx32, state.IOIN.reg);
+
+	bool isPresent = (state.IOIN.VERSION == 0x10);
+	if (!isPresent)
+		return false;
+
+	_disableDriver();
+
+	state = _readState();
+
+	dbg_println("TMC6200 GCONF      = 0x%08"PRIx32, state.GCONF.reg);
+	dbg_println("TMC6200 GSTAT      = 0x%08"PRIx32, state.GSTAT.reg);
+	dbg_println("TMC6200 SHORT_CONF = 0x%08"PRIx32, state.SHORT_CONF.reg);
+	dbg_println("TMC6200 DRV_CONF   = 0x%08"PRIx32, state.DRV_CONF.reg);
+
+
+	isPresent = state.GCONF.disable == 1;
+
+	if (isPresent)
+		sspi.drvDevice = SSPI_DEVICE_TMC6200;
+
+	return isPresent;
+}
+

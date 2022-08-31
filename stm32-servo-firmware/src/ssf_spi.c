@@ -7,6 +7,7 @@
 
 #include <string.h>
 #include <stdatomic.h>
+#include <assert.h>
 
 /*
 AS5047 does 16bit SPI transfers
@@ -52,6 +53,8 @@ Async Transfer State Changes
 */
 
 extern SPI_HandleTypeDef hspi2;
+extern DMA_HandleTypeDef hdma_spi2_rx;
+extern DMA_HandleTypeDef hdma_spi2_tx;
 
 
 typedef enum {
@@ -87,19 +90,9 @@ typedef enum {
 } spi_transferEvent_t;
 
 
-typedef struct {
-	spi_transfer_t 	currentTransfer;
-	size_t 			wordsTransferred;
-	sspi_deviceId_t currentDevice;
-	// need to deassert/assert NSS every word per transfer
-	size_t wordsPerTransfer;
-
-	sspi_deviceId_t encDevice;
-	sspi_deviceId_t drvDevice;
-} spi_t;
-
-static spi_t spi = {
+sspi_t sspi = {
 	.wordsTransferred = 0,
+	.blockIdle = true,
 };
 
 static volatile spi_transferStatus_t 	_transferStatus = SPI_XFER_IDLE;
@@ -147,9 +140,39 @@ static struct {
 	GPIO_TypeDef* 	gpio;
 	uint16_t 		pin;
 } _deviceSelectPinMap[] = {
-	[SSPI_DEVICE_HALL] = {PIN_ASEL},
+	[SSPI_DEVICE_AS5047D] = {PIN_ASEL},
 	[SSPI_DEVICE_DRV83XX] = {PIN_DRVSEL},
 	[SSPI_DEVICE_TMC6200] = {PIN_DRVSEL},
+};
+
+static const struct {
+	uint16_t	mode;
+	uint16_t	dataSize;
+	uint16_t	ldma;
+	uint16_t 	dma_rx_ccr;
+	uint16_t 	dma_tx_ccr;
+} _deviceSelectSpiSettings[] = {
+	[SSPI_DEVICE_AS5047D] = {
+		.mode = SPI_CR1_CPHA,
+		.dataSize = SPI_CR2_DS_3 | SPI_CR2_DS_2 | SPI_CR2_DS_1 | SPI_CR2_DS_0, // 16-bit
+		.ldma = 0,
+		.dma_rx_ccr = DMA_CCR_PL_0 | DMA_CCR_MSIZE_0 | DMA_CCR_PSIZE_0 | DMA_CCR_MINC,
+		.dma_tx_ccr = DMA_CCR_PL_0 | DMA_CCR_MSIZE_0 | DMA_CCR_PSIZE_0 | DMA_CCR_MINC | DMA_CCR_DIR,
+	},
+	[SSPI_DEVICE_DRV83XX] = {
+		.mode = SPI_CR1_CPHA,
+		.dataSize = SPI_CR2_DS_3 | SPI_CR2_DS_2 | SPI_CR2_DS_1 | SPI_CR2_DS_0, // 16-bit
+		.ldma = 0,
+		.dma_rx_ccr = DMA_CCR_PL_0 | DMA_CCR_MSIZE_0 | DMA_CCR_PSIZE_0 | DMA_CCR_MINC,
+		.dma_tx_ccr = DMA_CCR_PL_0 | DMA_CCR_MSIZE_0 | DMA_CCR_PSIZE_0 | DMA_CCR_MINC | DMA_CCR_DIR,
+	},
+	[SSPI_DEVICE_TMC6200] = {
+		.mode = SPI_CR1_CPOL | SPI_CR1_CPHA,
+		.dataSize = SPI_CR2_DS_2 | SPI_CR2_DS_1 | SPI_CR2_DS_0, // 8-bit
+		.ldma = SPI_CR2_LDMARX | SPI_CR2_LDMATX | SPI_CR2_FRXTH, // because 5 bytes per block
+		.dma_rx_ccr = DMA_CCR_PL_0 | DMA_CCR_MINC,
+		.dma_tx_ccr = DMA_CCR_PL_0 | DMA_CCR_MINC | DMA_CCR_DIR,
+	},
 };
 
 volatile unsigned int _delayCcounter = 0;
@@ -206,36 +229,36 @@ static void _recoverSpiError(void)
 }
 
 static void _setupSpiForDevice(sspi_deviceId_t deviceId) {
-	if (deviceId == spi.currentDevice)
+	if (deviceId == sspi.currentDevice)
 		return;
 
 	switch (deviceId) {
-		case SSPI_DEVICE_HALL:
+		case SSPI_DEVICE_AS5047D:
 		{
 			sspi_initAs5047d();
-			spi.wordsPerTransfer = 1;
+			sspi.wordsPerTransfer = 1;
 			break;
 		}
 		case SSPI_DEVICE_DRV83XX:
 		{
 			sspi_initDrv83xx();
-			spi.wordsPerTransfer = 1;
+			sspi.wordsPerTransfer = 1;
 			break;
 		}
 		case SSPI_DEVICE_TMC6200:
 		{
 			sspi_initTmc6200();
-			spi.wordsPerTransfer = 5;
+			sspi.wordsPerTransfer = 5;
 			break;
 		}
 		default:
 		{
-			spi.wordsPerTransfer = 0;
+			sspi.wordsPerTransfer = 0;
 			break;
 		}
 	}
 
-	spi.currentDevice = deviceId;
+	sspi.currentDevice = deviceId;
 }
 
 void sspi_syncTransfer(spi_transfer_t transfer)
@@ -250,15 +273,15 @@ void sspi_syncTransfer(spi_transfer_t transfer)
 
 	_setupSpiForDevice(transfer.deviceId);
 
-	spi.currentTransfer = transfer;
-	spi.wordsTransferred = 0;
+	sspi.currentTransfer = transfer;
+	sspi.wordsTransferred = 0;
 
-	while (spi.wordsTransferred < spi.currentTransfer.numWords)
+	while (sspi.wordsTransferred < sspi.currentTransfer.numWords)
 	{
-		bool deassertNss = (((spi.wordsTransferred+1) % spi.wordsPerTransfer) == 0) || ((spi.wordsTransferred+1) == spi.currentTransfer.numWords);
+		bool deassertNss = (((sspi.wordsTransferred+1) % sspi.wordsPerTransfer) == 0) || ((sspi.wordsTransferred+1) == sspi.currentTransfer.numWords);
 		// bool deassertNss = true;
-		_spi_syncTransferWord(spi.currentTransfer, spi.wordsTransferred, deassertNss);
-		++spi.wordsTransferred;
+		_spi_syncTransferWord(sspi.currentTransfer, sspi.wordsTransferred, deassertNss);
+		++sspi.wordsTransferred;
 	};
 
 	atomic_store(&_transferStatus, SPI_XFER_IDLE);	
@@ -345,9 +368,9 @@ static void _spi_asyncStartTransferWord(spi_transfer_t transfer, size_t wordInde
 						{
 							if (target == SPI_XFER_WORD_COMPLETE)
 							{
-								if (spi.wordsTransferred < spi.currentTransfer.numWords)
+								if (sspi.wordsTransferred < sspi.currentTransfer.numWords)
 								{
-									_spi_asyncStartTransferWord(spi.currentTransfer, spi.wordsTransferred);									
+									_spi_asyncStartTransferWord(sspi.currentTransfer, sspi.wordsTransferred);									
 								}
 								else
 								{
@@ -360,8 +383,8 @@ static void _spi_asyncStartTransferWord(spi_transfer_t transfer, size_t wordInde
 										}
 									}
 
-									if (spi.currentTransfer.callback)
-										spi.currentTransfer.callback(&spi.currentTransfer, true);
+									if (sspi.currentTransfer.callback)
+										sspi.currentTransfer.callback(&sspi.currentTransfer, true);
 
 									while (1)
 									{
@@ -423,8 +446,8 @@ static void _nssLatchDelayCallback(void)
 				if (atomic_compare_exchange_strong(&_transferStatus, &expected, SPI_XFER_WORD_COMPLETE))
 				{
 					// if all word transfer stuff has been completed, and we have one more word to go, transfer it!
-					if (spi.wordsTransferred < spi.currentTransfer.numWords)
-						_spi_asyncStartTransferWord(spi.currentTransfer, spi.wordsTransferred);
+					if (sspi.wordsTransferred < sspi.currentTransfer.numWords)
+						_spi_asyncStartTransferWord(sspi.currentTransfer, sspi.wordsTransferred);
 					break;
 				}
 				expected = SPI_XFER_COMPLETE_WAIT_XFERCALL_NSSIRQ_CB;
@@ -470,14 +493,14 @@ static void _spi_finishTransferWord(void)
 		case SPI_XFER_WAIT_DATAIRQ:
 		{
 			// dbg_println("_spi_finishTransferWord(%d)", _transferStatus);
-			bool deassertNss = (((spi.wordsTransferred+1) % spi.wordsPerTransfer) == 0) || ((spi.wordsTransferred+1) == spi.currentTransfer.numWords);
+			bool deassertNss = (((sspi.wordsTransferred+1) % sspi.wordsPerTransfer) == 0) || ((sspi.wordsTransferred+1) == sspi.currentTransfer.numWords);
 			// bool deassertNss = true;
 			if (deassertNss) {
-				HAL_GPIO_WritePin(_deviceSelectPinMap[spi.currentTransfer.deviceId].gpio, _deviceSelectPinMap[spi.currentTransfer.deviceId].pin, GPIO_PIN_SET);
+				HAL_GPIO_WritePin(_deviceSelectPinMap[sspi.currentTransfer.deviceId].gpio, _deviceSelectPinMap[sspi.currentTransfer.deviceId].pin, GPIO_PIN_SET);
 				// _delay(50);
 			}
 
-			++spi.wordsTransferred;
+			++sspi.wordsTransferred;
 
 			while (1)
 			{
@@ -520,12 +543,12 @@ int spi_startTransfer(spi_transfer_t transfer)
 
 	_recoverSpiError();
 
-	spi.currentTransfer = transfer;
-	spi.wordsTransferred = 0;
+	sspi.currentTransfer = transfer;
+	sspi.wordsTransferred = 0;
 
 
 
-	_spi_asyncStartTransferWord(transfer, spi.wordsTransferred);
+	_spi_asyncStartTransferWord(transfer, sspi.wordsTransferred);
 
 	return 0;
 }
@@ -545,7 +568,7 @@ void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef *hspi)
 		case SPI_XFER_WORD_COMPLETE_WAIT_XFERCALL:
 		case SPI_XFER_WORD_COMPLETE_WAIT_NSSIRQ:
 		{
-			bool allWordsTransferred = spi.wordsTransferred == spi.currentTransfer.numWords;
+			bool allWordsTransferred = sspi.wordsTransferred == sspi.currentTransfer.numWords;
 			if (allWordsTransferred)
 			{
 				// if all words have been transferred, we can call the callback
@@ -570,8 +593,8 @@ void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef *hspi)
 
 				}
 
-				if (spi.currentTransfer.callback)
-					spi.currentTransfer.callback(&spi.currentTransfer, true);
+				if (sspi.currentTransfer.callback)
+					sspi.currentTransfer.callback(&sspi.currentTransfer, true);
 
 				while (1)
 				{
@@ -616,8 +639,8 @@ void HAL_SPI_ErrorCallback(SPI_HandleTypeDef *hspi)
 {
 	atomic_store(&_transferStatus, SPI_XFER_ERROR);
 	err_println("HAL_SPI_ErrorCallback");
-	if (spi.currentTransfer.callback)
-		spi.currentTransfer.callback(&spi.currentTransfer, false);
+	if (sspi.currentTransfer.callback)
+		sspi.currentTransfer.callback(&sspi.currentTransfer, false);
 	atomic_store(&_transferStatus, SPI_XFER_IDLE);
 
 }
@@ -626,8 +649,8 @@ void HAL_SPI_AbortCallback(SPI_HandleTypeDef *hspi)
 {
 	atomic_store(&_transferStatus, SPI_XFER_ERROR);
 	err_println("HAL_SPI_AbortCallback");
-	if (spi.currentTransfer.callback)
-		spi.currentTransfer.callback(&spi.currentTransfer, false);
+	if (sspi.currentTransfer.callback)
+		sspi.currentTransfer.callback(&sspi.currentTransfer, false);
 	atomic_store(&_transferStatus, SPI_XFER_IDLE);
 
 }
@@ -693,6 +716,10 @@ static void _readHallSensorCallback(const spi_transfer_t* const transfer, bool t
 
 int ssf_asyncReadHallSensor(void)
 {
+	// we don't have enough time in the mctrl function to switch SPI modes
+	if (sspi.currentDevice != SSPI_DEVICE_AS5047D)
+		return -2;
+
 	// dbg_println("ssf_asyncReadHallSensor()...");
 	uint16_t cmd[4] = {
 		(_PAR(0x4001)), // ERRFL
@@ -721,7 +748,7 @@ int ssf_asyncReadHallSensor(void)
 		.numWords = 4,
 		.src = _hallSensorTxBuf,
 		.dst = _hallSensorRxBuf,
-		.deviceId = SSPI_DEVICE_HALL,
+		.deviceId = SSPI_DEVICE_AS5047D,
 		.callback = _readHallSensorCallback,
 	};
 
@@ -734,7 +761,7 @@ int ssf_asyncReadHallSensor(void)
 
 void ssf_setMotorDriver3PwmMode(void)
 {
-	switch (spi.drvDevice) {
+	switch (sspi.drvDevice) {
 		case SSPI_DEVICE_DRV83XX:
 		{
 			sspi_drv_setMotorDriver3PwmMode();
@@ -903,37 +930,6 @@ void ssf_spiInit(void)
 
 	// HAL_DMA_RegisterCallback(&hdma_spi2_rx, HAL_DMA_XFER_CPLT_CB_ID, _spiDmaCallback);
 
-	// auto-detect available hardware
-
-	if (sspi_detectAs5047d()) 
-	{
-		dbg_println("AS5047D detected!");
-		spi.encDevice = SSPI_DEVICE_HALL;
-	}
-	else
-	{
-		warn_println("AS5047D not detected!");
-	}
-
-
-	if (sspi_detectTmc6200()) 
-	{
-		dbg_println("TMC6200 detected!");
-		spi.drvDevice = SSPI_DEVICE_TMC6200;
-	}
-	else if (sspi_detectDrv83xx()) 
-	{
-		dbg_println("DRV83xx detected!");
-		spi.drvDevice = SSPI_DEVICE_DRV83XX;
-	}
-	else
-	{
-		warn_println("No gate driver detected!");
-	}
-
-
-	ssf_setMotorDriver3PwmMode();
-
 	// __HAL_SPI_DISABLE(&hspi2);
 }
 
@@ -1015,5 +1011,425 @@ void spi_setupTriggeredTransfer(void)
 	}
 
 	HAL_DMAEx_ConfigMuxRequestGenerator(&dma3, &req0);
+}
+
+
+/*******************************************************************************
+ * This is the driver parts without the HAL, which needlessly complicates things for our purposes.
+ * 
+ * FIFO size is 32bits for RX and TX each. We want the following setup:
+ *  - per-transfer config of CPOL/CPHA and word size
+ *  - 1-5 words per transfer block for NSS
+ *  - NSS assert, transmit, NSS deassert without software intervention for each transfer block
+ * 
+ * We needs SPI reads that are in lock-step with the fast mctrl loop.
+ * 
+ * The mctrl_fastLoop() is triggered when the ADC DMAs are completed, but we have no fixed sync point with the TIM2 PWM. Ideally, we'd kick off each transfer at the exact TIM2 trigger, but a trigger from mctrl_fastLoop() is ok for now.
+ * 
+ * To deassert NSS, we need disable the SPI peripheral in the RX DMA Complete handler.
+ */
+
+/**
+ * deinit() will bock until SPI finishes transactions
+ */
+void spi_deinit(void)
+{
+	SPI_TypeDef* spiRegs = SPI2;
+
+	// care must be taken the transactions are complete before disabling the SPI peripheral.
+
+	while (spiRegs->SR & SPI_SR_FTLVL_Msk) {};
+	while (spiRegs->SR & SPI_SR_BSY_Msk) {};
+
+
+	spiRegs->CR1 = spiRegs->CR1 & ~SPI_CR1_SPE;
+
+	while (spiRegs->SR & SPI_SR_FRLVL_Msk) 
+	{
+		uint32_t dummy = spiRegs->DR;
+		(void)dummy;
+	};
+
+	// disable DMA
+	spiRegs->CR2 = spiRegs->CR2 & ~(SPI_CR2_RXDMAEN | SPI_CR2_RXDMAEN);
+
+}
+
+static void _spiDisable(void)
+{
+	SPI_TypeDef* spiRegs = SPI2;
+
+	while (spiRegs->SR & SPI_SR_FTLVL_Msk) {};
+	while (spiRegs->SR & SPI_SR_BSY_Msk) {};
+
+	spiRegs->CR1 &= ~SPI_CR1_SPE;
+
+	while (spiRegs->SR & SPI_SR_FRLVL_Msk) 
+	{
+		uint32_t dummy = spiRegs->DR;
+		(void)dummy;
+	};
+
+	// disable DMA
+	spiRegs->CR2 &= ~(SPI_CR2_RXDMAEN | SPI_CR2_RXDMAEN);
+
+}
+
+/**
+ * This only needs to be called once
+ */
+void spi_initGpio(void) {
+	// PB12 is NSS
+	// SPI peripheral controlled GPIOs
+	{
+		GPIO_InitTypeDef config = {
+		    .Pin = /*GPIO_PIN_12|*/GPIO_PIN_13|GPIO_PIN_14|GPIO_PIN_15,
+		    .Mode = GPIO_MODE_AF_PP,
+		    .Pull = GPIO_NOPULL,
+		    .Speed = GPIO_SPEED_FREQ_VERY_HIGH,
+		    .Alternate = GPIO_AF5_SPI2,
+		};
+	    HAL_GPIO_Init(GPIOB, &config);
+	}
+
+	// keep NSS inactive, if we manage it through the manual GPIOs
+	{
+		GPIO_InitTypeDef config = {
+		    .Pin = GPIO_PIN_12,
+		    .Mode = GPIO_MODE_INPUT,
+		    .Pull = GPIO_PULLUP,
+		    .Speed = GPIO_SPEED_FREQ_VERY_HIGH,
+		};
+	    HAL_GPIO_Init(GPIOB, &config);
+	}
+
+
+}
+
+void spi_initChipSelects(sspi_deviceId_t deviceId)
+{
+
+	sspi_deviceId_t inactiveDeviceId = SSPI_DEVICE_UNKNOWN;
+	switch (deviceId)
+	{
+		case SSPI_DEVICE_TMC6200:
+		case SSPI_DEVICE_DRV83XX:
+		{
+			inactiveDeviceId = SSPI_DEVICE_AS5047D;
+			break;
+		}
+		case SSPI_DEVICE_AS5047D:
+		{
+			inactiveDeviceId = SSPI_DEVICE_TMC6200;
+			break;
+		}
+		default:
+		{
+			break;
+		}
+	}
+
+	assert(inactiveDeviceId != SSPI_DEVICE_UNKNOWN);
+
+	// set inactive Pin HIGH
+	{
+		GPIO_TypeDef* 	inactiveGpio = _deviceSelectPinMap[inactiveDeviceId].gpio;
+		uint16_t 		inactivePin = _deviceSelectPinMap[inactiveDeviceId].pin;
+
+		GPIO_InitTypeDef config = {
+		    .Pin = inactivePin,
+		    .Mode = GPIO_MODE_OUTPUT_PP,
+		    .Pull = GPIO_NOPULL,
+		    .Speed = GPIO_SPEED_FREQ_VERY_HIGH,
+		};
+	    HAL_GPIO_Init(inactiveGpio, &config);
+
+		HAL_GPIO_WritePin(inactiveGpio, inactivePin, GPIO_PIN_SET);
+
+	}
+	if (0)
+	{
+		// set active pin Hi-Z, so that NSS can pull control it.
+		GPIO_TypeDef* 	activeGpio = _deviceSelectPinMap[deviceId].gpio;
+		uint16_t 		activePin = _deviceSelectPinMap[deviceId].pin;
+
+		GPIO_InitTypeDef config = {
+		    .Pin = activePin,
+		    .Mode = GPIO_MODE_INPUT,
+		    .Pull = GPIO_NOPULL,
+		    .Speed = GPIO_SPEED_FREQ_VERY_HIGH,
+		};
+	    HAL_GPIO_Init(activeGpio, &config);
+	}
+	else
+	{
+		// software control of chip selects
+		GPIO_TypeDef* 	activeGpio = _deviceSelectPinMap[deviceId].gpio;
+		uint16_t 		activePin = _deviceSelectPinMap[deviceId].pin;
+
+		GPIO_InitTypeDef config = {
+		    .Pin = activePin,
+		    .Mode = GPIO_MODE_OUTPUT_PP,
+		    .Pull = GPIO_NOPULL,
+		    .Speed = GPIO_SPEED_FREQ_VERY_HIGH,
+		};
+	    HAL_GPIO_Init(activeGpio, &config);
+		HAL_GPIO_WritePin(activeGpio, activePin, GPIO_PIN_SET);
+
+	}
+}
+
+/**
+ * This needs to be called every time we switch modes
+ */
+void spi_initPeripheral(sspi_deviceId_t deviceId) 
+{
+
+	// NOP when the device is already active
+	if (deviceId == sspi.currentDevice)
+		return;
+
+	// make sure GPIO selector is high for non-selected devices
+	// and Hi-Z for selected devices
+	// (hardware NSS will pull that low when SPI is enabled)
+	spi_initChipSelects(deviceId);
+
+	SPI_TypeDef* spiRegs = SPI2;
+
+	uint16_t mode = _deviceSelectSpiSettings[deviceId].mode;
+	uint16_t dataSize = _deviceSelectSpiSettings[deviceId].dataSize;
+	uint16_t ldma = _deviceSelectSpiSettings[deviceId].ldma;
+
+	// reset CR1 to use bidirectional, no CRC, disable
+	// master mode, clock rate 1/128 (6)
+	// CPOL/CPHA need to be set, too, but that depends on the attached device
+	spiRegs->CR1 = mode | SPI_CR1_BR_2 | SPI_CR1_BR_1 | SPI_CR1_MSTR;
+	// software slave management
+	spiRegs->CR1 |= SPI_CR1_SSM | SPI_CR1_SSI;
+
+	// enable SSOE so that NSS is pulled low when SPI enabled
+	// don't enable any interrupts
+	// set specific even/odd (ldma) and dataSize modes
+	spiRegs->CR2 = /*SPI_CR2_SSOE |*/ dataSize | ldma;
+
+	DMA_Channel_TypeDef* rx_dma = hdma_spi2_rx.Instance;
+	DMA_Channel_TypeDef* tx_dma = hdma_spi2_tx.Instance;
+
+	rx_dma->CCR = _deviceSelectSpiSettings[deviceId].dma_rx_ccr;
+	tx_dma->CCR = _deviceSelectSpiSettings[deviceId].dma_tx_ccr;
+
+	// enable RX interrupt, but don't care about TX
+  	HAL_NVIC_SetPriority(DMA2_Channel1_IRQn, 2, 0);
+  	HAL_NVIC_EnableIRQ(DMA2_Channel1_IRQn);
+  	HAL_NVIC_DisableIRQ(DMA2_Channel2_IRQn);
+
+	sspi.currentDevice = deviceId;
+}
+
+int spi_transmitBlockPrep(spi_block_t* block)
+{
+	// attempt to transmit block if idle
+	bool expected = true;
+	if (!atomic_compare_exchange_weak(&sspi.blockIdle, &expected, false))
+		return -1;
+
+	sspi.currentBlock = block;
+	spi_initPeripheral(block->deviceId);
+
+	SPI_TypeDef* spiRegs = SPI2;
+
+	// enable DMA streams
+
+	DMA_TypeDef* dma = DMA2;
+	DMA_Channel_TypeDef* rx_dma = hdma_spi2_rx.Instance;
+	DMA_Channel_TypeDef* tx_dma = hdma_spi2_tx.Instance;
+
+	// disable for changing settings
+	rx_dma->CCR &= ~DMA_CCR_EN;
+	tx_dma->CCR &= ~DMA_CCR_EN;
+
+	// clear interrupt statuses
+	dma->IFCR = DMA_IFCR_CGIF1 | DMA_IFCR_CTCIF1 | DMA_IFCR_CHTIF1 | DMA_IFCR_CTEIF1;
+	dma->IFCR = DMA_IFCR_CGIF2 | DMA_IFCR_CTCIF2 | DMA_IFCR_CHTIF2 | DMA_IFCR_CTEIF2;
+
+
+	// set DMA transfer size and pointers
+	rx_dma->CNDTR = block->numWords;
+	tx_dma->CNDTR = block->numWords;
+	rx_dma->CPAR = (uint32_t)&spiRegs->DR;
+	tx_dma->CPAR = (uint32_t)&spiRegs->DR;
+	rx_dma->CMAR = (uint32_t)block->dst;
+	tx_dma->CMAR = (uint32_t)block->src;
+
+	// enable DMA streams
+	// with transfer complete interrupt on RX
+	rx_dma->CCR |= DMA_CCR_TCIE;
+	rx_dma->CCR |= DMA_CCR_EN;
+	tx_dma->CCR |= DMA_CCR_EN;
+
+
+	// enable RX DMA
+	spiRegs->CR2 |= SPI_CR2_RXDMAEN;
+
+	block->transferComplete = false;
+
+	// enable the SPI peripheral 
+	spiRegs->CR1 |= SPI_CR1_SPE;
+
+	// assert NSS after enabling peripheral, so that eg. clock polarity does not glitch
+	GPIO_TypeDef* 	activeGpio = _deviceSelectPinMap[block->deviceId].gpio;
+	uint16_t 		activePin = _deviceSelectPinMap[block->deviceId].pin;
+	HAL_GPIO_WritePin(activeGpio, activePin, GPIO_PIN_RESET);
+
+	return 0;
+}
+
+void spi_transmitBlockStart(spi_block_t* block)
+{
+	assert(block == sspi.currentBlock);
+
+	// dbg_println("reset pin %p, %i", activeGpio, activePin);
+
+	SPI_TypeDef* spiRegs = SPI2;
+
+	// enable TX DMA as the last step
+	spiRegs->CR2 |= SPI_CR2_TXDMAEN;
+}
+
+void spi_rxDmaCompleteHandler(DMA_TypeDef* rx_dma)
+{
+	// dbg_println("spi_rxDmaCompleteHandler");
+	if (rx_dma->ISR & DMA_ISR_TCIF1)
+	{
+		// acknowledge interrupt
+		rx_dma->IFCR = DMA_IFCR_CTCIF1 | DMA_IFCR_CGIF1;
+
+		// received all data, deassert NSS by disabling the SPI peripheral
+		// SPI_TypeDef* spiRegs = SPI2;
+
+		DMA_Channel_TypeDef* rx_dma = hdma_spi2_rx.Instance;
+		DMA_Channel_TypeDef* tx_dma = hdma_spi2_tx.Instance;
+
+		// disable dma channels
+		rx_dma->CCR &= ~DMA_CCR_EN;
+		tx_dma->CCR &= ~DMA_CCR_EN;
+
+
+		// disable the SPI peripheral
+		_spiDisable();
+
+		assert(sspi.currentBlock != NULL);
+
+		GPIO_TypeDef* 	activeGpio = _deviceSelectPinMap[sspi.currentBlock->deviceId].gpio;
+		uint16_t 		activePin = _deviceSelectPinMap[sspi.currentBlock->deviceId].pin;
+		HAL_GPIO_WritePin(activeGpio, activePin, GPIO_PIN_SET);
+
+		sspi.currentBlock->transferComplete = true;
+
+		bool expected = false;
+		while (!atomic_compare_exchange_weak(&sspi.blockIdle, &expected, true)) {};
+	}
+
+}
+
+void spi_transmitBlockWait(volatile spi_block_t* block)
+{
+	SPI_TypeDef* spiRegs = SPI2;
+
+
+
+	assert(sspi.currentBlock == block);
+	while (!block->transferComplete) 
+	{
+		// if (spiRegs->SR & SPI_SR_RXNE)
+		// 	dbg_println("SPI2 RX buffer not empty...");
+		// if (spiRegs->SR & SPI_SR_TXE)
+		// 	dbg_println("SPI2 TX buffer empty...");
+		if (spiRegs->SR & SPI_SR_FRE)
+			dbg_println("SPI2 Frame format error...");
+		if (spiRegs->SR & SPI_SR_OVR)
+			dbg_println("SPI2 overrun error...");
+		if (spiRegs->SR & SPI_SR_MODF)
+			dbg_println("SPI2 mode fault...");
+		if (spiRegs->SR & SPI_SR_CRCERR)
+			dbg_println("SPI2 CRC error...");
+		if (spiRegs->SR & SPI_SR_UDR)
+			dbg_println("SPI2 underrun error...");
+	};
+}
+
+int sspi_transmitBlock(spi_block_t* block) 
+{
+	int result = spi_transmitBlockPrep(block);
+	if (0 == result)
+	{
+		spi_transmitBlockStart(block);
+		spi_transmitBlockWait(block);		
+	}
+	else
+	{
+		err_println("failed to prep SPI block");
+	}
+	return result;
+}
+
+void spi_blockTest(void) {
+
+	spi_initGpio();
+
+	sspi.currentDevice = SSPI_DEVICE_UNKNOWN;
+
+	// bool toggle = false;
+	for (size_t i = 5; true; ++i)
+	{
+		// HAL_GPIO_WritePin(PIN_DRVSEL, toggle);
+		// toggle = !toggle;
+
+		if (1)
+		{
+			sspi_detectAs5047d();
+			sspi_detectTmc6200();
+			sspi_detectDrv83xx();
+		}
+		if (0)
+		{
+			uint8_t src[2] = {i >> 0, 0};
+			volatile uint8_t dst[2] = {0xFE, 0xFF};
+
+			dbg_println("src = %02X %02X", src[1], src[0]);
+
+			spi_block_t block = {
+				.src = src,
+				.dst = dst,
+				.deviceId = SSPI_DEVICE_AS5047D,
+				.numWords = 1,
+			};
+
+			if (0 != sspi_transmitBlock(&block))
+				err_println("oops, failed to transmit block!");
+
+			dbg_println("dst = %02X %02X", dst[1], dst[0]);
+		}
+
+		if (0)
+		{
+			uint8_t src[5] = {0, i >> 24, i >> 16, i >> 8, i >> 0};
+			volatile uint8_t dst[5] = {0xFB, 0xFC, 0xFD, 0xFE, 0xFF};
+
+			dbg_println("src = %02X %02X %02X %02X %02X", src[0], src[1], src[2], src[3], src[4]);
+
+			spi_block_t block = {
+				.src = src,
+				.dst = dst,
+				.deviceId = SSPI_DEVICE_TMC6200,
+				.numWords = 5,
+			};
+
+			if (0 != sspi_transmitBlock(&block))
+				err_println("oops, failed to transmit block!");
+
+			dbg_println("dst = %02X %02X %02X %02X %02X", dst[0], dst[1], dst[2], dst[3], dst[4]);
+		}
+	}
 }
 
