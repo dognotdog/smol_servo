@@ -21,34 +21,6 @@ The AS5047 clocks out a response at the NEXT transfer.
 The DRV8323 responds within the SAME transfer, as it the first few bits of a command are the address plus 11 bytes data, and the response is always only 11 bytes.
 
 on V0.1 hardware, the DRV8323 seems to have difficulty at higher clock rates, so the 128x divider was chosen for ~1.5MHz. The AS5047 has no problem with up to 5MHz
-
-Async Transfer State Changes
-	IDLE -> SYNC -> IDLE
-		complete sync transfer
-	IDLE -> IN_PROGRESS
-		start of async transfer, currentTransfer set
-	IN_PROGRESS | WORD_COMPLETE -> IN_DMA
-		SPI bus transfer started
-	IN_DMA -> WORD_COMPLETE
-		transfer completed
-	WORD_COMPLETE -> WAIT_LATCH
-		NSS delay triggered
-
-	things that happen are 
-	 - the initial XFERCALL, which should trigger DATAIRQ
-	   - XFERCALL may finish before DATAIRQ happens
-	   - DATAIRQ then triggers NSSIRQ
-		 - DATAIRQ may finish before NSSIRQ happens
-
-	transfer of a new word may be started when:
-		DATAIRQ and NSSIRQ and XFERCALL have all finished
-
-
-	in progress     |---------------------------------------------------------------|
-	  -> xfercall      |----------------------------------: - - - - - - - - - - - - |
-		 -> irq          | - - - - - - - - - - - - - - - - - - |
-			-> nss
-
 	
 */
 
@@ -56,84 +28,12 @@ extern SPI_HandleTypeDef hspi2;
 extern DMA_HandleTypeDef hdma_spi2_rx;
 extern DMA_HandleTypeDef hdma_spi2_tx;
 
-
-typedef enum {
-	SPI_XFER_IDLE,
-	SPI_XFER_SYNC,
-	SPI_XFER_IN_PROGRESS,
-	SPI_XFER_WAIT_XFERCALL_DATAIRQ,
-	SPI_XFER_WAIT_DATAIRQ,
-	// WAIT_DATAIRQ_xxx -> WORD_COMPLETE_WAIT_xxx_NSSIRQ
-	SPI_XFER_WORD_COMPLETE_WAIT_XFERCALL_NSSIRQ,
-	SPI_XFER_WORD_COMPLETE_WAIT_XFERCALL, // transition from here can call startWord
-	SPI_XFER_WORD_COMPLETE_WAIT_NSSIRQ, // transition from here can call startWord
-	SPI_XFER_WORD_COMPLETE,
-	// WORD_COMPLETE_xxx -> XFER_COMPLETE_WAIT_xxx_CB
-	SPI_XFER_COMPLETE_WAIT_XFERCALL_NSSIRQ_CB,
-	SPI_XFER_COMPLETE_WAIT_NSSIRQ_CB,
-	SPI_XFER_COMPLETE_WAIT_CB,
-	SPI_XFER_COMPLETE_WAIT_NSSIRQ,
-	SPI_XFER_COMPLETE_WAIT_XFERCALL_CB,
-	SPI_XFER_COMPLETE_WAIT_XFERCALL_NSSIRQ,
-	SPI_XFER_COMPLETE_WAIT_XFERCALL,
-
-	// periodic mode
-	SPI_XFER_PERIODIC_IN_PROGRESS,
-
-	SPI_XFER_ERROR,
-} spi_transferStatus_t;
-
-
-typedef enum {
-	SPI_XFER_EVENT_NONE,
-	SPI_XFER_EVENT_START,
-} spi_transferEvent_t;
-
+static void sspi_initGpio(void);
 
 sspi_t sspi = {
-	.wordsTransferred = 0,
-	.blockIdle = true,
+	.currentDevice = SSPI_DEVICE_UNKNOWN,
+	.blockBusy = ATOMIC_FLAG_INIT,
 };
-
-static volatile spi_transferStatus_t 	_transferStatus = SPI_XFER_IDLE;
-
-// static bool _doWork(spi_transferEvent_t event)
-// {
-// 	bool done = true;
-
-// 	switch (_transferStatus)
-// 	{
-// 		case SPI_XFER_???:
-// 		{
-// 			HAL_GPIO_WritePin(_deviceSelectPinMap[transfer.deviceId].gpio, _deviceSelectPinMap[transfer.deviceId].pin, GPIO_PIN_RESET);
-// 			// _delay(25);
-
-// 			// size is 1, as it is the number of transfers, not bytes, and SPI is configured in 16bit mode
-// 			int status = HAL_SPI_TransmitReceive_DMA(&hspi2, (void*)transfer.src, (void*)transfer.dst, 1);
-// 			switch(status)
-// 			{
-// 				case HAL_OK:
-// 				{
-// 					atomic_store(&_transferStatus, SPI_XFER_IN_DMA);
-// 					break;
-// 				}
-// 				default:
-// 				{
-// 					err_println("HAL_SPI_TransmitReceive_DMA returned error %d", status);
-// 					atomic_store(&_transferStatus, SPI_XFER_ERROR);
-// 					break;
-// 				}
-// 			}
-// 			break;
-// 		}
-// 	}
-
-// 	// when not done, _doWork must be called again to advance the state machine
-// 	return done;
-// }
-
-
-
 
 
 static struct {
@@ -147,6 +47,7 @@ static struct {
 
 static const struct {
 	uint16_t	mode;
+	uint16_t	baudrate;
 	uint16_t	dataSize;
 	uint16_t	ldma;
 	uint16_t 	dma_rx_ccr;
@@ -154,6 +55,7 @@ static const struct {
 } _deviceSelectSpiSettings[] = {
 	[SSPI_DEVICE_AS5047D] = {
 		.mode = SPI_CR1_CPHA,
+		.baudrate = SPI_CR1_BR_2 | SPI_CR1_BR_1, // 0b110 = 1/128
 		.dataSize = SPI_CR2_DS_3 | SPI_CR2_DS_2 | SPI_CR2_DS_1 | SPI_CR2_DS_0, // 16-bit
 		.ldma = 0,
 		.dma_rx_ccr = DMA_CCR_PL_0 | DMA_CCR_MSIZE_0 | DMA_CCR_PSIZE_0 | DMA_CCR_MINC,
@@ -161,6 +63,7 @@ static const struct {
 	},
 	[SSPI_DEVICE_DRV83XX] = {
 		.mode = SPI_CR1_CPHA,
+		.baudrate = SPI_CR1_BR_2 | SPI_CR1_BR_0, // 0b101 = 1/64
 		.dataSize = SPI_CR2_DS_3 | SPI_CR2_DS_2 | SPI_CR2_DS_1 | SPI_CR2_DS_0, // 16-bit
 		.ldma = 0,
 		.dma_rx_ccr = DMA_CCR_PL_0 | DMA_CCR_MSIZE_0 | DMA_CCR_PSIZE_0 | DMA_CCR_MINC,
@@ -168,6 +71,7 @@ static const struct {
 	},
 	[SSPI_DEVICE_TMC6200] = {
 		.mode = SPI_CR1_CPOL | SPI_CR1_CPHA,
+		.baudrate = SPI_CR1_BR_2 | SPI_CR1_BR_0, // 0b101 = 1/64
 		.dataSize = SPI_CR2_DS_2 | SPI_CR2_DS_1 | SPI_CR2_DS_0, // 8-bit
 		.ldma = SPI_CR2_LDMARX | SPI_CR2_LDMATX | SPI_CR2_FRXTH, // because 5 bytes per block
 		.dma_rx_ccr = DMA_CCR_PL_0 | DMA_CCR_MINC,
@@ -197,95 +101,7 @@ static void _delayWithCallback(float delay_us, void (*callback)(void))
 	__HAL_TIM_ENABLE(HTIM_SPI);
 }
 
-static void _spi_syncTransferWord(spi_transfer_t transfer, size_t wordIndex, bool deassertNss)
-{
-	HAL_GPIO_WritePin(_deviceSelectPinMap[transfer.deviceId].gpio, _deviceSelectPinMap[transfer.deviceId].pin, GPIO_PIN_RESET);
-	// _delay(25);
 
-	// size is 1, as it is the number of transfers, not bytes, and SPI is configured in 16bit mode
-	size_t wordSize = transfer.len/transfer.numWords;
-	HAL_SPI_TransmitReceive(&hspi2, (void*)((uint8_t*)transfer.src + wordSize*wordIndex), (void*)((uint8_t*)transfer.dst + wordSize*wordIndex), 1, 1000);
-
-	if (deassertNss)
-	{
-		HAL_GPIO_WritePin(_deviceSelectPinMap[transfer.deviceId].gpio, _deviceSelectPinMap[transfer.deviceId].pin, GPIO_PIN_SET);
-		_delay(50);
-	}
-
-	return;
-}
-
-static void _recoverSpiError(void)
-{
-	// error recovery
-	spi_transferStatus_t expected = SPI_XFER_ERROR;
-	while (!atomic_compare_exchange_weak(&_transferStatus, &expected, SPI_XFER_IDLE)) 
-	{ 
-		if (expected != SPI_XFER_ERROR)
-			break;
-		expected = SPI_XFER_ERROR;
-	};
-
-}
-
-static void _setupSpiForDevice(sspi_deviceId_t deviceId) {
-	if (deviceId == sspi.currentDevice)
-		return;
-
-	switch (deviceId) {
-		case SSPI_DEVICE_AS5047D:
-		{
-			sspi_initAs5047d();
-			sspi.wordsPerTransfer = 1;
-			break;
-		}
-		case SSPI_DEVICE_DRV83XX:
-		{
-			sspi_initDrv83xx();
-			sspi.wordsPerTransfer = 1;
-			break;
-		}
-		case SSPI_DEVICE_TMC6200:
-		{
-			sspi_initTmc6200();
-			sspi.wordsPerTransfer = 5;
-			break;
-		}
-		default:
-		{
-			sspi.wordsPerTransfer = 0;
-			break;
-		}
-	}
-
-	sspi.currentDevice = deviceId;
-}
-
-void sspi_syncTransfer(spi_transfer_t transfer)
-{
-	_recoverSpiError();
-
-
-	// wait until we can start a sync transfer
-	spi_transferStatus_t expected = SPI_XFER_IDLE;
-	while (!atomic_compare_exchange_weak(&_transferStatus, &expected, SPI_XFER_SYNC)) 
-	{ expected = SPI_XFER_IDLE; };
-
-	_setupSpiForDevice(transfer.deviceId);
-
-	sspi.currentTransfer = transfer;
-	sspi.wordsTransferred = 0;
-
-	while (sspi.wordsTransferred < sspi.currentTransfer.numWords)
-	{
-		bool deassertNss = (((sspi.wordsTransferred+1) % sspi.wordsPerTransfer) == 0) || ((sspi.wordsTransferred+1) == sspi.currentTransfer.numWords);
-		// bool deassertNss = true;
-		_spi_syncTransferWord(sspi.currentTransfer, sspi.wordsTransferred, deassertNss);
-		++sspi.wordsTransferred;
-	};
-
-	atomic_store(&_transferStatus, SPI_XFER_IDLE);	
-}
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
@@ -307,457 +123,72 @@ void HAL_TIM_TriggerCallback(TIM_HandleTypeDef *htim)
 }
 
 
-static void _spi_asyncStartTransferWord(spi_transfer_t transfer, size_t wordIndex)
-{
-	switch (_transferStatus)
-	{
-		case SPI_XFER_IN_PROGRESS:
-		case SPI_XFER_WORD_COMPLETE:
-		{
-			HAL_GPIO_WritePin(_deviceSelectPinMap[transfer.deviceId].gpio, _deviceSelectPinMap[transfer.deviceId].pin, GPIO_PIN_RESET);
-			// _delay(25);
-
-			// do this before the call, as the DMA might be faster than returning from the call and could interrupt it
-			atomic_store(&_transferStatus, SPI_XFER_WAIT_XFERCALL_DATAIRQ);
-
-			// size is 1, as it is the number of transfers, not bytes, and SPI is configured in 16bit mode
-			size_t wordSize = transfer.len/transfer.numWords;
-			int status = HAL_SPI_TransmitReceive_DMA(&hspi2, (void*)((uint8_t*)transfer.src+wordSize*wordIndex), (void*)((uint8_t*)transfer.dst+wordSize*wordIndex), 1);
-			switch(status)
-			{
-				case HAL_OK:
-				{
-
-					while (1)
-					{
-						spi_transferStatus_t expected = _transferStatus;
-						spi_transferStatus_t target = SPI_XFER_ERROR;
-						switch (expected)
-						{
-							case SPI_XFER_WAIT_XFERCALL_DATAIRQ:
-								target = SPI_XFER_WAIT_DATAIRQ;
-								break;
-
-							case SPI_XFER_WORD_COMPLETE_WAIT_XFERCALL_NSSIRQ:
-								target = SPI_XFER_WORD_COMPLETE_WAIT_NSSIRQ;
-								break;
-							case SPI_XFER_WORD_COMPLETE_WAIT_XFERCALL:
-								target = SPI_XFER_WORD_COMPLETE;
-								break;
-
-							case SPI_XFER_COMPLETE_WAIT_XFERCALL_NSSIRQ_CB:
-								target = SPI_XFER_COMPLETE_WAIT_NSSIRQ_CB;
-								break;
-							case SPI_XFER_COMPLETE_WAIT_XFERCALL_CB:
-								target = SPI_XFER_COMPLETE_WAIT_CB;
-								break;
-							case SPI_XFER_COMPLETE_WAIT_XFERCALL_NSSIRQ:
-								target = SPI_XFER_COMPLETE_WAIT_NSSIRQ;
-								break;
-							case SPI_XFER_COMPLETE_WAIT_XFERCALL:
-								target = SPI_XFER_IDLE;
-								break;
-							default:
-							{
-								err_println("_spi_asyncStartTransferWord() post-call in invalid state %d", _transferStatus);
-								target = SPI_XFER_ERROR;
-								break;
-							}
-						}
-						if (atomic_compare_exchange_strong(&_transferStatus, &expected, target))
-						{
-							if (target == SPI_XFER_WORD_COMPLETE)
-							{
-								if (sspi.wordsTransferred < sspi.currentTransfer.numWords)
-								{
-									_spi_asyncStartTransferWord(sspi.currentTransfer, sspi.wordsTransferred);									
-								}
-								else
-								{
-									while (1)
-									{
-										spi_transferStatus_t expected = SPI_XFER_WORD_COMPLETE;
-										if (atomic_compare_exchange_strong(&_transferStatus, &expected, SPI_XFER_COMPLETE_WAIT_CB))
-										{
-											break;
-										}
-									}
-
-									if (sspi.currentTransfer.callback)
-										sspi.currentTransfer.callback(&sspi.currentTransfer, true);
-
-									while (1)
-									{
-										spi_transferStatus_t expected = SPI_XFER_COMPLETE_WAIT_CB;
-										if (atomic_compare_exchange_strong(&_transferStatus, &expected, SPI_XFER_IDLE))
-										{
-											break;
-										}
-									}
-								}
-							}
-							break;
-						}
-
-					}
-					break;
-				}
-				default:
-				{
-					HAL_GPIO_WritePin(_deviceSelectPinMap[transfer.deviceId].gpio, _deviceSelectPinMap[transfer.deviceId].pin, GPIO_PIN_SET);
-					err_println("HAL_SPI_TransmitReceive_DMA returned error %d", status);
-					atomic_store(&_transferStatus, SPI_XFER_ERROR);
-					break;
-				}
-			}
-			break;
-		}
-		default:
-		{
-			err_println("_spi_asyncStartTransferWord() in invalid state %d", _transferStatus);
-			atomic_store(&_transferStatus, SPI_XFER_ERROR);
-			break;
-		}
-	}
-
-	return;
-}
-
-static void _nssLatchDelayCallback(void)
-{
-	// dbg_println("_nssLatchDelayCallback");
-	switch (_transferStatus)
-	{
-		case SPI_XFER_WORD_COMPLETE_WAIT_XFERCALL_NSSIRQ:
-		case SPI_XFER_WORD_COMPLETE_WAIT_NSSIRQ:
-		case SPI_XFER_COMPLETE_WAIT_XFERCALL_NSSIRQ_CB:
-		case SPI_XFER_COMPLETE_WAIT_XFERCALL_NSSIRQ:
-		case SPI_XFER_COMPLETE_WAIT_NSSIRQ_CB:
-		case SPI_XFER_COMPLETE_WAIT_NSSIRQ:
-		{
-			while (1)
-			{
-				spi_transferStatus_t expected = SPI_XFER_WORD_COMPLETE_WAIT_XFERCALL_NSSIRQ;
-				if (atomic_compare_exchange_strong(&_transferStatus, &expected, SPI_XFER_WORD_COMPLETE_WAIT_XFERCALL))
-				{
-					break;
-				}
-				expected = SPI_XFER_WORD_COMPLETE_WAIT_NSSIRQ;
-				if (atomic_compare_exchange_strong(&_transferStatus, &expected, SPI_XFER_WORD_COMPLETE))
-				{
-					// if all word transfer stuff has been completed, and we have one more word to go, transfer it!
-					if (sspi.wordsTransferred < sspi.currentTransfer.numWords)
-						_spi_asyncStartTransferWord(sspi.currentTransfer, sspi.wordsTransferred);
-					break;
-				}
-				expected = SPI_XFER_COMPLETE_WAIT_XFERCALL_NSSIRQ_CB;
-				if (atomic_compare_exchange_strong(&_transferStatus, &expected, SPI_XFER_COMPLETE_WAIT_XFERCALL_CB))
-				{
-					break;
-				}
-				expected = SPI_XFER_COMPLETE_WAIT_XFERCALL_NSSIRQ;
-				if (atomic_compare_exchange_strong(&_transferStatus, &expected, SPI_XFER_COMPLETE_WAIT_XFERCALL))
-				{
-					break;
-				}
-				expected = SPI_XFER_COMPLETE_WAIT_NSSIRQ_CB;
-				if (atomic_compare_exchange_strong(&_transferStatus, &expected, SPI_XFER_COMPLETE_WAIT_CB))
-				{
-					break;
-				}
-				expected = SPI_XFER_COMPLETE_WAIT_NSSIRQ;
-				if (atomic_compare_exchange_strong(&_transferStatus, &expected, SPI_XFER_IDLE))
-				{
-					break;
-				}
-			}
-			break;
-		}
-		default:
-		{
-			err_println("_nssLatchDelayCallback() in invalid state %d", _transferStatus);
-			atomic_store(&_transferStatus, SPI_XFER_ERROR);
-			break;
-		}
-	}
-}
-
-
-static void _spi_finishTransferWord(void)
-{
-	// dbg_println("_spi_finishTransferWord() word[%u] 0x%04X", spi.wordsTransferred, spi.currentTransfer.dst[spi.wordsTransferred]);
-
-	switch (_transferStatus)
-	{
-		case SPI_XFER_WAIT_XFERCALL_DATAIRQ:
-		case SPI_XFER_WAIT_DATAIRQ:
-		{
-			// dbg_println("_spi_finishTransferWord(%d)", _transferStatus);
-			bool deassertNss = (((sspi.wordsTransferred+1) % sspi.wordsPerTransfer) == 0) || ((sspi.wordsTransferred+1) == sspi.currentTransfer.numWords);
-			// bool deassertNss = true;
-			if (deassertNss) {
-				HAL_GPIO_WritePin(_deviceSelectPinMap[sspi.currentTransfer.deviceId].gpio, _deviceSelectPinMap[sspi.currentTransfer.deviceId].pin, GPIO_PIN_SET);
-				// _delay(50);
-			}
-
-			++sspi.wordsTransferred;
-
-			while (1)
-			{
-				spi_transferStatus_t expected = SPI_XFER_WAIT_XFERCALL_DATAIRQ;
-				if (atomic_compare_exchange_strong(&_transferStatus, &expected, SPI_XFER_WORD_COMPLETE_WAIT_XFERCALL_NSSIRQ))
-				{
-					break;
-				}				
-				expected = SPI_XFER_WAIT_DATAIRQ;
-				if (atomic_compare_exchange_strong(&_transferStatus, &expected, SPI_XFER_WORD_COMPLETE_WAIT_NSSIRQ))
-				{
-					break;
-				}				
-			}
-
-
-			_delayWithCallback(1.0f, _nssLatchDelayCallback);
-			break;
-		}
-		default:
-		{
-			err_println("_spi_finishTransferWord() in invalid state %d", _transferStatus);
-			atomic_store(&_transferStatus, SPI_XFER_ERROR);
-			break;
-		}
-	}
-
-
-	return;
-}
-
-
-
-int spi_startTransfer(spi_transfer_t transfer)
-{
-	// wait until we can start a sync transfer
-	// spi_transferStatus_t expected = SPI_XFER_IDLE;
-	// if (!atomic_compare_exchange_strong(&_currentTransfer.status, &expected, SPI_XFER_IN_PROGRESS))
-	// 	return -1;
-
-	_recoverSpiError();
-
-	sspi.currentTransfer = transfer;
-	sspi.wordsTransferred = 0;
-
-
-
-	_spi_asyncStartTransferWord(transfer, sspi.wordsTransferred);
-
-	return 0;
-}
-
-void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef *hspi)
-{
-	// atomic_store(&_transferStatus, SPI_XFER_WORD_COMPLETE);
-
-	_spi_finishTransferWord();
-
-	// word finished, now to determine if we need to complete or start another word
-
-
-	switch(_transferStatus)
-	{
-		case SPI_XFER_WORD_COMPLETE_WAIT_XFERCALL_NSSIRQ:
-		case SPI_XFER_WORD_COMPLETE_WAIT_XFERCALL:
-		case SPI_XFER_WORD_COMPLETE_WAIT_NSSIRQ:
-		{
-			bool allWordsTransferred = sspi.wordsTransferred == sspi.currentTransfer.numWords;
-			if (allWordsTransferred)
-			{
-				// if all words have been transferred, we can call the callback
-				while (1)
-				{
-					spi_transferStatus_t expected = SPI_XFER_WORD_COMPLETE_WAIT_XFERCALL_NSSIRQ;
-					if (atomic_compare_exchange_strong(&_transferStatus, &expected, SPI_XFER_COMPLETE_WAIT_XFERCALL_NSSIRQ_CB))
-					{
-						break;
-					}
-					expected = SPI_XFER_WORD_COMPLETE_WAIT_XFERCALL;
-					if (atomic_compare_exchange_strong(&_transferStatus, &expected, SPI_XFER_COMPLETE_WAIT_XFERCALL_CB))
-					{
-						break;
-					}
-					expected = SPI_XFER_WORD_COMPLETE_WAIT_NSSIRQ;
-					if (atomic_compare_exchange_strong(&_transferStatus, &expected, SPI_XFER_COMPLETE_WAIT_NSSIRQ_CB))
-					{
-						break;
-					}
-
-
-				}
-
-				if (sspi.currentTransfer.callback)
-					sspi.currentTransfer.callback(&sspi.currentTransfer, true);
-
-				while (1)
-				{
-					spi_transferStatus_t expected = SPI_XFER_COMPLETE_WAIT_XFERCALL_NSSIRQ_CB;
-					if (atomic_compare_exchange_strong(&_transferStatus, &expected, SPI_XFER_COMPLETE_WAIT_XFERCALL_NSSIRQ))
-					{
-						break;
-					}
-					expected = SPI_XFER_COMPLETE_WAIT_XFERCALL_CB;
-					if (atomic_compare_exchange_strong(&_transferStatus, &expected, SPI_XFER_COMPLETE_WAIT_XFERCALL))
-					{
-						break;
-					}
-					expected = SPI_XFER_COMPLETE_WAIT_NSSIRQ_CB;
-					if (atomic_compare_exchange_strong(&_transferStatus, &expected, SPI_XFER_COMPLETE_WAIT_NSSIRQ))
-					{
-						break;
-					}
-					expected = SPI_XFER_COMPLETE_WAIT_CB;
-					if (atomic_compare_exchange_strong(&_transferStatus, &expected, SPI_XFER_IDLE))
-					{
-						break;
-					}
-				}
-			}
-			else
-			{
-				// still more word transfers to go, nothing to do here, as additional transfer will be triggered after NSSIRQ or XFERCALL complete
-			}
-			break;
-		}
-		default:
-		{
-			err_println("HAL_SPI_TxRxCpltCallback() in invalid state %d", _transferStatus);
-			atomic_store(&_transferStatus, SPI_XFER_ERROR);
-			break;
-		}
-	}
-}
-
-void HAL_SPI_ErrorCallback(SPI_HandleTypeDef *hspi)
-{
-	atomic_store(&_transferStatus, SPI_XFER_ERROR);
-	err_println("HAL_SPI_ErrorCallback");
-	if (sspi.currentTransfer.callback)
-		sspi.currentTransfer.callback(&sspi.currentTransfer, false);
-	atomic_store(&_transferStatus, SPI_XFER_IDLE);
-
-}
-
-void HAL_SPI_AbortCallback(SPI_HandleTypeDef *hspi)
-{
-	atomic_store(&_transferStatus, SPI_XFER_ERROR);
-	err_println("HAL_SPI_AbortCallback");
-	if (sspi.currentTransfer.callback)
-		sspi.currentTransfer.callback(&sspi.currentTransfer, false);
-	atomic_store(&_transferStatus, SPI_XFER_IDLE);
-
-}
-
-// static inline uint16_t _PAR(uint16_t x)
+// void HAL_SPI_ErrorCallback(SPI_HandleTypeDef *hspi)
 // {
-// 	uint16_t xx = x & 0x7FFF;
-// 	uint16_t xxx = xx ^ (xx >> 8);
-// 	xxx ^= xxx >> 4;
-// 	xxx ^= xxx >> 2;
-// 	xxx ^= xxx >> 1;
-// 	return (((xxx) & 1) << 15) | xx;
+// 	atomic_store(&_transferStatus, SPI_XFER_ERROR);
+// 	err_println("HAL_SPI_ErrorCallback");
+// 	if (sspi.currentTransfer.callback)
+// 		sspi.currentTransfer.callback(&sspi.currentTransfer, false);
+// 	atomic_store(&_transferStatus, SPI_XFER_IDLE);
+
 // }
 
-// #define FLIP16(x) (((x & 0xFF00) >> 8) | ((x & 0xFF) << 8))
-// #define FLIP16(x) (x)
-
-
-// uint16_t ssf_spiRW(uint16_t cmd, sspi_deviceId_t device)
+// void HAL_SPI_AbortCallback(SPI_HandleTypeDef *hspi)
 // {
-// 	// drive everything high to deselect chips
-// 	// HAL_GPIO_WritePin(PIN_DRVSEL, GPIO_PIN_SET);
-// 	// HAL_GPIO_WritePin(PIN_ASEL, GPIO_PIN_SET);
-// 	// _delay(50);
+// 	atomic_store(&_transferStatus, SPI_XFER_ERROR);
+// 	err_println("HAL_SPI_AbortCallback");
+// 	if (sspi.currentTransfer.callback)
+// 		sspi.currentTransfer.callback(&sspi.currentTransfer, false);
+// 	atomic_store(&_transferStatus, SPI_XFER_IDLE);
 
-// 	HAL_GPIO_WritePin(_deviceSelectPinMap[device].gpio, _deviceSelectPinMap[device].pin, GPIO_PIN_RESET);
-// 	_delay(50);
-
-// 	uint16_t result = 0xFFFF;
-// 	// size is 1, as it is the number of transfers, not bytes, and SPI is configured in 16bit mode
-// 	HAL_SPI_TransmitReceive(&hspi2, (void*)&cmd, (void*)&result, 1, 1000);
-
-// 	HAL_GPIO_WritePin(_deviceSelectPinMap[device].gpio, _deviceSelectPinMap[device].pin, GPIO_PIN_SET);
-// 	_delay(50);
-
-// 	return result;
 // }
 
 
-static uint16_t _hallSensorTxBuf[4] = {0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF};
-static uint16_t _hallSensorRxBuf[4] = {0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF};
+// static uint16_t _hallSensorTxBuf[3] = {0xFFFF, 0xFFFF, 0xFFFF};
+// static uint16_t _hallSensorRxBuf[3] = {0xFFFF, 0xFFFF, 0xFFFF};
 
-static uint32_t _asyncReadHallSensorTick = 0;
+// static uint32_t _asyncReadHallSensorTick = 0;
 
-static void _readHallSensorCallback(const spi_transfer_t* const transfer, bool transferOk)
-{
-	// dbg_println("_readHallSensorCallback()...");
+// static void _readHallSensorCallback(bool transferOk)
+// {
+// 	// dbg_println("_readHallSensorCallback()...");
 
-	uint32_t tock = utime_now();
+// 	uint32_t tock = utime_now();
 
-	sspi_as5047_state_t state = {
-		.NOP = (_hallSensorRxBuf[0]),
-		.ERRFL = (_hallSensorRxBuf[1]),
-		.DIAAGC = (_hallSensorRxBuf[2]),
-		.ANGLEUNC = (_hallSensorRxBuf[3]),
-		.start_us = _asyncReadHallSensorTick,
-		.end_us = tock,
-	};	
+// 	sspi_as5047_state_t state = {
+// 		.ERRFL = (_hallSensorRxBuf[0]),
+// 		.DIAAGC = (_hallSensorRxBuf[1]),
+// 		.ANGLEUNC = (_hallSensorRxBuf[2]),
+// 		.start_us = _asyncReadHallSensorTick,
+// 		.end_us = tock,
+// 	};	
 
-	ssf_asyncReadHallSensorCallback(state, transferOk);
-}
-
-
-int ssf_asyncReadHallSensor(void)
-{
-	// we don't have enough time in the mctrl function to switch SPI modes
-	if (sspi.currentDevice != SSPI_DEVICE_AS5047D)
-		return -2;
-
-	// dbg_println("ssf_asyncReadHallSensor()...");
-	uint16_t cmd[4] = {
-		(_PAR(0x4001)), // ERRFL
-		(_PAR(0x7FFC)), // DIAAGC
-		(_PAR(0x7FFE)), // ANGLEUNC
-		(_PAR(0x4000)) // NOP at the end to get response to prev command
-	};
+// 	ssf_asyncReadHallSensorCallback(state, transferOk);
+// }
 
 
+// int ssf_asyncReadHallSensor(void)
+// {
+// 	// we don't have enough time in the mctrl function to switch SPI modes
+// 	if (sspi.currentDevice != SSPI_DEVICE_AS5047D)
+// 		return -2;
 
-	// wait until we can start a sync transfer before setting buffers
-	spi_transferStatus_t expected = SPI_XFER_IDLE;
-	if (!atomic_compare_exchange_strong(&_transferStatus, &expected, SPI_XFER_IN_PROGRESS))
-	{
-		if (expected == SPI_XFER_IN_PROGRESS)
-			err_println("ssf_asyncReadHallSensor() could not start, SPI read in progress");
-		return -1;
-	}
+// 	// dbg_println("ssf_asyncReadHallSensor()...");
+// 	uint16_t cmd[3] = {
+// 		(_PAR(0x4001)), // ERRFL
+// 		(_PAR(0x7FFC)), // DIAAGC
+// 		(_PAR(0x7FFE)), // ANGLEUNC
+// 	};
 
-	memcpy((void*)_hallSensorTxBuf, cmd, sizeof(_hallSensorTxBuf));
-	memset((void*)_hallSensorRxBuf, 0x0F, sizeof(_hallSensorRxBuf));
+// 	memcpy((void*)_hallSensorTxBuf, cmd, sizeof(_hallSensorTxBuf));
+// 	memset((void*)_hallSensorRxBuf, 0x0F, sizeof(_hallSensorRxBuf));
 
+// 	_asyncReadHallSensorTick = utime_now();
 
-	spi_transfer_t transfer = {
-		.len = sizeof(cmd),
-		.numWords = 4,
-		.src = _hallSensorTxBuf,
-		.dst = _hallSensorRxBuf,
-		.deviceId = SSPI_DEVICE_AS5047D,
-		.callback = _readHallSensorCallback,
-	};
+// 	as5047d_readRegisters(_hallSensorTxBuf, _hallSensorRxBuf, 3, _readHallSensorCallback);
 
-	_asyncReadHallSensorTick = utime_now();
-	int status = spi_startTransfer(transfer);
-
-
-	return status;
-}
+// 	return 0;
+// }
 
 void ssf_setMotorDriver3PwmMode(void)
 {
@@ -835,8 +266,7 @@ static bool _checkSpiEncoderRegReadOk(uint16_t reg)
 
 bool ssf_checkSpiEncoderReadOk(sspi_as5047_state_t state, bool* formatError, bool* valueError)
 {
-	bool formatOk = _checkSpiEncoderRegReadOk(state.NOP) 
-					&& _checkSpiEncoderRegReadOk(state.DIAAGC) 
+	bool formatOk = _checkSpiEncoderRegReadOk(state.DIAAGC) 
 					&& _checkSpiEncoderRegReadOk(state.ERRFL) 
 					&& _checkSpiEncoderRegReadOk(state.ANGLEUNC);
 	bool valueOk = ((state.ERRFL  & 0x0007) == 0) // no SPI error flags
@@ -853,6 +283,10 @@ bool ssf_checkSpiEncoderReadOk(sspi_as5047_state_t state, bool* formatError, boo
 
 void ssf_dbgPrintEncoderStatus(sspi_as5047_state_t state)
 {
+	err_println("AS5047D ERRFL    = 0x%04x.", state.ERRFL);
+	err_println("AS5047D DIAAGC   = 0x%04x.", state.DIAAGC);
+	err_println("AS5047D ANGLEUNC = 0x%04x.", state.ANGLEUNC);
+
 	if (state.ERRFL & 0x4000)
 	{
 		err_println("AS5047D ERRFL not read successfully.");
@@ -931,12 +365,10 @@ void ssf_spiInit(void)
 	// HAL_DMA_RegisterCallback(&hdma_spi2_rx, HAL_DMA_XFER_CPLT_CB_ID, _spiDmaCallback);
 
 	// __HAL_SPI_DISABLE(&hspi2);
+
+	sspi_initGpio();
 }
 
-void spi_printTransferStatus(void)
-{
-	dbg_println("SPI transferStatus = %u", _transferStatus);
-}
 
 #define INITIAL_TRIGGER_DMA_CH 2
 #define HOLD_DONE_DMA_CH 3
@@ -1075,11 +507,17 @@ static void _spiDisable(void)
 
 }
 
+sspi_deviceId_t sspi_drvType(void)
+{
+	return sspi.drvDevice;
+}
+
 /**
  * This only needs to be called once
  */
-void spi_initGpio(void) {
+void sspi_initGpio(void) {
 	// PB12 is NSS
+	// PB13 is CLK
 	// SPI peripheral controlled GPIOs
 	{
 		GPIO_InitTypeDef config = {
@@ -1093,6 +531,7 @@ void spi_initGpio(void) {
 	}
 
 	// keep NSS inactive, if we manage it through the manual GPIOs
+	if (0)
 	{
 		GPIO_InitTypeDef config = {
 		    .Pin = GPIO_PIN_12,
@@ -1103,7 +542,30 @@ void spi_initGpio(void) {
 	    HAL_GPIO_Init(GPIOB, &config);
 	}
 
+	// enable pullups on mosi/miso PB.14,PB.15 and NSS PB.12
+	GPIOB->PUPDR = (GPIOB->PUPDR & ~(GPIO_PUPDR_PUPD12 | GPIO_PUPDR_PUPD14 | GPIO_PUPDR_PUPD15)) | GPIO_PUPDR_PUPD12_0 |GPIO_PUPDR_PUPD14_0 | GPIO_PUPDR_PUPD15_0;
 
+	// reduce drive strengths on CLK B.13 and MOSI B.15
+	// b00 = low, b01 = med, b10 = high, b11 = very high
+	GPIOB->OSPEEDR = (GPIOB->OSPEEDR & ~(GPIO_OSPEEDR_OSPEED13 | GPIO_OSPEEDR_OSPEED15)) | 0;
+
+}
+
+static void _clkPinSetPol(bool pullup)
+{
+	// SPI_CLK = B.13
+	// configure pullup/down
+	uint16_t pupd = pullup ? GPIO_PUPDR_PUPD13_0 : GPIO_PUPDR_PUPD13_1;
+	GPIOB->PUPDR = (GPIOB->PUPDR & ~GPIO_PUPDR_PUPD13) | pupd;
+	// make it an input
+	GPIOB->MODER = (GPIOB->MODER & ~GPIO_MODER_MODE13);
+
+}
+
+static void _clkPinAlternateFun(void) {
+	// SPI_CLK = B.13
+	// select alternate mode
+	GPIOB->MODER = (GPIOB->MODER & ~GPIO_MODER_MODE13) | GPIO_MODER_MODE13_1;
 }
 
 void spi_initChipSelects(sspi_deviceId_t deviceId)
@@ -1136,17 +598,20 @@ void spi_initChipSelects(sspi_deviceId_t deviceId)
 		GPIO_TypeDef* 	inactiveGpio = _deviceSelectPinMap[inactiveDeviceId].gpio;
 		uint16_t 		inactivePin = _deviceSelectPinMap[inactiveDeviceId].pin;
 
-		GPIO_InitTypeDef config = {
-		    .Pin = inactivePin,
-		    .Mode = GPIO_MODE_OUTPUT_PP,
-		    .Pull = GPIO_NOPULL,
-		    .Speed = GPIO_SPEED_FREQ_VERY_HIGH,
-		};
-	    HAL_GPIO_Init(inactiveGpio, &config);
+		// GPIO_InitTypeDef config = {
+		//     .Pin = inactivePin,
+		//     .Mode = GPIO_MODE_OUTPUT_PP,
+		//     .Pull = GPIO_NOPULL,
+		//     .Speed = GPIO_SPEED_FREQ_VERY_HIGH,
+		// };
+	 //    HAL_GPIO_Init(inactiveGpio, &config);
 
 		HAL_GPIO_WritePin(inactiveGpio, inactivePin, GPIO_PIN_SET);
 
 	}
+
+	// init CLK to be the right polarity before we enable the SPI peripheral
+
 	if (0)
 	{
 		// set active pin Hi-Z, so that NSS can pull control it.
@@ -1167,13 +632,13 @@ void spi_initChipSelects(sspi_deviceId_t deviceId)
 		GPIO_TypeDef* 	activeGpio = _deviceSelectPinMap[deviceId].gpio;
 		uint16_t 		activePin = _deviceSelectPinMap[deviceId].pin;
 
-		GPIO_InitTypeDef config = {
-		    .Pin = activePin,
-		    .Mode = GPIO_MODE_OUTPUT_PP,
-		    .Pull = GPIO_NOPULL,
-		    .Speed = GPIO_SPEED_FREQ_VERY_HIGH,
-		};
-	    HAL_GPIO_Init(activeGpio, &config);
+		// GPIO_InitTypeDef config = {
+		//     .Pin = activePin,
+		//     .Mode = GPIO_MODE_OUTPUT_PP,
+		//     .Pull = GPIO_NOPULL,
+		//     .Speed = GPIO_SPEED_FREQ_VERY_HIGH,
+		// };
+	 //    HAL_GPIO_Init(activeGpio, &config);
 		HAL_GPIO_WritePin(activeGpio, activePin, GPIO_PIN_SET);
 
 	}
@@ -1194,18 +659,21 @@ void spi_initPeripheral(sspi_deviceId_t deviceId)
 	// (hardware NSS will pull that low when SPI is enabled)
 	spi_initChipSelects(deviceId);
 
+	_clkPinSetPol((_deviceSelectSpiSettings[deviceId].mode & SPI_CR1_CPOL) != 0);
+
 	SPI_TypeDef* spiRegs = SPI2;
 
 	uint16_t mode = _deviceSelectSpiSettings[deviceId].mode;
+	uint16_t baudrate = _deviceSelectSpiSettings[deviceId].baudrate;
 	uint16_t dataSize = _deviceSelectSpiSettings[deviceId].dataSize;
 	uint16_t ldma = _deviceSelectSpiSettings[deviceId].ldma;
 
 	// reset CR1 to use bidirectional, no CRC, disable
 	// master mode, clock rate 1/128 (6)
 	// CPOL/CPHA need to be set, too, but that depends on the attached device
-	spiRegs->CR1 = mode | SPI_CR1_BR_2 | SPI_CR1_BR_1 | SPI_CR1_MSTR;
+	spiRegs->CR1 = mode | baudrate | SPI_CR1_MSTR;
 	// software slave management
-	spiRegs->CR1 |= SPI_CR1_SSM | SPI_CR1_SSI;
+	// spiRegs->CR1 |= SPI_CR1_SSM | SPI_CR1_SSI;
 
 	// enable SSOE so that NSS is pulled low when SPI enabled
 	// don't enable any interrupts
@@ -1229,14 +697,26 @@ void spi_initPeripheral(sspi_deviceId_t deviceId)
 int spi_transmitBlockPrep(spi_block_t* block)
 {
 	// attempt to transmit block if idle
-	bool expected = true;
-	if (!atomic_compare_exchange_weak(&sspi.blockIdle, &expected, false))
+	// if already busy, abort attempt
+	if (atomic_flag_test_and_set(&sspi.blockBusy))
+	{
+		if (sspi.currentBlock->callback)
+		{
+			sspi.currentBlock->callback(false);
+		}
 		return -1;
+	}
 
 	sspi.currentBlock = block;
 	spi_initPeripheral(block->deviceId);
 
 	SPI_TypeDef* spiRegs = SPI2;
+
+	// enable the SPI peripheral 
+	spiRegs->CR1 |= SPI_CR1_SPE;
+
+	// release clock pin to peripheral
+	_clkPinAlternateFun();
 
 	// enable DMA streams
 
@@ -1251,6 +731,12 @@ int spi_transmitBlockPrep(spi_block_t* block)
 	// clear interrupt statuses
 	dma->IFCR = DMA_IFCR_CGIF1 | DMA_IFCR_CTCIF1 | DMA_IFCR_CHTIF1 | DMA_IFCR_CTEIF1;
 	dma->IFCR = DMA_IFCR_CGIF2 | DMA_IFCR_CTCIF2 | DMA_IFCR_CHTIF2 | DMA_IFCR_CTEIF2;
+
+
+	// assert NSS after enabling peripheral, so that eg. clock polarity does not glitch
+	GPIO_TypeDef* 	activeGpio = _deviceSelectPinMap[block->deviceId].gpio;
+	uint16_t 		activePin = _deviceSelectPinMap[block->deviceId].pin;
+	HAL_GPIO_WritePin(activeGpio, activePin, GPIO_PIN_RESET);
 
 
 	// set DMA transfer size and pointers
@@ -1273,13 +759,7 @@ int spi_transmitBlockPrep(spi_block_t* block)
 
 	block->transferComplete = false;
 
-	// enable the SPI peripheral 
-	spiRegs->CR1 |= SPI_CR1_SPE;
 
-	// assert NSS after enabling peripheral, so that eg. clock polarity does not glitch
-	GPIO_TypeDef* 	activeGpio = _deviceSelectPinMap[block->deviceId].gpio;
-	uint16_t 		activePin = _deviceSelectPinMap[block->deviceId].pin;
-	HAL_GPIO_WritePin(activeGpio, activePin, GPIO_PIN_RESET);
 
 	return 0;
 }
@@ -1304,8 +784,11 @@ void spi_rxDmaCompleteHandler(DMA_TypeDef* rx_dma)
 		// acknowledge interrupt
 		rx_dma->IFCR = DMA_IFCR_CTCIF1 | DMA_IFCR_CGIF1;
 
-		// received all data, deassert NSS by disabling the SPI peripheral
-		// SPI_TypeDef* spiRegs = SPI2;
+		// received all data, deassert NSS before disabling the peripheral
+
+		GPIO_TypeDef* 	activeGpio = _deviceSelectPinMap[sspi.currentBlock->deviceId].gpio;
+		uint16_t 		activePin = _deviceSelectPinMap[sspi.currentBlock->deviceId].pin;
+		HAL_GPIO_WritePin(activeGpio, activePin, GPIO_PIN_SET);
 
 		DMA_Channel_TypeDef* rx_dma = hdma_spi2_rx.Instance;
 		DMA_Channel_TypeDef* tx_dma = hdma_spi2_tx.Instance;
@@ -1320,16 +803,30 @@ void spi_rxDmaCompleteHandler(DMA_TypeDef* rx_dma)
 
 		assert(sspi.currentBlock != NULL);
 
-		GPIO_TypeDef* 	activeGpio = _deviceSelectPinMap[sspi.currentBlock->deviceId].gpio;
-		uint16_t 		activePin = _deviceSelectPinMap[sspi.currentBlock->deviceId].pin;
-		HAL_GPIO_WritePin(activeGpio, activePin, GPIO_PIN_SET);
 
 		sspi.currentBlock->transferComplete = true;
 
-		bool expected = false;
-		while (!atomic_compare_exchange_weak(&sspi.blockIdle, &expected, true)) {};
-	}
 
+		if (sspi.currentBlock->callback)
+		{
+			sspi.currentBlock->callback(true);
+		}
+		atomic_flag_clear(&sspi.blockBusy);
+	}
+	else if (rx_dma->ISR & DMA_ISR_GIF1)
+	{
+		// other interrupts we just ack
+		// acknowledge interrupt
+		rx_dma->IFCR = DMA_IFCR_CHTIF1 | DMA_IFCR_CTEIF1 | DMA_IFCR_CGIF1;
+
+		sspi.currentBlock->transferComplete = false;
+
+		if (sspi.currentBlock->callback)
+		{
+			sspi.currentBlock->callback(false);
+		}
+		atomic_flag_clear(&sspi.blockBusy);
+	}
 }
 
 void spi_transmitBlockWait(volatile spi_block_t* block)
@@ -1358,6 +855,10 @@ void spi_transmitBlockWait(volatile spi_block_t* block)
 	};
 }
 
+/**
+ * Synchronous transmission. Returns after block callback is called from
+ * interrupt.
+ */
 int sspi_transmitBlock(spi_block_t* block) 
 {
 	int result = spi_transmitBlockPrep(block);
@@ -1373,9 +874,28 @@ int sspi_transmitBlock(spi_block_t* block)
 	return result;
 }
 
+/**
+ * Asynchronous transmit does not wait for tansmission to finish,
+ * but leaves that to the interrupt block callback.
+ */
+int sspi_asyncTransmitBlock(spi_block_t* block) 
+{
+	int result = spi_transmitBlockPrep(block);
+	if (0 == result)
+	{
+		spi_transmitBlockStart(block);
+	}
+	else
+	{
+		// err_println("failed to prep SPI block");
+	}
+	return result;
+}
+
+
 void spi_blockTest(void) {
 
-	spi_initGpio();
+	sspi_initGpio();
 
 	sspi.currentDevice = SSPI_DEVICE_UNKNOWN;
 
@@ -1431,5 +951,283 @@ void spi_blockTest(void) {
 			dbg_println("dst = %02X %02X %02X %02X %02X", dst[0], dst[1], dst[2], dst[3], dst[4]);
 		}
 	}
+}
+
+void sspi_enableFastloopReads(bool enable)
+{
+	sspi.fastloopEnabled = enable;
+}
+
+
+
+/**
+ * The fastloop functionis called for pipelined SPI calls.
+ * 
+ * The fastloop function is called from the fast control loop to kick of SPI transactions. 
+ * 
+ * The fastloop reads are as follows: We alternate between angle readouts and
+ * diagnostic readouts from the driver chip and magnetic encoder
+ *  0: AS5047D	ANGLEUNC
+ *  1: AS5047D	ERRFL
+ *  2: AS5047D	ANGLEUNC
+ *  3: AS5047D	DIAAGC
+ *  4: AS5047D	ANGLEUNC
+ *  5: TMC6200	GSTAT 		DRV8323 0x00 (Fault Status 1)
+ *  6: AS5047D	ANGLEUNC
+ *  7: TMC6200	IOIN 		DRV8323 0x01 (VGS Status 2)
+ * 
+ * If the registers need to be written, we have to stop the fastloop
+ * readouts, and write registers to recover from a lower priority thread.
+ * 
+ * The only real complication is that the AS5047D register read results
+ * are returned in the next block.
+ * 
+ * TODO: are the angle reads latched when the read command is sent, or when the actual readout occurs (next cycle)? We should be able to figure this out later by analyzing reads in motion, for now we just assume latch on command.
+ */
+
+typedef enum {
+	SSPI_FL_HALL_ANGLEU_AFTER_AN,
+	SSPI_FL_HALL_ANGLEU_AFTER_S0,
+	SSPI_FL_HALL_ANGLEU_AFTER_S1,
+	SSPI_FL_HALL_STATUS0,
+	SSPI_FL_HALL_STATUS1,
+	SSPI_FL_DRV_STATUS0,
+	SSPI_FL_DRV_STATUS1,
+} sspi_fastloop_cycle_name_t;
+
+static const sspi_fastloop_cycle_name_t _flCycle[] = {
+	SSPI_FL_HALL_ANGLEU_AFTER_AN,
+	SSPI_FL_HALL_STATUS0,
+	SSPI_FL_HALL_ANGLEU_AFTER_S0,
+	SSPI_FL_HALL_STATUS1,
+	SSPI_FL_HALL_ANGLEU_AFTER_S1,
+	SSPI_FL_DRV_STATUS0,
+	SSPI_FL_HALL_ANGLEU_AFTER_AN,
+	SSPI_FL_DRV_STATUS1,
+};
+static size_t sspi_flCycleCounter = 0;
+
+static struct {
+	uint32_t blockTime;
+	uint32_t angleTime;
+	uint16_t as_angle[1];
+	uint16_t as_diag[1];
+	uint16_t as_err[1];
+	uint16_t drv_fault[1];
+	uint16_t drv_vgs[1];
+	uint8_t tmc_gstat[5];
+	uint8_t tmc_ioin[5];
+} sspi_fl_rx;
+
+
+void _blockCallback(bool transferOk)
+{
+	sspi_fastloop_cycle_name_t cycle = _flCycle[sspi_flCycleCounter];
+	if (transferOk)
+	{
+		switch (cycle)
+		{
+			case SSPI_FL_HALL_ANGLEU_AFTER_AN:			
+			case SSPI_FL_HALL_STATUS0:		
+			case SSPI_FL_HALL_STATUS1:		
+			{
+				// the RX result is the angle, record the time
+				sspi_fl_rx.angleTime = sspi_fl_rx.blockTime;
+
+				uint32_t tock = utime_now();
+
+				sspi_as5047_state_t state = {
+					.ERRFL = sspi_fl_rx.as_err[0],
+					.DIAAGC = sspi_fl_rx.as_diag[0],
+					.ANGLEUNC = sspi_fl_rx.as_angle[0],
+					.start_us = sspi_fl_rx.angleTime,
+					.end_us = tock,
+				};	
+
+				ssf_asyncReadHallSensorCallback(state, transferOk);
+
+				break;
+			}
+			default:
+			{
+				break;
+			}
+		}
+	}
+}
+
+void sspi_fastloop(void)
+{
+	static uint16_t as_angle_addr[1] = {_PAR(0x3FFE | AD5047D_READ_BIT)};
+	static uint16_t as_diag_addr[1] = {_PAR(0x3FFC | AD5047D_READ_BIT)};
+	static uint16_t as_err_addr[1] = {_PAR(0x0001 | AD5047D_READ_BIT)};
+	// static uint16_t as_nop_addr[1] = {_PAR(0x0000)};
+	static uint16_t drv_fault_addr[1] = {0x00 << 11};
+	static uint16_t drv_vgs_addr[1] = {0x01 << 11};
+	static uint8_t tmc_gstat_addr[5] = {TMC6200_REG_GSTAT};
+	static uint8_t tmc_ioin_addr[5] = {TMC6200_REG_IOIN};
+
+	static spi_block_t as_angle_an = {
+		.deviceId = SSPI_DEVICE_AS5047D,
+		.src = as_angle_addr,
+		.dst = sspi_fl_rx.as_angle,
+		.numWords = 1,
+		.callback = _blockCallback,
+	};
+	static spi_block_t as_angle_s0 = {
+		.deviceId = SSPI_DEVICE_AS5047D,
+		.src = as_angle_addr,
+		.dst = sspi_fl_rx.as_diag,
+		.numWords = 1,
+		.callback = _blockCallback,
+	};
+	static spi_block_t as_angle_s1 = {
+		.deviceId = SSPI_DEVICE_AS5047D,
+		.src = as_angle_addr,
+		.dst = sspi_fl_rx.as_err,
+		.numWords = 1,
+		.callback = _blockCallback,
+	};
+
+	static spi_block_t as_diag = {
+		.deviceId = SSPI_DEVICE_AS5047D,
+		.src = as_diag_addr,
+		.dst = sspi_fl_rx.as_angle,
+		.numWords = 1,
+		.callback = _blockCallback,
+	};
+	static spi_block_t as_err = {
+		.deviceId = SSPI_DEVICE_AS5047D,
+		.src = as_err_addr,
+		.dst = sspi_fl_rx.as_angle,
+		.numWords = 1,
+		.callback = _blockCallback,
+	};
+
+	static spi_block_t tmc_gstat = {
+		.deviceId = SSPI_DEVICE_TMC6200,
+		.src = tmc_gstat_addr,
+		.dst = sspi_fl_rx.tmc_gstat,
+		.numWords = 5,
+		.callback = _blockCallback,
+	};
+	static spi_block_t tmc_ioin = {
+		.deviceId = SSPI_DEVICE_TMC6200,
+		.src = tmc_ioin_addr,
+		.dst = sspi_fl_rx.tmc_ioin,
+		.numWords = 5,
+		.callback = _blockCallback,
+	};
+
+	static spi_block_t drv_fault = {
+		.deviceId = SSPI_DEVICE_DRV83XX,
+		.src = drv_fault_addr,
+		.dst = sspi_fl_rx.drv_fault,
+		.numWords = 1,
+		.callback = _blockCallback,
+	};
+
+	static spi_block_t drv_vgs = {
+		.deviceId = SSPI_DEVICE_DRV83XX,
+		.src = drv_vgs_addr,
+		.dst = sspi_fl_rx.drv_vgs,
+		.numWords = 1,
+		.callback = _blockCallback,
+	};
+
+	// return early if not enabled
+	if (!sspi.fastloopEnabled)
+		return;
+
+	// TODO: process values
+
+	// increment counter
+	sspi_flCycleCounter = (sspi_flCycleCounter+1) % (sizeof(_flCycle)/sizeof(*_flCycle));
+	sspi_fastloop_cycle_name_t cycle = _flCycle[sspi_flCycleCounter];
+
+	sspi_fl_rx.blockTime = utime_now();
+
+	switch (cycle)
+	{
+		case SSPI_FL_HALL_ANGLEU_AFTER_AN:
+		{
+			sspi_fl_rx.as_angle[0] = 0xFFFF;
+			sspi_asyncTransmitBlock(&as_angle_an);
+			break;
+		}
+		case SSPI_FL_HALL_ANGLEU_AFTER_S0:
+		{
+			sspi_fl_rx.as_diag[0] = 0xFFFF;
+			sspi_asyncTransmitBlock(&as_angle_s0);
+			break;
+		}
+		case SSPI_FL_HALL_ANGLEU_AFTER_S1:
+		{
+			sspi_fl_rx.as_err[0] = 0xFFFF;
+			sspi_asyncTransmitBlock(&as_angle_s1);
+			break;
+		}
+		case SSPI_FL_HALL_STATUS0:
+		{
+			sspi_fl_rx.as_angle[0] = 0xFFFF;
+			sspi_asyncTransmitBlock(&as_diag);
+			break;
+		}
+		case SSPI_FL_HALL_STATUS1:
+		{
+			sspi_fl_rx.as_angle[0] = 0xFFFF;
+			sspi_asyncTransmitBlock(&as_err);
+			break;
+		}
+		case SSPI_FL_DRV_STATUS0:
+		{
+			switch (sspi.drvDevice) 
+			{
+				case SSPI_DEVICE_TMC6200:
+				{
+					memset(sspi_fl_rx.tmc_gstat, 0xFF, sizeof(sspi_fl_rx.tmc_gstat));
+					sspi_asyncTransmitBlock(&tmc_gstat);
+					break;
+				}
+				case SSPI_DEVICE_DRV83XX:
+				{
+					sspi_fl_rx.drv_fault[0] = 0xFFFF;
+					sspi_asyncTransmitBlock(&drv_fault);
+					break;
+				}
+				default:
+				{
+					// no driver, NOP
+					break;
+				}
+			}
+			break;
+		}
+		case SSPI_FL_DRV_STATUS1:
+		{
+			switch (sspi.drvDevice) 
+			{
+				case SSPI_DEVICE_TMC6200:
+				{
+					memset(sspi_fl_rx.tmc_ioin, 0xFF, sizeof(sspi_fl_rx.tmc_ioin));
+					sspi_asyncTransmitBlock(&tmc_ioin);
+					break;
+				}
+				case SSPI_DEVICE_DRV83XX:
+				{
+					sspi_fl_rx.drv_vgs[0] = 0xFFFF;
+					sspi_asyncTransmitBlock(&drv_vgs);
+					break;
+				}
+				default:
+				{
+					// no driver, NOP
+					break;
+				}
+			}
+			break;
+		}
+	}
+
 }
 

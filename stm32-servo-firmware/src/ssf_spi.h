@@ -32,6 +32,23 @@
 	#define PIN_SPI_NSS	GPIOB, GPIO_PIN_12
 #endif
 
+/**
+ * HALL is an AS5047D
+ * 2-byte transfers
+ * 
+ * DRV83xx
+ * 2-byte transfers
+ * 
+ * TMC6200
+ * 5-byte transfers
+ */
+typedef enum {
+	SSPI_DEVICE_UNKNOWN,
+	SSPI_DEVICE_AS5047D,
+	SSPI_DEVICE_DRV83XX,
+	SSPI_DEVICE_TMC6200,
+} sspi_deviceId_t;
+
 
 typedef struct {
 	uint16_t NOP;
@@ -191,10 +208,15 @@ extern void ssf_setMotorDriver3PwmMode(void);
 extern void spi_printTransferStatus(void);
 
 extern void ssf_spiInit(void);
+extern void sspi_enableFastloopReads(bool enable);
+
+void sspi_fastloop(void);
 
 // autodetect attached parts
 extern bool sspi_detectAs5047d(void);
 extern bool sspi_detectDrv83xx(void);
 extern bool sspi_detectTmc6200(void);
+
+extern sspi_deviceId_t sspi_drvType(void);
 
 #endif // SSF_SPI_H

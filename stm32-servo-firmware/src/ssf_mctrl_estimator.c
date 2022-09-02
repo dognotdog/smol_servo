@@ -366,14 +366,20 @@ void mctrl_updateSimpleSensorEstimate(uint32_t now_us)
 
 void ssf_asyncReadHallSensorCallback(sspi_as5047_state_t sensorState, bool transferOk)
 {
-	uint32_t timeSpan = sensorState.end_us - sensorState.start_us;
-	uint32_t midTime = sensorState.start_us + timeSpan/2u;
+	_hallState = sensorState;
+	++_hallReadCounter;
+}
+
+void mctrl_fastloopProcessHallSensor(void)
+{
+	uint32_t timeSpan = _hallState.end_us - _hallState.start_us;
+	uint32_t midTime = _hallState.start_us + timeSpan/2u;
 
 	bool formatError = false, valueError = false;
 
-	if (ssf_checkSpiEncoderReadOk(sensorState, &formatError, &valueError))
+	if (ssf_checkSpiEncoderReadOk(_hallState, &formatError, &valueError))
 	{
-		uint16_t encoderRead = (sensorState.ANGLEUNC & 0x3FFF) << 2;
+		uint16_t encoderRead = (_hallState.ANGLEUNC & 0x3FFF) << 2;
 		uint16_t delta = encoderRead - _lastEncoderPosition.encoderPosition;
 		uint16_t delta2 = delta - _lastEncoderPosition.encoderDelta;
 
@@ -388,7 +394,7 @@ void ssf_asyncReadHallSensorCallback(sspi_as5047_state_t sensorState, bool trans
 		_lastEncoderPosition = pos;
 		atomic_store(&_encoderPosUpdateCounter, _encoderPosUpdateCounter+1);
 	}
-	else if (transferOk)
+	else
 	{
 		++_hallErrorCounter;
 		if (formatError)
@@ -397,9 +403,6 @@ void ssf_asyncReadHallSensorCallback(sspi_as5047_state_t sensorState, bool trans
 			++_hallValueErrorCounter;
 		// ssf_dbgPrintEncoderStatus(sensorState); 
 	}
-
-	_hallState = sensorState;
-	++_hallReadCounter;
 
 }
 

@@ -34,6 +34,8 @@ void mctrl_idle(uint32_t now_us)
 		}
 		case MCTRL_DRIVER_RESET_START:
 		{
+			sspi_enableFastloopReads(false);
+
 			spwm_enableHalfBridges(0x0);
 			spwm_setDrvChannel(HTIM_DRV_CH_R, 0.0f);
 			spwm_setDrvChannel(HTIM_DRV_CH_A, 0.0f);
@@ -51,7 +53,7 @@ void mctrl_idle(uint32_t now_us)
 			{
 				HAL_GPIO_WritePin(PIN_DRVEN, GPIO_PIN_SET);
 				waitStart = now_us;
-				mctrl_state = MCTRL_DRIVER_INIT_START;
+				mctrl_state = MCTRL_DRIVER_DETECT_START;
 			}
 			break;
 		}
@@ -78,23 +80,27 @@ void mctrl_idle(uint32_t now_us)
 				warn_println("AS5047D not detected!");
 			}
 
-			if (sspi_detectTmc6200()) 
-			{
-				dbg_println("TMC6200 detected!");
-			}
-			else if (sspi_detectDrv83xx()) 
-			{
-				dbg_println("DRV83xx detected!");
-			}
-			else
-			{
-				warn_println("No gate driver detected!");
-			}
+			// if (sspi_detectTmc6200()) 
+			// {
+			// 	dbg_println("TMC6200 detected!");
+			// }
+			// else if (sspi_detectDrv83xx()) 
+			// {
+			// 	dbg_println("DRV83xx detected!");
+			// }
+			// else
+			// {
+			// 	warn_println("No gate driver detected!");
+			// }
 
-			mctrl_state = MCTRL_DRIVER_INIT_START;
+			mctrl_state = MCTRL_DRIVER_TEST_START;
 			break;
 		}
-
+		case MCTRL_DRIVER_TEST_START:
+		{
+			sspi_enableFastloopReads(true);
+			break;
+		}
 		case MCTRL_DRIVER_INIT_START:
 		{
 			if (waitElapsed >= 2000)
@@ -106,6 +112,8 @@ void mctrl_idle(uint32_t now_us)
 
 				memset(mctrl.adcZeroCalibs, 0, sizeof(mctrl.adcZeroCalibs));
 				mctrl.calibCounter = 0;
+
+				// sspi_enableFastloopReads(true);
 
 				waitStart = now_us;
 				mctrl_state = MCTRL_DRIVER_INIT_WAIT;
@@ -186,22 +194,54 @@ void mctrl_idle(uint32_t now_us)
 
 				dbg_println("SO[%u] calibrated to 0A = %.3f counts", i, (double)calib);
 
-				// restart calibration if we're more than 5% off center
-				float center = 0.5f*((ADC2_NOMINAL_MAXCOUNT*ADC2_OVERSAMPLING_COUNT) >> ADC2_SHIFT);
-				if (fabsf(calib - center) > center*0.05f)
+				switch (sspi_drvType())
 				{
-					err_println("SO[%u] is too far off center at %.3f counts (center = %.3f)!", i, (double)calib, (double)center);
-					calibOk = false;
+					case SSPI_DEVICE_DRV83XX:
+					{
+						// restart calibration if we're more than 5% off center
+						float center = 0.5f*((ADC2_NOMINAL_MAXCOUNT*ADC2_OVERSAMPLING_COUNT) >> ADC2_SHIFT);
+						if (fabsf(calib - center) > center*0.05f)
+						{
+							err_println("SO[%u] is too far off center at %.3f counts (center = %.3f)!", i, (double)calib, (double)center);
+							calibOk = false;
+						}
+						break;
+					}
+					case SSPI_DEVICE_TMC6200:
+					{
+						// analog center is at 1.6V
+						float maxv = ((ADC2_NOMINAL_MAXCOUNT*ADC2_OVERSAMPLING_COUNT) >> ADC2_SHIFT);
+						float vdda = ssf_getVdda();
+						float calibVoltage = calib/maxv*vdda;
+						float refv = 1.6f;
+
+						if (fabsf(calibVoltage - refv) > 0.2f)
+						{
+							err_println("SO[%u] is too far off center at %.3f V (center = %.3f V)!", i, (double)calibVoltage, (double)refv);
+							calibOk = false;
+						}
+
+						break;
+					}
+					default:
+					{
+						err_println("Unknown gate driver type, don't know how to calibrate analog inputs.");
+						calibOk = false;
+						break;
+					}
 				}
+
 			}
 
 			if (!calibOk)
 			{
 				err_println("Restarting motor control init...");
 				waitStart = now_us;
-				mctrl_state = MCTRL_DRIVER_RESET_START;
+				mctrl_state = MCTRL_DRIVER_RESET_COOLDOWN;
 				break;
 			}
+
+			sspi_enableFastloopReads(true);
 
 			mctrl.idRunCounter = 0;
 			mctrl.calibCounter = 0;

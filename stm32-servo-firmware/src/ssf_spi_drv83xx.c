@@ -93,15 +93,15 @@ uint16_t sspi_drv_writeDrvMotorDriverReg(size_t addr, uint16_t data)
 
 	uint16_t rx[1] = {0xFFFF};
 
-	spi_transfer_t transfer = {
-		.len = sizeof(cmd),
-		.numWords = sizeof(cmd)/2,
+
+	spi_block_t block = {
+		.numWords = 1,
 		.src = cmd,
 		.dst = rx,
 		.deviceId = SSPI_DEVICE_DRV83XX,
 	};
 
-	sspi_syncTransfer(transfer);
+	sspi_transmitBlock(&block);
 
 	// return ssf_spiRW(cmd[0], SSPI_DEVICE_DRV);
 	return rx[0];

@@ -59,6 +59,8 @@ typedef enum {
 
 	MCTRL_DRIVER_DETECT_START,
 
+	MCTRL_DRIVER_TEST_START,
+
 	MCTRL_DRIVER_INIT_START,
 	MCTRL_DRIVER_INIT_WAIT,
 	MCTRL_DRIVER_CALIB_ENTER,
@@ -240,5 +242,7 @@ float mctrl_getSimpleMotorSpeedEstimate(void);
 
 mctrl_pwm_t mctrl_setPhasorPwmSin(float phase, float vRmsPhase, mctrl_motor_type_t motorType);
 void mctrl_getPhasorVoltagesSin(float phase, mctrl_motor_type_t motorType, float v[3]);
+
+void mctrl_fastloopProcessHallSensor(void);
 
 #endif // SSF_MCTRL_PRIVATE_H

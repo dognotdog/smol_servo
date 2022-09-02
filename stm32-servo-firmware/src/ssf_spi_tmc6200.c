@@ -29,12 +29,6 @@
 
 
 
-#define TMC6200_REG_GCONF 		0x00
-#define TMC6200_REG_GSTAT 		0x01
-#define TMC6200_REG_IOIN 		0x04
-#define TMC6200_REG_SHORT_CONF 	0x09
-#define TMC6200_REG_DRV_CONF 	0x0A
-
 extern SPI_HandleTypeDef hspi2;
 #define tmc6200Spi hspi2
 
@@ -93,7 +87,7 @@ sspi_tmc_state_t _readState(void) {
 
 
 	uint8_t rx[5][5];
-	memset(rx, 0xFF, sizeof(rx));
+	memset(rx, 0x00, sizeof(rx));
 
 	tmc6200_readRegisters(cmd, rx, 5);
 

@@ -1209,6 +1209,10 @@ void mctrl_fastLoop(const uint16_t adcCounts[ISENSE_COUNT])
 
 	// float alpha = 0.0f;
 
+	sspi_fastloop();
+
+	mctrl_fastloopProcessHallSensor();
+
 	switch (mctrl_state)
 	{
 		case MCTRL_ANALOG_CALIBRATION_RUN:

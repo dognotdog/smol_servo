@@ -84,7 +84,7 @@ void ssf_init(void)
 
 	ssf_flashInit();
 
-	spi_blockTest();
+	// spi_blockTest();
 
 	ssf_spiInit();
 
@@ -98,7 +98,6 @@ void ssf_init(void)
 	mctrl_init();
 
 	ssf_enableTasks(SCHED_UI_SLOW, SCHED_UI_SLOW, true);
-
 }
 
 /*
@@ -234,6 +233,7 @@ void ssf_ui1sTask(uint32_t now_us)
 
 	ssf_dbgPrintEncoderStatus(hallState);
 	// dbg_println("HALL[%8u] 0x%04x, 0x%04x, 0x%04x, 0x%04x", readCounter, hallState.NOP, hallState.ERRFL, hallState.DIAAGC, hallState.ANGLEUNC);
+	if (0)
 	{
 		sspi_drv_state_t drvState = sspi_drv_readMotorDriver();
 		// dbg_println("DRV %04x, %04x, %04x, %04x, %04x, %04x, %04x", drvState.FAULT_STATUS.reg, drvState.VGS_STATUS.reg, drvState.DRV_CTRL.reg, drvState.DRV_HS.reg, drvState.DRV_LS.reg, drvState.OCP_CTRL.reg, drvState.CSA_CTRL.reg);
@@ -309,7 +309,7 @@ void ssf_idle(void)
 	// spwm_idle();
 	// HAL_Delay(1);
 
-	ssf_asyncReadHallSensor();
+	// ssf_asyncReadHallSensor();
 
 	ssf_scheduleTasks(SCHED_UI_SLOW, SCHED_UI_SLOW, utime_now());
 
