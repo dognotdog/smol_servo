@@ -7,7 +7,7 @@ MAKEFLAGS += --no-builtin-rules
 
 UNITY_DIR = ../../../Unity
 
-CUBE_DIR = ../../firmware48
+# CUBE_DIR = ../../firmware48
 BUILD_DIR = build
 TEST_SRC_DIR = .
 SRC_DIR = ../src
@@ -23,20 +23,22 @@ CC=/opt/homebrew/bin/gcc-11
 
 OPT = -Os
 
-C_INCLUDES += -I$(CUBE_DIR)/Inc
-C_INCLUDES += -I$(CUBE_DIR)/Drivers/STM32G4xx_HAL_Driver/Inc
-C_INCLUDES += -I$(CUBE_DIR)/Drivers/STM32G4xx_HAL_Driver/Inc/Legacy
-C_INCLUDES += -I$(CUBE_DIR)/Drivers/CMSIS/Device/ST/STM32G4xx/Include
-C_INCLUDES += -I$(CUBE_DIR)/Drivers/CMSIS/Include
+# C_INCLUDES += -I$(CUBE_DIR)/Inc
+# C_INCLUDES += -I$(CUBE_DIR)/Drivers/STM32G4xx_HAL_Driver/Inc
+# C_INCLUDES += -I$(CUBE_DIR)/Drivers/STM32G4xx_HAL_Driver/Inc/Legacy
+# C_INCLUDES += -I$(CUBE_DIR)/Drivers/CMSIS/Device/ST/STM32G4xx/Include
+# C_INCLUDES += -I$(CUBE_DIR)/Drivers/CMSIS/Include
 C_INCLUDES += -I$(UNITY_DIR)/src
+C_INCLUDES += -I../src
+C_INCLUDES += -I./
 
 C_DEFS += -DUSE_HAL_DRIVER
 C_DEFS += -DSTM32G431xx
-C_DEFS += -DSTM32G431 
-C_DEFS += -DSTM32 
+# C_DEFS += -DSTM32G431 
+# C_DEFS += -DSTM32 
 C_DEFS += -DPERF_MONITOR_ENABLED
 # Hardware version 0.1.0
-C_DEFS += -DSSF_HARDWARE_VERSION=0x000300
+C_DEFS += -DSSF_HARDWARE_VERSION=0x000600
 
 CFLAGS = $(C_DEFS) $(C_INCLUDES) $(OPT) -Wall
 

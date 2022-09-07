@@ -3,10 +3,13 @@
 
 #include "ssf_scheduler.h"
 
+#if defined(STM32G431xx) || defined(STM32G491xx)
 #include "stm32g4xx_hal.h"
+#endif
 
 #include <stdint.h>
 #include <math.h>
+#include <stddef.h>
 
 
 
@@ -36,12 +39,9 @@ extern TIM_HandleTypeDef htim16;	// SPI timing
 
 #define ADC2_NOMINAL_MAXCOUNT 		4095
 #define ADC2_SHIFT					0
-#define ADC2_OVERSAMPLING_COUNT		16
-#define ADC2_OVERSAMPLING_FACTOR	(ADC2_OVERSAMPLING_COUNT >> ADC2_SHIFT)
+// #define ADC2_OVERSAMPLING_COUNT		16
+// #define ADC2_OVERSAMPLING_FACTOR	(ADC2_OVERSAMPLING_COUNT >> ADC2_SHIFT)
 
-#define ISENSE_SAMPLE_ADC_CYCLES	25 // 12.5 sample + 12.5 conversion
-#define ISENSE_SSAA_ADC_CYCLES		(ISENSE_SAMPLE_ADC_CYCLES*ADC2_OVERSAMPLING_COUNT)
-#define ISENSE_SSAA_CPU_CYCLES		(ISENSE_SSAA_ADC_CYCLES*3)
 
 
 #if SSF_HARDWARE_VERSION <= 0x00000600
@@ -98,6 +98,12 @@ extern void ssf_ui1sTask(uint32_t now_us);
 
 extern void ssf_usbRxCallback(const void* data, size_t datalen);
 
+extern void 	ssfa_isenseAnalogInit(void);
+extern float 	ssfa_isenseCountToNormalized(uint32_t adcCount);
+extern float 	ssfa_isenseMaxCount(void);
+
+extern uint32_t ssfa_isenseAdcTimerOffset(void);
+extern void 	ssfa_configMotorDriverCurrentAnalogChannels(void);
 
 extern float sintab(float x);
 

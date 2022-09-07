@@ -7,7 +7,7 @@
 
 #define _XORS(x,s) ((x) ^ ((x) >> s))
 
-#define  _PAR(x) (((_XORS(_XORS(_XORS(_XORS((x & 0x7FFF), 8), 4), 2), 1) & 1) << 15) | (x & 0x7FFF))
+#define  _PAR(x) (((_XORS(_XORS(_XORS(_XORS(((x) & 0x7FFF), 8), 4), 2), 1) & 1) << 15) | ((x) & 0x7FFF))
 
 
 

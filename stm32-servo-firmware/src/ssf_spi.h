@@ -121,7 +121,7 @@ typedef struct {
 		struct {
 			uint32_t reset:1;		// 0x00000001
 			uint32_t drv_optw:1;	// 0x00000002
-			uint32_t drw_ot:1;		// 0x00000004
+			uint32_t drv_ot:1;		// 0x00000004
 			uint32_t uv_cp:1;		// 0x00000008
 			uint32_t shortdet_u:1;	// 0x00000010
 			uint32_t s2gu:1;		// 0x00000020

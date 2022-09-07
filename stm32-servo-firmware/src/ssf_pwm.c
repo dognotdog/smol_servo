@@ -1,11 +1,12 @@
 
 
 #include <stdint.h>
-
+#include <assert.h>
 #include <math.h>
-#include <main.h>
-#include <ssf_main.h>
-#include <debug.h>
+
+#include "main.h"
+#include "ssf_main.h"
+#include "debug.h"
 
 
 /**
@@ -127,9 +128,9 @@ void spwm_startRealtime(void)
 
 	// setup triggered ADC offset timer
 	__HAL_TIM_SET_AUTORELOAD(HTIM_ISENSE_OFFSET, 1699);
-	__HAL_TIM_SET_COMPARE(HTIM_ISENSE_OFFSET, TIM_CHANNEL_1, 1699 - ISENSE_SSAA_CPU_CYCLES/2);
+	__HAL_TIM_SET_COMPARE(HTIM_ISENSE_OFFSET, TIM_CHANNEL_1, ssfa_isenseAdcTimerOffset());
 
-	HAL_TIM_Base_Start(HTIM_ISENSE_OFFSET);
+	assert(HAL_OK == HAL_TIM_Base_Start(HTIM_ISENSE_OFFSET));
 
 	// with dithering, subtract 16
 	__HAL_TIM_SET_AUTORELOAD(HTIM_DRV, (DRV_PWM_PERIOD - DRV_PWM_DITHER));
@@ -139,12 +140,12 @@ void spwm_startRealtime(void)
 	__HAL_TIM_SET_COMPARE(HTIM_DRV, HTIM_DRV_CH_B, 0);
 	__HAL_TIM_SET_COMPARE(HTIM_DRV, HTIM_DRV_CH_C, 0);
 
-	HAL_TIM_Base_Start(HTIM_DRV);
+	assert(HAL_OK == HAL_TIM_Base_Start(HTIM_DRV));
 
-	HAL_TIM_PWM_Start(HTIM_DRV, HTIM_DRV_CH_R);  
-	HAL_TIM_PWM_Start(HTIM_DRV, HTIM_DRV_CH_A);  
-	HAL_TIM_PWM_Start(HTIM_DRV, HTIM_DRV_CH_B);  
-	HAL_TIM_PWM_Start(HTIM_DRV, HTIM_DRV_CH_C);  
+	assert(HAL_OK == HAL_TIM_PWM_Start(HTIM_DRV, HTIM_DRV_CH_R));  
+	assert(HAL_OK == HAL_TIM_PWM_Start(HTIM_DRV, HTIM_DRV_CH_A));  
+	assert(HAL_OK == HAL_TIM_PWM_Start(HTIM_DRV, HTIM_DRV_CH_B));  
+	assert(HAL_OK == HAL_TIM_PWM_Start(HTIM_DRV, HTIM_DRV_CH_C));  
 
 }
 
@@ -173,8 +174,6 @@ void spwm_init(void)
 	HAL_GPIO_WritePin(PIN_ENC, GPIO_PIN_SET);
 
 	spwm_enableHalfBridges(0x7);
-
-	dbg_println("spwm_init() iSense ADC computed to take %u cycles (%.3f us)", ISENSE_SSAA_CPU_CYCLES, (double)(ISENSE_SSAA_CPU_CYCLES/170.0e0f));
 
 	spwm_startRealtime();
 }

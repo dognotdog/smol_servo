@@ -100,6 +100,7 @@
 \newcommand{\vw}{\ensuremath{\mathbf{w}}}
 \newcommand{\va}{\ensuremath{\mathbf{a}}}
 \newcommand{\vf}{\ensuremath{\mathbf{f}}}
+\newcommand{\vh}{\ensuremath{\mathbf{h}}}
 \newcommand{\vt}{\ensuremath{\mathbf{t}}}
 \newcommand{\vk}{\ensuremath{\mathbf{k}}}
 \newcommand{\mM}{\ensuremath{\mathbf{M}}}
@@ -411,10 +412,7 @@ The PWM base period $T_{\textrm{base}} = \unit{10}{\micro\second}$ ($f_{\textrm{
 
 \section {ADC}
 
-\subsubsection{ADC Sampling}
-
-\texttt{ADC2} is setup to sample with 12.5 cycles sample time, with 16x oversampling. $f_{\textrm{ADC}} = \unit{170/3}{\mega\hertz}$, and a single channel takes $12.5+12.5$ cycles per sample\footnote{sampling plus conversion}, with $T_{\textrm{sample}} = \unit{0.44}{\micro\second}$. That ends up being $T_{\textrm{ssaa}} = \unit{7.06}{\micro\second}$ with 16x oversampling.
-
+\subsection{ADC Sampling Low-side Sense Resistor}
 
 \begin{figure}[htbp]
 \begin{center}
@@ -444,7 +442,7 @@ The PWM base period $T_{\textrm{base}} = \unit{10}{\micro\second}$ ($f_{\textrm{
 ;
 % output node
 \draw
-  (3,2.0) to[short,-o] node[right]{$U=U_{\textrm{bus}}$}(4.0,2.0)
+  (3,2.0) to[short,-o] node[anchor=south west]{$U=U_{\textrm{bus}}$}(4.0,2.0)
 ;
 \end{circuitikz}
 \caption[RL Circuit]{Simplified half-bridge with body diodes and current sense resistor, high-side switch closed.}
@@ -456,10 +454,67 @@ The PWM base period $T_{\textrm{base}} = \unit{10}{\micro\second}$ ($f_{\textrm{
 
 With super-sampling, the lack of current flow through the sense resistor while the high-side switch is on must be accounted for. 
 
+\subsection{ADC Sampling Load-side Sense Resistor}
 
-\subsubsection{Sampling High-Impedance Sources}
+\begin{figure}[htbp]
+\begin{center}
+\begin{circuitikz} 
+\ctikzset{diodes/scale=0.7}
+% voltage source
+\draw
+  (3,0) -- ++(-3,0) to[european voltage source, v=$U_{\textrm{bus}}$] (0,4) to ++(3,0)
+  ;
+% diodes
+\draw
+  (3,0) -- ++(0,0.25)  -- ++(-0.5,0) to[D,l=lo] ++(0,1.5) -- ++(0.5,0) to[short, -*] ++(0.0,0.25)
+  -- ++(0,0.25) -- ++(-0.5,0) to[D,l=hi] ++(0,1.5) -- ++(0.5,0) -- ++(0,0.25)
+  ;
+% switches
+\draw
+  (3.0,0.25) to[short,*-] ++(0.5,0)
+  to[normal open switch] ++(0,1.5) to[short, -*] ++(-0.5,0)
+;
+\draw
+  (3,2.25) to[short,*-] ++(0.5,0)
+  to[closing switch] ++(0,1.5) to[short, -*] ++(-0.5,0)
+;
+% sense resistor
+\draw
+  (3,2.0) -- ++(1,0) to[R,resistors/scale=0.5,l=$R_{\textrm{sense}}$,-o] ++(1.0,0.0) node[anchor=west]{$U$}
+;
+%% output node
+%\draw
+%  (5.0,2.0) to[short,-o] node[anchor=south west]{$U=U_{\textrm{bus}}$} ++(1.0,0.0)
+%;
+\end{circuitikz}
+\caption[RL Circuit]{Simplified half-bridge with body diodes and load-side current sense resistor, high-side switch closing.}
+\label{fig:halfbridge-diodes-load}
+\end{center}
+\end{figure}
+
+With the sense resistor on the load, common-mode rejection becomes important, and the sense amplifiers need time to settle after a switching event before measurements can be taken.
+
+\subsection{Sampling High-Impedance Sources}
 
 High-impedance voltage dividers will be affected by ADC input impedance. Longest possible sampling times and additional buffer capacitors at the input are advised.
+
+\subsection{DRV8323}
+
+The DRV83223 has low-side sense resistors.
+
+\texttt{ADC2} is setup to sample with a 12.5 cycle sample time, with 16x oversampling. $f_{\textrm{ADC}} = \unit{170/3}{\mega\hertz}$, and a single channel takes $12.5+12.5$ cycles per sample\footnote{sampling plus conversion}, with $T_{\textrm{sample}} = \unit{0.44}{\micro\second}$. That ends up being $T_{\textrm{CONVx16}} = \unit{7.06}{\micro\second}$ with 16x oversampling, which means that one of the two sample periods should always fall into a switch-free period.
+
+\subsubsection{TMC6200}
+
+The TMC6200 has load-side sense resistors.
+
+With the TMC6200, a wait of \unit{2-4}{\micro\second} needs to be performed after each switching event before sampling the respective current sense amplifier output.
+
+Additionally, sampling spikes can be observed in the amplifier output, indicating about a \unit{140}{\milli\volt} drop with a \unit{12.5}{\nano\second} sample period.
+
+With a \unit{10}{\micro\second} PWM period, the $T_{\textrm{CONVx16}} = \unit{7.06}{\micro\second}$ time is just above the necessary threshold, so the ADC needs to be run to result in $T_{\textrm{CONV}} < \unit{6}{\micro\second}$. Shifting to a \unit{24.5}{cycle} sample period, and 8x oversampling, $T_{\textrm{CONVx8}} = \unit{5.23}{\micro\second}$ should work nicely, though care must be taken to shift the sampling accordingly, too, to ignore the settling period.
+
+Additionally, it looks like there is significant residual common-mode signal, which shows up as a difference between high and low-side offsets.
 
 \section{AS5047D Magnetic Encoder on Shaft}
 
@@ -2021,6 +2076,21 @@ s_i &= \mH \mP^-_k \mH^T + r_i \\
 \end{gather}
 for each measurement.
 
+With a single measurement, we only need a subset of $\mH$, as our input vector $\vz$ is reduced to a single scalar, and thus we only need the part of $\mH$ mapping $z_i$ to $\vx$. This also reduces the dimension of $\mK$ accordingly.
+\begin{gather}
+\begin{aligned}
+\mH &= \left\{ \begin{array}{c} \vh_0 \\
+\vh_i \\
+\cdots \\
+\end{array} \right\} \\
+s_i &= \vh_i \mP^-_k \vh_i^T + r_i \\
+\vk_i &= \frac{\mP^-_k \vh_i^T}{s_i} \\
+\vx^+ &= \vx^- + \vk_i \left(z_{i} - \vh_i \vx^- \right) \\
+\mP^+ &= \left( \mI - \vk_i \vh_i \right) \mP^- \left( \mI - \vk_i \vh_i \right)^T + \vk_i \vk_i^T r_i
+\end{aligned}
+\end{gather}
+
+
 \subsubsection{Simplest Approximation Difference Equations}
 
 In the simplest possible form, the motor can be treated as an inertial mass without outside forces, eg.{} it having constant speed.
@@ -2428,7 +2498,28 @@ One numerically efficient method of computing it is by Singular Value Decomposit
 \end{gather}
 
 
+\section{Linear Algebra Notes}
+
+\subsection{$A B A^T$ Matrix Transform}
+
+In normal $C=A \cdot B$ matrix multiplication, each element is 
+\begin{gather}
+\begin{aligned}
+c_{i,j} = \sum_k{a_{i,k} \cdot b_{k,j}}.
+\end{aligned}
+\end{gather}
+
+With that, $C = A \cdot B \cdot A^T$ split into $ C = A \cdot D$, where $D = B \cdot A^T$ becomes
+\begin{gather}
+\begin{aligned}
+c_{i,j} &= \sum_k{a_{i,k} \cdot d_{k,j}}, \quad d_{k,j} = \sum_l{b_{k,l} \cdot a_{j,l}} \\
+c_{i,j} &= \sum_k{ \left( a_{i,k} \cdot \sum_l{b_{k,l} \cdot a_{j,l}}\right) }
+\end{aligned}
+\end{gather}
+
+
 \section{Nominal Motor Parameters}
+
 \begin{table}[htbp]
 \caption{Stepper Motor 17HS16-2004S-C2.}
 \begin{center}
@@ -2438,8 +2529,8 @@ One numerically efficient method of computing it is by Singular Value Decomposit
 Configuration & Bipolar & \\
 Step Angle & \unit{1.8}{\degree} & \\
 Holding Torque & \unit{0.45}{\newton\meter} & \\
-Inductance & \unit{2.6}{\milli\henry} $\pm \unit{20}{\%}$& \\
-Resistance & \unit{1.1}{\ohm} $\pm \unit{10}{\%}$ & \\
+Inductance & \unit{2.6}{\milli\henry} $\pm \unit{20}{\%}$ & LCR45: \unit{1.46-1.52}{\milli\henry} @\unit{15}{\kilo\hertz}, \unit{0.47-0.51}{\milli\henry} @\unit{200}{\kilo\hertz}, est. \unit{1.20}{\milli\henry} @\unit{50}{\kilo\hertz}\\
+Resistance & \unit{1.1}{\ohm} $\pm \unit{10}{\%}$ &  LCR45: \unit{1.25-1.32}{\ohm}  @\unit{15}{\kilo\hertz}\\
 Rated Current & \unit{2}{\ampere} & \\
 Rotor Intertia & \unit{54}{\gram\cdot\centi\meter\squared} & \\
 \bottomrule
@@ -2459,8 +2550,8 @@ Poles & \unit{8}{} & \\
 Phases & \unit{3}{} & \\
 Holding Torque & \unit{0.063}{\newton\meter} & \\
 Peak Torque & \unit{0.18}{\newton\meter} & \\
-LtL Inductance & \unit{0.54}{\milli\henry} & \\
-LtL Resistance & \unit{1.8}{\ohm} & \\
+LtL Inductance & \unit{0.54}{\milli\henry} & LCR45 PtP: \unit{0.89-1.03}{\milli\henry} @\unit{15}{\kilo\hertz}, \unit{0.455-0.473}{\milli\henry} @\unit{200}{\kilo\hertz}, est. \unit{0.828}{\milli\henry} @\unit{50}{\kilo\hertz}\\
+LtL Resistance & \unit{1.8}{\ohm} & LCR45 PtP: \unit{2.29-2.36}{\ohm} @ \unit{15}{\kilo\hertz}\\
 Peak Current & \unit{4.6}{\ampere} & \\
 Rotor Intertia & \unit{24}{\gram\cdot\centi\meter\squared} & \\
 BEMF & \unit{4.4}{\volt\per\kilo RPM} & \\
@@ -2519,6 +2610,14 @@ The control scheme is a classical PI/PID cascade controller for torque, speed, a
 \subsection{Open Robot Harware Initiative MicroDriver v2}
 
 The MicroDriver is based on a TMS320 DSP.
+
+\section {USB Power Delivery}
+
+With USB-PD v3.1 Extended Range Power (ERP), up to \unit{48}{\volt} at \unit{5}{\ampere} can be supplied, allowing up to 240W power from the USB-C connection.
+
+\subsection{USB-PD CC PHY} 
+
+The Configuration Channel uses a Biphase Mark Code (BMC) with a 1.05-1.2 V swing with a line load consisting of $R_p$ and $R_d$ at the source and sink, respectively, in addition to the cable and losses. While the output side might not be too tricky, a receiver circuit might not be so easy.
 
 \section{Higher Voltage/Power considerations}
 

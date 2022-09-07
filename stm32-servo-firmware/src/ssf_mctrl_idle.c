@@ -10,6 +10,96 @@
 #include <string.h>
 #include <assert.h>
 
+static sspi_tmc_state_t _tmcState = {
+	.GCONF = {.reg = 0,},
+};
+
+void mctrl_diag_tmc6200_gstat_rx_callback(uint8_t rx[5])
+{
+	_tmcState.GSTAT.reg = ((uint32_t)rx[1] << 24) | ((uint32_t)rx[2] << 16) | ((uint32_t)rx[3] << 8) | ((uint32_t)rx[4] << 0);
+}
+
+void mctrl_diag_tmc6200_ioin_rx_callback(uint8_t rx[5])
+{
+	_tmcState.IOIN.reg = ((uint32_t)rx[1] << 24) | ((uint32_t)rx[2] << 16) | ((uint32_t)rx[3] << 8) | ((uint32_t)rx[4] << 0);	
+}
+
+void mctrl_diag_tmc6200_gconf_rx_callback(uint8_t rx[5])
+{
+	_tmcState.GCONF.reg = ((uint32_t)rx[1] << 24) | ((uint32_t)rx[2] << 16) | ((uint32_t)rx[3] << 8) | ((uint32_t)rx[4] << 0);	
+}
+
+
+static void mctrl_diag_idle(uint32_t now_us)
+{
+	switch (sspi_drvType())
+	{
+		case SSPI_DEVICE_TMC6200:
+		{
+			// this assumes we've got the fastloop readings going
+			if (_tmcState.GSTAT.reset)
+				dbg_println("TMC6200 GSTAT.reset = 1");
+			if (_tmcState.GSTAT.drv_optw)
+				warn_println("TMC6200 GSTAT.drv_optw = 1");
+			if (_tmcState.GSTAT.drv_ot)
+				err_println("TMC6200 GSTAT.drv_ot = 1");
+			if (_tmcState.GSTAT.uv_cp)
+				err_println("TMC6200 GSTAT.uv_cp = 1");
+			if (_tmcState.GSTAT.shortdet_u)
+				err_println("TMC6200 GSTAT.shortdet_u = 1");
+			if (_tmcState.GSTAT.shortdet_v)
+				err_println("TMC6200 GSTAT.shortdet_v = 1");
+			if (_tmcState.GSTAT.shortdet_w)
+				err_println("TMC6200 GSTAT.shortdet_w = 1");
+
+			// if (!_tmcState.IOIN.DRV_EN)
+			// 	warn_println("TMC6200 IOIN.DRV_EN = 0");
+			if (_tmcState.IOIN.OTPW)
+				warn_println("TMC6200 IOIN.OTPW = 1");
+
+			if (_tmcState.GCONF.disable)
+				warn_println("TMC6200 GCONF.disable = 1");
+			// if (!_tmcState.GCONF.singleline)
+			// 	warn_println("TMC6200 GCONF.singleline = 0");
+
+			break;
+		}
+		default:
+		{
+			break;
+		}
+	}
+}
+
+static const char* _bridgeStateString(int state) 
+{
+	switch (state)
+	{
+		case MCTRL_BRIDGE_LO:
+			return "LO";
+		case MCTRL_BRIDGE_HI:
+			return "HI";
+		case MCTRL_BRIDGE_ZZ:
+			return "ZZ";
+		default:
+			return "??";
+	}
+}
+
+static void _printBridgeState(int id)
+{
+	dbg_println(
+		"A: %s, B: %s, C: %s", 
+		_bridgeStateString(mctrl_params.sysId.idSequence[id][0]), 
+		_bridgeStateString(mctrl_params.sysId.idSequence[id][1]), 
+		_bridgeStateString(mctrl_params.sysId.idSequence[id][2])
+	);
+
+}
+
+extern uint16_t an1_buf[6];
+
+
 void mctrl_idle(uint32_t now_us)
 {
 	static uint32_t waitStart = 0;
@@ -22,6 +112,9 @@ void mctrl_idle(uint32_t now_us)
 	static float inductanceVariance = 0.0f;
 
 	uint32_t waitElapsed = now_us - waitStart;
+
+
+	mctrl_diag_idle(now_us);
 
 	// assert((mctrl.debug.lastEventCount == 0) || (mctrl.debug.lastEventCountDelta == 6));
 
@@ -80,25 +173,33 @@ void mctrl_idle(uint32_t now_us)
 				warn_println("AS5047D not detected!");
 			}
 
-			// if (sspi_detectTmc6200()) 
-			// {
-			// 	dbg_println("TMC6200 detected!");
-			// }
-			// else if (sspi_detectDrv83xx()) 
-			// {
-			// 	dbg_println("DRV83xx detected!");
-			// }
-			// else
-			// {
-			// 	warn_println("No gate driver detected!");
-			// }
+			if (sspi_detectTmc6200()) 
+			{
+				dbg_println("TMC6200 detected!");
+			}
+			else if (sspi_detectDrv83xx()) 
+			{
+				dbg_println("DRV83xx detected!");
+			}
+			else
+			{
+				warn_println("No gate driver detected!");
+			}
 
-			mctrl_state = MCTRL_DRIVER_TEST_START;
+			// init analog stuff after driver is known for proper configuration
+			mctrl.debug.lastEventCount = 0;
+			ssfa_isenseAnalogInit();
+			spwm_init();
+
+
+
+			mctrl_state = MCTRL_DRIVER_INIT_START;
 			break;
 		}
 		case MCTRL_DRIVER_TEST_START:
 		{
-			sspi_enableFastloopReads(true);
+			// this is being skipped right now
+			// sspi_enableFastloopReads(true);
 			break;
 		}
 		case MCTRL_DRIVER_INIT_START:
@@ -128,16 +229,24 @@ void mctrl_idle(uint32_t now_us)
 		}
 		case MCTRL_DRIVER_CALIB_ENTER:
 		{
-			// dbg_println("MCTRL_DRIVER_CALIB_ENTER");
+			if (sspi_drvType() == SSPI_DEVICE_DRV83XX)
+			{
+				// dbg_println("MCTRL_DRIVER_CALIB_ENTER");
 
-			// first is analog recalibration
-			// put the DRV8323 into calibration mode
-			// switchover in DRV8323 takes 100us
-			// do calibration twice, as otherwise we seem to get flip-flopping between ~2047 and ~2070 ADC counts, it is more stable this way, but not perfect, for some reason SOC still seems to be unstable
-			ssf_enterMotorDriverCalibrationMode();
+				// first is analog recalibration
+				// put the DRV8323 into calibration mode
+				// switchover in DRV8323 takes 100us
+				// do calibration twice, as otherwise we seem to get flip-flopping between ~2047 and ~2070 ADC counts, it is more stable this way, but not perfect, for some reason SOC still seems to be unstable
+				ssf_enterMotorDriverCalibrationMode();
 
-			waitStart = now_us;
-			mctrl_state = MCTRL_DRIVER_CALIB_WAIT;
+				waitStart = now_us;
+				mctrl_state = MCTRL_DRIVER_CALIB_WAIT;
+			}
+			else
+			{		
+				// otherwise, skip ahead to ADC zero calibration
+				mctrl_state = MCTRL_ANALOG_CALIBRATION_START;
+			}
 			break;
 		}
 		case MCTRL_DRIVER_CALIB_WAIT:
@@ -167,12 +276,45 @@ void mctrl_idle(uint32_t now_us)
 			}
 			break;			
 		}
-		case MCTRL_ANALOG_CALIBRATION_RUN:
+		case MCTRL_ANALOG_CALIBRATION_START:
+		{
+			ssfa_isenseResetAdcZeroCalibration();
+			
+			mctrl_state = MCTRL_ANALOG_CALIBRATION_START_LO;
+			break;
+		}
+		case MCTRL_ANALOG_CALIBRATION_START_LO:
+		{
+			waitStart = now_us;
+
+			// set all bridges to low
+			spwm_setDrvChannel(HTIM_DRV_CH_A, 0.0f);
+			spwm_setDrvChannel(HTIM_DRV_CH_A, 0.0f);
+			spwm_setDrvChannel(HTIM_DRV_CH_A, 0.0f);
+
+			spwm_enableHalfBridges(0x7);
+
+			if (waitElapsed >= 10000)
+			{
+				mctrl_state = MCTRL_ANALOG_CALIBRATION_RUN_LO;
+			}
+
+			break;
+		}
+		case MCTRL_ANALOG_CALIBRATION_RUN_LO:
 		{
 			// dbg_println("MCTRL_ANALOG_CALIBRATION_RUN...");
 			if (waitElapsed >= 1000000)
 			{
-				warn_println("MCTRL_ANALOG_CALIBRATION_RUN more than a second passed!");
+				warn_println("MCTRL_ANALOG_CALIBRATION_RUN_LO more than a second passed!");
+				// debugging output to figure out why ADC DMA is not run
+				// dbg_println("HTIM_DRV->CNT = %u", HTIM_DRV->Instance->CNT);
+				// dbg_println("TIM15->CNT = %u", TIM15->CNT);
+				// dbg_println("TIM15->CC1 = %u", TIM15->CCR1);
+				// dbg_println("TIM15->CC2 = %u", TIM15->CCR1);
+				// dbg_println("TIM1->CNT = %u", TIM1->CNT);
+				// dbg_println("ADC2->DR = %u", ADC2->DR);
+				// dbg_println("an1_buf[0] = %u", an1_buf[0]);
 				waitStart = now_us;
 			};
 			// do nothing, wait for fastLoop
@@ -186,38 +328,39 @@ void mctrl_idle(uint32_t now_us)
 			for (size_t i = 0; i < 3; ++i)
 			{
 				float calib = (mctrl.adcZeroCalibs[2*i]+mctrl.adcZeroCalibs[2*i+1])*(0.5f/mctrl.calibCounter);
-				
+				float vdda = ssf_getVdda();
+				float maxc = ssfa_isenseMaxCount();
+				float calibv = calib/maxc*vdda;
+
 				// dbg_println("    calib0 = %.3f, calib1 = %.3f", (double)(_adcZeroCalibs[2*i]*(2.0f/CALIBREADS)), (double)(_adcZeroCalibs[2*i+1]*(2.0f/CALIBREADS)));
 				
 				mctrl.adcZeroCalibs[2*i] = calib;
 				mctrl.adcZeroCalibs[2*i+1] = calib;
 
-				dbg_println("SO[%u] calibrated to 0A = %.3f counts", i, (double)calib);
+				dbg_println("SO[%u] calibrated to 0A = %.3f counts (%.3f V)", i, (double)calib, (double)calibv);
 
 				switch (sspi_drvType())
 				{
 					case SSPI_DEVICE_DRV83XX:
 					{
 						// restart calibration if we're more than 5% off center
-						float center = 0.5f*((ADC2_NOMINAL_MAXCOUNT*ADC2_OVERSAMPLING_COUNT) >> ADC2_SHIFT);
-						if (fabsf(calib - center) > center*0.05f)
+						float centerv = 0.5f*vdda;
+						if (fabsf(calibv - centerv) > centerv*0.05f)
 						{
-							err_println("SO[%u] is too far off center at %.3f counts (center = %.3f)!", i, (double)calib, (double)center);
+							err_println("SO[%u] is too far off center at %.3f V (center = %.3f V)!", i, (double)calibv, (double)centerv);
 							calibOk = false;
 						}
 						break;
 					}
 					case SSPI_DEVICE_TMC6200:
 					{
-						// analog center is at 1.6V
-						float maxv = ((ADC2_NOMINAL_MAXCOUNT*ADC2_OVERSAMPLING_COUNT) >> ADC2_SHIFT);
-						float vdda = ssf_getVdda();
-						float calibVoltage = calib/maxv*vdda;
-						float refv = 1.6f;
+						// analog center is at 5.0/3V
+						// (500k - 250k resistor divider)
+						float refv = 5.0f/3.0f;
 
-						if (fabsf(calibVoltage - refv) > 0.2f)
+						if (fabsf(calibv - refv) > 0.2f)
 						{
-							err_println("SO[%u] is too far off center at %.3f V (center = %.3f V)!", i, (double)calibVoltage, (double)refv);
+							err_println("SO[%u] is too far off center at %.3f V (center = %.3f V)!", i, (double)calibv, (double)refv);
 							calibOk = false;
 						}
 
@@ -241,6 +384,15 @@ void mctrl_idle(uint32_t now_us)
 				break;
 			}
 
+			// done with no-current stuff
+
+			// enable driver chip
+			if (sspi_drvType() == SSPI_DEVICE_TMC6200)
+			{
+
+			}
+
+			// enable realtime readouts
 			sspi_enableFastloopReads(true);
 
 			mctrl.idRunCounter = 0;
@@ -370,8 +522,9 @@ void mctrl_idle(uint32_t now_us)
 				float Rest = RestSum*(1.0f/k);
 				float Rvar = RestSqrSum*(1.0f/k) - Rest*Rest;
 
-				dbg_println("RestSum %.3f , RestSqrSum %.3f", (double)RestSum, (double)(RestSqrSum));
-				dbg_println("steady state estimate %.3f R, sigma = %.3f", (double)Rest, (double)(sqrtf(Rvar)));
+				_printBridgeState(mctrl.idRunCounter);
+				dbg_println("  RestSum %.3f , RestSqrSum %.3f", (double)RestSum, (double)(RestSqrSum));
+				dbg_println("  steady state estimate %.3f R, sigma = %.3f", (double)Rest, (double)(sqrtf(Rvar)));
 
 				mctrl.sysParamEstimates.phases.Rest[mctrl.idRunCounter] = Rest;
 				mctrl.sysParamEstimates.phases.Rvar[mctrl.idRunCounter] = Rvar;
@@ -723,6 +876,7 @@ void mctrl_idle(uint32_t now_us)
 		{
 			for (size_t i = 0; i < NUM_IDENTIFICATION_RUNS; ++i)
 			{
+				_printBridgeState(i);
 				dbg_println("  Lest[%u] is %8.3f mH, sigma = %8.3f mH", i, (double)(mctrl.sysParamEstimates.phases.Lest[i]*1e3), (double)(sqrtf(mctrl.sysParamEstimates.phases.Lvar[i])*1e3));
 				dbg_println("  Rest[%u] is %8.3f R,  sigma = %8.3f R", i, (double)(mctrl.sysParamEstimates.phases.Rest[i]*1e0), (double)(sqrtf(mctrl.sysParamEstimates.phases.Rvar[i])*1e0));
 				dbg_println("   Tau[%u] is %8.3f ms", i, (double)(mctrl.sysParamEstimates.phases.Lest[i]/mctrl.sysParamEstimates.phases.Rest[i]*1e3));
@@ -858,6 +1012,10 @@ void mctrl_idle(uint32_t now_us)
 
 			break;
 		}
+		case MCTRL_COGID_RUN:
+		{
+			break;
+		}
 		case MCTRL_COGID_FINISH:
 		{
 			mctrl.counter++;
@@ -925,9 +1083,9 @@ void mctrl_idle(uint32_t now_us)
 
 
 			dbg_println("Mapstep encoder angle = %.3f deg", (double)(angle*180.0f/M_PI));
-			dbg_println("   ph = %.3f", (double)mctrl.phase);
-			dbg_println("  u   = %.3f,%.3f,%.3f", (double)mctrl.pwm.u[0], (double)mctrl.pwm.u[1], (double)mctrl.pwm.u[2]);
-			dbg_println("  pwm = %.3f,%.3f,%.3f", (double)mctrl.pwm.pwm[0], (double)mctrl.pwm.pwm[1], (double)mctrl.pwm.pwm[2]);
+			// dbg_println("   ph = %.3f", (double)mctrl.phase);
+			// dbg_println("  u   = %.3f,%.3f,%.3f", (double)mctrl.pwm.u[0], (double)mctrl.pwm.u[1], (double)mctrl.pwm.u[2]);
+			// dbg_println("  pwm = %.3f,%.3f,%.3f", (double)mctrl.pwm.pwm[0], (double)mctrl.pwm.pwm[1], (double)mctrl.pwm.pwm[2]);
 
 			if (mctrl.counter < limit)
 			{

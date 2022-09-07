@@ -2,21 +2,22 @@
 #define SSF_MCTRL_PRIVATE_H
 
 #include "ssf_main.h"
+#include "ssf_analog.h"
 #include "ssf_linreg.h"
 
 #include <math.h>
 #include <float.h>
 #include <stdbool.h>
 
-enum {
-	ISENSE_ALO,
-	ISENSE_AHI,
-	ISENSE_BLO,
-	ISENSE_BHI,
-	ISENSE_CLO,
-	ISENSE_VHI,
-	ISENSE_COUNT,
-};
+// enum {
+// 	ISENSE_ALO,
+// 	ISENSE_AHI,
+// 	ISENSE_BLO,
+// 	ISENSE_BHI,
+// 	ISENSE_CLO,
+// 	ISENSE_VHI,
+// 	ISENSE_COUNT,
+// };
 
 #define MCTRL_DRIVER_PHASES			3
 
@@ -68,7 +69,11 @@ typedef enum {
 	MCTRL_DRIVER_CALIB_EXIT,
 	MCTRL_DRIVER_CALIB_EXIT_WAIT,
 
-	MCTRL_ANALOG_CALIBRATION_RUN,
+	MCTRL_ANALOG_CALIBRATION_START,
+	MCTRL_ANALOG_CALIBRATION_START_LO,
+	MCTRL_ANALOG_CALIBRATION_RUN_LO,
+	MCTRL_ANALOG_CALIBRATION_START_HI,
+	MCTRL_ANALOG_CALIBRATION_RUN_HI,
 	MCTRL_ANALOG_CALIBRATION_FINISH,
 
 
@@ -174,25 +179,25 @@ typedef struct {
 	} sysParamEstimates;
 
 	float angleSum;
-	float currentSqrSum[ISENSE_COUNT];
+	float currentSqrSum[ISENSE_NUMCHANNELS];
 
 	// EMF stall ramp
 	float stallSpeed;
-	incrementalLinreg_t emfRegressions[ISENSE_COUNT];
+	incrementalLinreg_t emfRegressions[ISENSE_NUMCHANNELS];
 
 	size_t idRunCounter;
-	float adcZeroCalibs[ISENSE_COUNT];
+	// float adcZeroCalibs[ISENSE_COUNT];
 	volatile size_t calibCounter;
-	volatile float lastMeasurement[NUM_STATIC_MEASUREMENTS][ISENSE_COUNT];
+	volatile float lastMeasurement[NUM_STATIC_MEASUREMENTS][ISENSE_NUMCHANNELS];
 	volatile float lastVbus[NUM_STATIC_MEASUREMENTS];
 
 	float stepmap_i[NUM_MAPSTEP_MEASUREMENTS];
 	float stepmap_a[NUM_MAPSTEP_MEASUREMENTS];
 
 	float phasePwm[NUM_PHASE_MEASUREMENTS];
-	float phaseCurrents[NUM_PHASE_MEASUREMENTS][ISENSE_COUNT];
+	float phaseCurrents[NUM_PHASE_MEASUREMENTS][ISENSE_NUMCHANNELS];
 
-	float demoPhasedCurrents[ISENSE_COUNT][PHASE_BUCKETS];
+	float demoPhasedCurrents[ISENSE_NUMCHANNELS][PHASE_BUCKETS];
 	float phase;
 	mctrl_pwm_t pwm;
 	size_t counter;

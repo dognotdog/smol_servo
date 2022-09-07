@@ -88,9 +88,10 @@ void ssf_init(void)
 
 	ssf_spiInit();
 
-	ssf_analogInit();
 	ssf_ledInit();
-	spwm_init();
+
+	ssf_analogInit();
+	// spwm_init();
 
 	ssf_scheduleInit();
 
@@ -304,7 +305,6 @@ void ssf_idle(void)
 	uint32_t now_ms = HAL_GetTick();
 
 	servo_hid_interface_run(now_ms);
-
 
 	// spwm_idle();
 	// HAL_Delay(1);

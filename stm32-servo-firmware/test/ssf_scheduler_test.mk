@@ -1,0 +1,1 @@
+ssf_scheduler_TEST_SOURCES+=$(SRC_DIR)/ssf_tasks.c

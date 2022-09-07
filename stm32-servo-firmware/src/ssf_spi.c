@@ -2,6 +2,7 @@
 
 #include "main.h"
 #include "ssf_main.h"
+#include "ssf_mctrl.h"
 #include "ssf_spi_private.h"
 #include "utime.h"
 
@@ -283,9 +284,9 @@ bool ssf_checkSpiEncoderReadOk(sspi_as5047_state_t state, bool* formatError, boo
 
 void ssf_dbgPrintEncoderStatus(sspi_as5047_state_t state)
 {
-	err_println("AS5047D ERRFL    = 0x%04x.", state.ERRFL);
-	err_println("AS5047D DIAAGC   = 0x%04x.", state.DIAAGC);
-	err_println("AS5047D ANGLEUNC = 0x%04x.", state.ANGLEUNC);
+	// err_println("AS5047D ERRFL    = 0x%04x.", state.ERRFL);
+	// err_println("AS5047D DIAAGC   = 0x%04x.", state.DIAAGC);
+	// err_println("AS5047D ANGLEUNC = 0x%04x.", state.ANGLEUNC);
 
 	if (state.ERRFL & 0x4000)
 	{
@@ -325,7 +326,7 @@ void ssf_dbgPrintEncoderStatus(sspi_as5047_state_t state)
 	}
 
 	// 0x3FF mask as msb are parity and error flags
-	dbg_println("AS5047D ANGLEUNC = %5u (%6.3f deg)", state.ANGLEUNC & 0x3FFF, (double)((float)(state.ANGLEUNC & 0x3FFF)/0x4000*360.0f));
+	// dbg_println("AS5047D ANGLEUNC = %5u (%6.3f deg)", state.ANGLEUNC & 0x3FFF, (double)((float)(state.ANGLEUNC & 0x3FFF)/0x4000*360.0f));
 
 }
 
@@ -975,7 +976,9 @@ void sspi_enableFastloopReads(bool enable)
  *  5: TMC6200	GSTAT 		DRV8323 0x00 (Fault Status 1)
  *  6: AS5047D	ANGLEUNC
  *  7: TMC6200	IOIN 		DRV8323 0x01 (VGS Status 2)
- * 
+ *  8: AS5047D	ANGLEUNC
+ *  9: TMC6200	GCONF 		DRV8323 ???
+
  * If the registers need to be written, we have to stop the fastloop
  * readouts, and write registers to recover from a lower priority thread.
  * 
@@ -993,6 +996,7 @@ typedef enum {
 	SSPI_FL_HALL_STATUS1,
 	SSPI_FL_DRV_STATUS0,
 	SSPI_FL_DRV_STATUS1,
+	SSPI_FL_DRV_STATUS2,
 } sspi_fastloop_cycle_name_t;
 
 static const sspi_fastloop_cycle_name_t _flCycle[] = {
@@ -1004,6 +1008,8 @@ static const sspi_fastloop_cycle_name_t _flCycle[] = {
 	SSPI_FL_DRV_STATUS0,
 	SSPI_FL_HALL_ANGLEU_AFTER_AN,
 	SSPI_FL_DRV_STATUS1,
+	SSPI_FL_HALL_ANGLEU_AFTER_AN,
+	SSPI_FL_DRV_STATUS2,
 };
 static size_t sspi_flCycleCounter = 0;
 
@@ -1017,6 +1023,7 @@ static struct {
 	uint16_t drv_vgs[1];
 	uint8_t tmc_gstat[5];
 	uint8_t tmc_ioin[5];
+	uint8_t tmc_gconf[5];
 } sspi_fl_rx;
 
 
@@ -1048,6 +1055,51 @@ void _blockCallback(bool transferOk)
 
 				break;
 			}
+			case SSPI_FL_DRV_STATUS0:
+			{
+				switch (sspi.drvDevice)
+				{
+					case SSPI_DEVICE_TMC6200:
+					{
+						mctrl_diag_tmc6200_gstat_rx_callback(sspi_fl_rx.tmc_gstat);
+					}
+					default:
+					{
+						break;
+					}
+				}
+				break;
+			}
+			case SSPI_FL_DRV_STATUS1:
+			{
+				switch (sspi.drvDevice)
+				{
+					case SSPI_DEVICE_TMC6200:
+					{
+						mctrl_diag_tmc6200_ioin_rx_callback(sspi_fl_rx.tmc_ioin);
+					}
+					default:
+					{
+						break;
+					}
+				}
+				break;
+			}
+			case SSPI_FL_DRV_STATUS2:
+			{
+				switch (sspi.drvDevice)
+				{
+					case SSPI_DEVICE_TMC6200:
+					{
+						mctrl_diag_tmc6200_gconf_rx_callback(sspi_fl_rx.tmc_gconf);
+					}
+					default:
+					{
+						break;
+					}
+				}
+				break;
+			}
 			default:
 			{
 				break;
@@ -1066,6 +1118,7 @@ void sspi_fastloop(void)
 	static uint16_t drv_vgs_addr[1] = {0x01 << 11};
 	static uint8_t tmc_gstat_addr[5] = {TMC6200_REG_GSTAT};
 	static uint8_t tmc_ioin_addr[5] = {TMC6200_REG_IOIN};
+	static uint8_t tmc_gconf_addr[5] = {TMC6200_REG_GCONF};
 
 	static spi_block_t as_angle_an = {
 		.deviceId = SSPI_DEVICE_AS5047D,
@@ -1115,6 +1168,13 @@ void sspi_fastloop(void)
 		.deviceId = SSPI_DEVICE_TMC6200,
 		.src = tmc_ioin_addr,
 		.dst = sspi_fl_rx.tmc_ioin,
+		.numWords = 5,
+		.callback = _blockCallback,
+	};
+	static spi_block_t tmc_gconf = {
+		.deviceId = SSPI_DEVICE_TMC6200,
+		.src = tmc_gconf_addr,
+		.dst = sspi_fl_rx.tmc_gconf,
 		.numWords = 5,
 		.callback = _blockCallback,
 	};
@@ -1217,6 +1277,24 @@ void sspi_fastloop(void)
 				{
 					sspi_fl_rx.drv_vgs[0] = 0xFFFF;
 					sspi_asyncTransmitBlock(&drv_vgs);
+					break;
+				}
+				default:
+				{
+					// no driver, NOP
+					break;
+				}
+			}
+			break;
+		}
+		case SSPI_FL_DRV_STATUS2:
+		{
+			switch (sspi.drvDevice) 
+			{
+				case SSPI_DEVICE_TMC6200:
+				{
+					memset(sspi_fl_rx.tmc_gconf, 0xFF, sizeof(sspi_fl_rx.tmc_gconf));
+					sspi_asyncTransmitBlock(&tmc_gconf);
 					break;
 				}
 				default:

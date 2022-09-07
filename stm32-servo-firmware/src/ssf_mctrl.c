@@ -2,6 +2,7 @@
 #include "ssf_mctrl_private.h"
 
 #include "ssf_main.h"
+#include "ssf_analog.h"
 #include "ssf_spi.h"
 #include "debug.h"
 #include "ssf_perf.h"
@@ -420,541 +421,10 @@ float _calculateResistance2(float i0, float i1, float i2, float i3, float V, flo
 	return R;
 }
 
-#ifdef SYNC_INIT
-void mctrl_init(void)
-{
-	// reset state
-	_state = MCTRL_INIT;
-
-	spwm_setDrvChannel(HTIM_DRV_CH_R, 0.0f);
-	spwm_setDrvChannel(HTIM_DRV_CH_B, 0.0f);
-	spwm_setDrvChannel(HTIM_DRV_CH_A, 0.0f);
-	spwm_setDrvChannel(HTIM_DRV_CH_C, 0.0f);
-
-	memset(_adcZeroCalibs, 0, sizeof(_adcZeroCalibs));
-	_calibCounter = 0;
-	// allow things to settle a bit
-	HAL_Delay(20);
-
-	// first is analog recalibration
-	// put the DRV8323 into calibration mode
-	// switchover in DRV8323 takes 100us
-	// do calibration twice, as otherwise we seem to get flip-flopping between ~2047 and ~2070 ADC counts, it is more stable this way, but not perfect, for some reason SOC still seems to be unstable
-	ssf_enterMotorDriverCalibrationMode();
-
-	HAL_Delay(2);
-	ssf_exitMotorDriverCalibrationMode();
-	// do not enter calibration mode again, sample ADCs on microcontroller to determine zero offset at output of current sense amps
-	// ssf_enterMotorDriverCalibrationMode();
-
-	HAL_Delay(2);
-
-	// then read out ADCs for zero calib
-	// average 16 reads (2 per fastLoop)
-	_state = MCTRL_ANALOG_CALIBRATION_RUN;
-
-	// wait for calibration measurements to finish from fastLoop
-	while (_state != MCTRL_ANALOG_CALIBRATION_FINISH) {};
-
-
-	// average out the reads for an adc count calibration
-	for (size_t i = 0; i < 3; ++i)
-	{
-		float calib = (_adcZeroCalibs[2*i]+_adcZeroCalibs[2*i+1])*(1.0f/CALIBREADS);
-		
-		// dbg_println("    calib0 = %.3f, calib1 = %.3f", (double)(_adcZeroCalibs[2*i]*(2.0f/CALIBREADS)), (double)(_adcZeroCalibs[2*i+1]*(2.0f/CALIBREADS)));
-		
-		_adcZeroCalibs[2*i] = calib;
-		_adcZeroCalibs[2*i+1] = calib;
-
-		dbg_println("SO[%u] calibrated to 0A = %.3f counts", i, (double)calib);
-	}
-
-	// ssf_exitMotorDriverCalibrationMode();
-
-	spwm_enableHalfBridges(0x0);
-
-	// driver calibration is now done, we can move on to motor identification
-	// do identification runs for each phase
-	for (mctrl.idRunCounter = 0; mctrl.idRunCounter < NUM_IDENTIFICATION_RUNS; ++mctrl.idRunCounter)
-	{
-		// align rotor with a gentle nudge
-		_state = MCTRL_ID_ALIGN_START;
-		while (_state != MCTRL_ID_ALIGN_FINISH) {};
-
-		mctrl_enableBridges(mctrl_params.sysId.idSequence[mctrl.idRunCounter]);
-
-		// ballpark measure how fast current ramps up
-		memset((void*)_lastMeasurement, 0, sizeof(_lastMeasurement));
-		_calibCounter = 0;
-		_state = MCTRL_RAMPTIME_ID_START;
-		while (_state != MCTRL_RAMPTIME_ID_FINISH) {};
-
-		size_t numSampleExceedingCurrentLimit = _calibCounter;
-
-		if (numSampleExceedingCurrentLimit >= NUM_STATIC_MEASUREMENTS)
-		{
-			{
-				float i0 = _lastMeasurement[NUM_STATIC_MEASUREMENTS-1][(2*mctrl.idRunCounter+0) % ISENSE_COUNT];
-				float i1 = _lastMeasurement[NUM_STATIC_MEASUREMENTS-1][(2*mctrl.idRunCounter+1) % ISENSE_COUNT];
-
-				float i = 0.5*(i0+i1);
-
-				float time = (NUM_STATIC_MEASUREMENTS-1)*(float)MEAS_FULL_PERIOD + (mctrl.idRunCounter % MCTRL_DRIVER_PHASES)*2*MEAS_SINGLE_PERIOD;
-				dbg_println("could not reach %.3f, max current reached is %.3f after %8.0f us", (double)mctrl_params.sysId.maxCurrent, (double)i, (double)(time*1e6f));
-
-			}
-		}
-		else
-		{
-			float i0 = _lastMeasurement[numSampleExceedingCurrentLimit][(2*mctrl.idRunCounter+0) % ISENSE_COUNT];
-			float i1 = _lastMeasurement[numSampleExceedingCurrentLimit][(2*mctrl.idRunCounter+1) % ISENSE_COUNT];
-
-			float i = 0.5*(i0+i1);
-			float time = numSampleExceedingCurrentLimit*(float)MEAS_FULL_PERIOD + (mctrl.idRunCounter % MCTRL_DRIVER_PHASES)*2*MEAS_SINGLE_PERIOD;
-
-			dbg_println("reached %.3f after %8.0f us", (double)i, (double)(time*1e6f));
-
-		}
-
-		float RestSum = 0.0f;
-		float RestSqrSum = 0.0f;
-
-		for (size_t k = 0; k < MAX_IDENTIFICATION_REPEATS; ++k)
-		{
-			// run full-PWM resistance estimation
-			mctrl_params.sysId.staticIdentificationDutyCycle = 1.0f/ssf_getVbus();
-			memset((void*)_lastMeasurement, 0, sizeof(_lastMeasurement));
-			_calibCounter = 0;
-			_state = MCTRL_RESISTANCE_ID_START;
-			while (_state != MCTRL_RESISTANCE_ID_FINISH) {};
-
-			float i = 0.0f;
-			float vbus = 0.0f;
-
-			for (size_t j = NUM_STATIC_MEASUREMENTS/2; j < NUM_STATIC_MEASUREMENTS; ++j)
-			{
-				float i0 = _lastMeasurement[j][(2*mctrl.idRunCounter+0) % ISENSE_COUNT];
-				float i1 = _lastMeasurement[j][(2*mctrl.idRunCounter+1) % ISENSE_COUNT];
-
-				i += (i0+i1);
-
-				vbus += _lastVbus[j+0];
-
-			}
-
-			i *= 1.0f/NUM_STATIC_MEASUREMENTS;
-			vbus *= 1.0f/NUM_STATIC_MEASUREMENTS;
-
-			float dc = mctrl_params.sysId.staticIdentificationDutyCycle;
-			float u = ssf_getVbus();
-			float R = u/i*dc;
-
-			// dbg_println("steady state current is %1.3f A @ %3.3f %% of %7.3f V for %.3f R", (double)i, (double)(dc*100.0f), (double)u, (double)(R));
-
-			RestSum += R;
-			RestSqrSum += R*R;
-		}
-
-		float Rest = RestSum*(1.0f/MAX_IDENTIFICATION_REPEATS);
-		float Rvar = RestSqrSum*(1.0f/MAX_IDENTIFICATION_REPEATS) - Rest*Rest;
-
-		dbg_println("steady state estimate %.3f R, sigma = %.3f", (double)Rest, (double)(sqrtf(Rvar)));
-
-		mctrl.sysParamEstimates.phases.Rest[mctrl.idRunCounter] = Rest;
-		mctrl.sysParamEstimates.phases.Rvar[mctrl.idRunCounter] = Rvar;
-
-		incrementalLinreg_t linregData = {};
-
-		float inductanceEstimate = 0.0f;
-		float inductanceVariance = 0.0f;
-		float resistanceEstimate = 0.0f;
-		float resistanceVariance = 0.0f;
-		float tcEstimate = 0.0f;
-		float tcVariance = 0.0f;
-		for (size_t k = 0; k < MAX_IDENTIFICATION_REPEATS; ++k)
-		{
-			memset((void*)_lastMeasurement, 0, sizeof(_lastMeasurement));
-			_calibCounter = 0;
-			_state = MCTRL_INDUCTANCE_ID_START;
-			while (_state != MCTRL_INDUCTANCE_ID_FINISH) {};
-
-
-			float Lest[NUM_ID_ALGO_ESTIMATES] = {};
-			float Rest[NUM_ID_ALGO_ESTIMATES] = {};
-
-			size_t numValidLMeasurements = 0;
-			size_t numValidRMeasurements = 0;
-
-			float TauEst[NUM_ID_ALGO_ESTIMATES] = {};
-			size_t numValidTaus = 0;
-
-			// for (size_t j = 0; j < NUM_STATIC_MEASUREMENTS; ++j)
-			// {
-			// 	for (size_t i = 0; i < 3; ++i)
-			// 	{
-
-			// 		dbg_println("SO[%u] reads %8.3f,  %8.3f", i, (double)_lastMeasurement[j][2*i], (double) _lastMeasurement[j][2*i+1]);
-			// 	}
-			// }
-
-
-			for (size_t j = 1; j+1 < NUM_STATIC_MEASUREMENTS; ++j)
-			{
-				const float h = MEAS_FULL_PERIOD;
-				const float dh = MEAS_SINGLE_PERIOD;
-				float i0 = _lastMeasurement[j+0][(2*mctrl.idRunCounter) % ISENSE_COUNT];
-				float i0a = _lastMeasurement[j+0][(2*mctrl.idRunCounter+1) % ISENSE_COUNT];
-				float i1 = _lastMeasurement[j+1][(2*mctrl.idRunCounter) % ISENSE_COUNT];
-				float i1a = _lastMeasurement[j+1][(2*mctrl.idRunCounter+1) % ISENSE_COUNT];
-				float di = (i1-i0)/h;
-				float dia = (i1a-i0a)/h;
-
-				linregData = linreg_addSample(linregData, j*h + 0.0f*dh, logf(di));
-				linregData = linreg_addSample(linregData, j*h + 1.0f*dh, logf(dia));
-
-				// dbg_println("  di[%u] = %8.3f A/s, dia = %8.3f A/s", mctrl.idRunCounter, (double)(di), (double)(dia));
-			}
-
-
-			for (size_t j = 0; j+NUM_ID_ALGO_SAMPLES-1 < NUM_STATIC_MEASUREMENTS; ++j)
-			{
-#if NUM_ID_ALGO_SAMPLES == 2
-				// inductance estimation only based on previous R estimate
-				const float h = MEAS_FULL_PERIOD;
-				float vbus0 = _lastVbus[j+0];
-				float vbus1 = _lastVbus[j+1];
-				float vbus = 0.5*(vbus0 + vbus1);
-				float i0 = _lastMeasurement[j+0][(2*mctrl.idRunCounter) % ISENSE_COUNT];
-				float i0a = _lastMeasurement[j+0][(2*mctrl.idRunCounter+1) % ISENSE_COUNT];
-				float i1 = _lastMeasurement[j+1][(2*mctrl.idRunCounter) % ISENSE_COUNT];
-				float i1a = _lastMeasurement[j+1][(2*mctrl.idRunCounter+1) % ISENSE_COUNT];
-				float di = (i1-i0)/h;
-				float dia = (i1a-i0a)/h;
-
-				float L0 = (vbus - 0.5f*(i0+i1)*mctrl.sysParamEstimates.phases.Rest[mctrl.idRunCounter]) / di;
-				float L1 = (vbus - 0.5f*(i0a+i1a)*mctrl.sysParamEstimates.phases.Rest[mctrl.idRunCounter]) / dia;
-
-				if (fabsf(di) > FLT_EPSILON)
-					Lest[numValidLMeasurements++] = L0;
-				if (fabsf(dia) > FLT_EPSILON)
-					Lest[numValidLMeasurements++] = L1;
-
-
-#elif NUM_ID_ALGO_SAMPLES == 3
-				// measurements are done in batches of 6, A,A,B,B,C,C
-				// in the system identification run, we'd look at one channel each
-				// over a number of repeated measurements NUM_STATIC_MEASUREMENTS
-
-				float i0 = _lastMeasurement[j+0][(2*mctrl.idRunCounter) % ISENSE_COUNT];
-				float i1 = _lastMeasurement[j+1][(2*mctrl.idRunCounter) % ISENSE_COUNT];
-				float i2 = _lastMeasurement[j+2][(2*mctrl.idRunCounter) % ISENSE_COUNT];
-
-				float i0a = _lastMeasurement[j+0][(2*mctrl.idRunCounter+1) % ISENSE_COUNT];
-				float i1a = _lastMeasurement[j+1][(2*mctrl.idRunCounter+1) % ISENSE_COUNT];
-				float i2a = _lastMeasurement[j+2][(2*mctrl.idRunCounter+1) % ISENSE_COUNT];
-
-				bool validL0 = false, validL1 = false;
-				bool validR0 = false, validR1 = false;
-				float vbus = ssf_getVbus();
-				float L0 = _calculateInductance_n3(i0, i1, i2, vbus, MEAS_FULL_PERIOD, &validL0);
-				float L1 = _calculateInductance_n3(i0a, i1a, i2a, vbus, MEAS_FULL_PERIOD, &validL1);
-				float R0 = _calculateResistance_n3(i0, i1, i2, vbus, MEAS_FULL_PERIOD, &validR0);
-				float R1 = _calculateResistance_n3(i0a, i1a, i2a, vbus, MEAS_FULL_PERIOD, &validR1);
-
-				bool tauValid0, tauValid1;
-				float tau0 = _calculateTimeConstant_n3(i0, i1, i2, vbus, MEAS_FULL_PERIOD, &tauValid0);
-				float tau1 = _calculateTimeConstant_n3(i0a, i1a, i2a, vbus, MEAS_FULL_PERIOD, &tauValid1);
-
-				// dbg_println("  [%u] L0 = %8.3f mH, L1 = %8.3f mH", mctrl.idRunCounter, (double)(L0*1e3), (double)(L1*1e3));
-				// dbg_println(" [%u] R0 = %8.3f R,  R1 = %8.3f R", mctrl.idRunCounter, (double)(R0*1e0), (double)(R1*1e0));
-				// dbg_println(" [%u] t0 = %8.3f ms, t1 = %8.3f ms", mctrl.idRunCounter, (double)(tau0*1e3), (double)(tau1*1e3));
-
-				if (validL0)
-				{
-					Lest[numValidLMeasurements++] = L0;
-				}
-				if (validL1)
-				{
-					Lest[numValidLMeasurements++] = L1;
-				}
-				if (validR0)
-				{
-					Rest[numValidRMeasurements++] = R0;
-				}
-				if (validR1)
-				{
-					Rest[numValidRMeasurements++] = R1;
-				}
-
-				if (tauValid0)
-				{
-					TauEst[numValidTaus++] = tau0;
-				}
-				if (tauValid1)
-				{
-					TauEst[numValidTaus++] = tau1;
-				}
-
-#elif NUM_ID_ALGO_SAMPLES == 4
-				float i0 = _lastMeasurement[j+0][(2*mctrl.idRunCounter) % ISENSE_COUNT];
-				float i1 = _lastMeasurement[j+1][(2*mctrl.idRunCounter) % ISENSE_COUNT];
-				float i2 = _lastMeasurement[j+2][(2*mctrl.idRunCounter) % ISENSE_COUNT];
-				float i3 = _lastMeasurement[j+3][(2*mctrl.idRunCounter) % ISENSE_COUNT];
-
-				float i0a = _lastMeasurement[j+0][(2*mctrl.idRunCounter+1) % ISENSE_COUNT];
-				float i1a = _lastMeasurement[j+1][(2*mctrl.idRunCounter+1) % ISENSE_COUNT];
-				float i2a = _lastMeasurement[j+2][(2*mctrl.idRunCounter+1) % ISENSE_COUNT];
-				float i3a = _lastMeasurement[j+3][(2*mctrl.idRunCounter+1) % ISENSE_COUNT];
-
-				bool valid0 = false, valid1 = false;
-				float vbus = ssf_getVbus();
-				float L = _calculateInductance(i0, i1, i2, i3, vbus, MEAS_FULL_PERIOD, &valid0);
-				float La = _calculateInductance(i0a, i1a, i2a, i3a, vbus, MEAS_FULL_PERIOD, &valid1);
-				float R = _calculateResistance(i0, i1, i2, i3, vbus, MEAS_FULL_PERIOD);
-				float Ra = _calculateResistance(i0a, i1a, i2a, i3a, vbus, MEAS_FULL_PERIOD);
-
-				bool tauValid0, tauValid1;
-				float tau = _calculateTimeConstant(i0, i1, i2, i3, vbus, MEAS_FULL_PERIOD, &tauValid0);
-				float taua = _calculateTimeConstant(i0a, i1a, i2a, i3a, vbus, MEAS_FULL_PERIOD, &tauValid1);
-
-				if (valid0)
-				{
-					Lest[numValidMeasurements] = L;
-					Rest[numValidMeasurements] = R;
-					++numValidMeasurements;					
-				}
-				if (valid1)
-				{
-					Lest[numValidMeasurements] = La;
-					Rest[numValidMeasurements] = Ra;
-					++numValidMeasurements;					
-				}
-
-				if (tauValid0)
-				{
-					TauEst[numValidTaus] = tau;
-					++numValidTaus;					
-				}
-				if (tauValid1)
-				{
-					TauEst[numValidTaus] = taua;
-					++numValidTaus;					
-				}
-#endif
-
-				// dbg_println("L reads %8.3f, %8.3f mH", (double)(L*1e3f), (double)(La*1e3f));
-				// dbg_println("R reads %8.3f, %8.3f R", (double)(R), (double)(Ra));
-
-			}
-
-
-
-			float Lavg = 0.0;
-			float Lvar = 0.0;
-			float Ravg = 0.0;
-			float Rvar = 0.0;
-
-			for (size_t j = 0; j < numValidLMeasurements; ++j)
-			{
-				Lavg += Lest[j];
-				Lvar += Lest[j]*Lest[j];
-			}
-
-			for (size_t j = 0; j < numValidRMeasurements; ++j)
-			{
-				Ravg += Rest[j];
-				Rvar += Rest[j]*Rest[j];
-			}
-
-
-			Lavg *= 1.0f/numValidLMeasurements;
-			Lvar *= 1.0f/numValidLMeasurements;
-
-			Lvar -= Lavg*Lavg;
-
-			Ravg *= 1.0f/numValidRMeasurements;
-			Rvar *= 1.0f/numValidRMeasurements;
-
-			Rvar -= Ravg*Ravg;
-
-			if (k == 0)
-			{
-				inductanceEstimate = Lavg;
-				inductanceVariance = Lvar;	
-				resistanceEstimate = Ravg;
-				resistanceVariance = Rvar;	
-			}
-			else
-			{
-				// dbg_println("  Lest  %8.3f mH, sigma = %8.3f mH", (double)(Lavg*1e3), (double)(sqrtf(Lvar)*1e3));
-				// dbg_println("  Rest  %8.3f R,  sigma = %8.3f R", (double)(Ravg*1e0), (double)(sqrtf(Rvar)*1e0));
-
-
-				// update estimate via Kalman Filter
-				/*
-				K = sigma1^2 / (sigma1^2 + sigma2^2)
-				x = x1 + K (x2 - x1)
-				sigma^2 = (1 - K) sigma1^2
-				*/
-				if (numValidLMeasurements > 1)
-				{
-					float KL = inductanceVariance / (inductanceVariance +  Lvar);
-					inductanceEstimate += KL * (Lavg - inductanceEstimate);
-					inductanceVariance *= 1.0f - KL;	
-				}
-				if (numValidRMeasurements > 1)
-				{
-					float KR = resistanceVariance / (resistanceVariance +  Rvar);
-					resistanceEstimate += KR * (Ravg - resistanceEstimate);
-					resistanceVariance *= 1.0f - KR;					
-				}
-
-				// dbg_println("  KL = %8.3f, KR = %8.3f", (double)(KL), (double)(KR));
-
-			}
-
-			float tavg = 0.0f, tvar = 0.0f;
-			for (size_t j = 0; j < numValidTaus; ++j)
-			{
-				tavg += TauEst[j];
-				tvar += TauEst[j]*TauEst[j];
-			}
-
-			tavg *= 1.0f/numValidTaus;
-			tvar *= 1.0f/numValidTaus;
-
-			tvar -= tavg*tavg;
-
-			if (k == 0)
-			{
-				tcEstimate = tavg;
-				tcVariance = tvar;	
-			}
-			else if (numValidTaus > 1)
-			{
-				float KT = tcVariance / (tcVariance +  tvar);
-				tcEstimate += KT * (tavg - tcEstimate);
-				tcVariance *= 1.0f - KT;
-
-				// dbg_println("  KL = %8.3f, KR = %8.3f", (double)(KL), (double)(KR));
-
-			}
-
-			// dbg_println("Kalman Lest[%u] is  %8.3f mH, sigma = %8.3f mH", mctrl.idRunCounter, (double)(inductanceEstimate*1e3), (double)(sqrtf(inductanceVariance)*1e3));
-			// dbg_println("Kalman Rest[%u] is  %8.3f R,  sigma = %8.3f R", mctrl.idRunCounter, (double)(resistanceEstimate*1e0), (double)(sqrtf(resistanceVariance)*1e0));
-
-			if ((inductanceVariance < inductanceEstimate*inductanceEstimate*TARGET_VAR_NORM*TARGET_VAR_NORM) && (resistanceVariance < resistanceEstimate*resistanceEstimate*TARGET_VAR_NORM*TARGET_VAR_NORM))
-			{
-				dbg_println("Reached required limit.");
-				break;
-			}
-
-
-		}
-
-		// linregResult_t lr = linreg_solve(linregData);
-
-		// float currentRate = expf(-lr.slope);
-		// // intercept = log(L) - log(U)
-
-		// float vbus = ssf_getVbus();
-		// float logL = logf(vbus) - logf(lr.intercept);
-
-
-		// dbg_println("LINREG tau[%u] = %8.3f ms, R^2 = %8.3f, h = %u us (%u count)", mctrl.idRunCounter, (double)(currentRate*1e3f), (double)(lr.rsqr), _mctrl.lastControlDelta_us, _mctrl.lastEventCountDelta);
-		// dbg_println("LINREG L[%u] = %8.3f mH, R^2 = %8.3f", mctrl.idRunCounter, (double)(lr.intercept*1e0f), (double)(lr.rsqr));
-
-		mctrl.sysParamEstimates.phases.Lest[mctrl.idRunCounter] = inductanceEstimate;
-		mctrl.sysParamEstimates.phases.Lvar[mctrl.idRunCounter] = inductanceVariance;
-		// _mctrl.sysParamEstimates.phases.Rest[mctrl.idRunCounter] = resistanceEstimate;
-		// _mctrl.sysParamEstimates.phases.Rvar[mctrl.idRunCounter] = resistanceVariance;
-
-		dbg_println("  Lest[%u] is %8.3f mH, sigma = %8.3f mH", mctrl.idRunCounter, (double)(inductanceEstimate*1e3), (double)(sqrtf(inductanceVariance)*1e3));
-		// dbg_println("Kalman Tau[%u] is   %8.3f ms, sigma = %8.3f ms", mctrl.idRunCounter, (double)(tcEstimate*1e3), (double)(sqrtf(tcVariance)*1e3));
-		dbg_println("  Rest[%u] is %8.3f R,  sigma = %8.3f R", mctrl.idRunCounter, (double)(mctrl.sysParamEstimates.phases.Rest[mctrl.idRunCounter]*1e0), (double)(sqrtf(mctrl.sysParamEstimates.phases.Rvar[mctrl.idRunCounter])*1e0));
-
-		dbg_println("   Tau[%u] is %8.3f ms", mctrl.idRunCounter, (double)(mctrl.sysParamEstimates.phases.Lest[mctrl.idRunCounter]/mctrl.sysParamEstimates.phases.Rest[mctrl.idRunCounter]*1e3));
-
-
-	}
-
-
-
-	// we measured the phase values, lets see what the winding resistance would be in ABBC config
-
-	// {
-	// 	float Ra = _mctrl.sysParamEstimates.phases.Rest[0];
-	// 	float Rb = _mctrl.sysParamEstimates.phases.Rest[1];
-	// 	float Rsw = -(8*Ra*Rb - 16*Rb*Rb)/(4*Ra + 16*Rb);
-	// 	float Rp = 2*Rb - 3*Rsw;
-	// 	dbg_println("Rsw[AB] is %8.3f R", (double)Rsw);
-	// 	dbg_println("Rp[AB]  is %8.3f R", (double)Rp);
-	// }
-	// {
-	// 	float Ra = _mctrl.sysParamEstimates.phases.Rest[2];
-	// 	float Rb = _mctrl.sysParamEstimates.phases.Rest[1];
-	// 	float Rsw = -(8*Ra*Rb - 16*Rb*Rb)/(4*Ra + 16*Rb);
-	// 	float Rp = 2*Rb - 3*Rsw;
-	// 	dbg_println("Rsw[BC] is %8.3f R", (double)Rsw);
-	// 	dbg_println("Rp[BC]  is %8.3f R", (double)Rp);
-	// }
-
-	// {
-	// 	float Ra = _mctrl.sysParamEstimates.phases.Rest[0];
-	// 	float Rb = _mctrl.sysParamEstimates.phases.Rest[1];
-	// 	float Rs = 0.015f;
-	// 	float Rt = -2*(Rs*Rs + Ra*Rs - 3*Rb*Rs + 2*Rb*Rb - Ra*Rb)/(3*Rs + Ra - 4*Rb);
-	// 	float Rp = 2*Rb - 3*Rt - 2*Rs;
-	// 	dbg_println("Rt[AB] is %8.3f R", (double)Rt);
-	// 	dbg_println("Rp[AB] is %8.3f R", (double)Rp);
-	// }
-	// {
-	// 	float Ra = _mctrl.sysParamEstimates.phases.Rest[2];
-	// 	float Rb = _mctrl.sysParamEstimates.phases.Rest[1];
-	// 	float Rs = 0.015f;
-	// 	float Rt = -2*(Rs*Rs + Ra*Rs - 3*Rb*Rs + 2*Rb*Rb - Ra*Rb)/(3*Rs + Ra - 4*Rb);
-	// 	float Rp = 2*Rb - 3*Rt - 2*Rs;
-	// 	dbg_println("Rt[BC] is %8.3f R", (double)Rt);
-	// 	dbg_println("Rp[BC] is %8.3f R", (double)Rp);
-	// }
-
-	{
-		// with only 2 phases (3rd disabled) active we have
-		// Rc = 2*Rp + 2*Rt + Rs 
-		// Ra/b = Rp + 2*Rt + Rs
-		// Rp = Ra/b - 2*Rt - Rs
-		// Rp = 0.5*Rc - Rt - 0.5*Rs
-		// 0.5*Rc - Rt - 0.5*Rs = Ra/b - 2*Rt - Rs
-		// Rt = Ra/b - 0.5*Rc - 0.5*Rs
-		float Ra = mctrl.sysParamEstimates.phases.Rest[0];
-		float Rc = mctrl.sysParamEstimates.phases.Rest[2];
-		float Rs = 0.015f;
-		float Rt = Ra - 0.5f*Rc - 0.5f*Rs;
-		float Rp = 0.5f*Rc - Rt - 0.5f*Rs;
-		dbg_println("Rt[A/C] is %8.3f R", (double)Rt);
-		dbg_println("Rp[A/C] is %8.3f R", (double)Rp);
-	}
-	{
-		float Rb = mctrl.sysParamEstimates.phases.Rest[1];
-		float Rc = mctrl.sysParamEstimates.phases.Rest[2];
-		float Rs = 0.015f;
-		float Rt = Rb - 0.5f*Rc - 0.5f*Rs;
-		float Rp = 0.5f*Rc - Rt - 0.5f*Rs;
-		dbg_println("Rt[B/C] is %8.3f R", (double)Rt);
-		dbg_println("Rp[B/C] is %8.3f R", (double)Rp);
-	}
-
-	// re-enable all phases in case some were turned off during system identification
-	spwm_enableHalfBridges(0x7);
-	mctrl_state = MCTRL_DEMO;
-}
-#else
 void mctrl_init(void)
 {
 	mctrl_state = MCTRL_DRIVER_RESET_START;
 }
-#endif
 
 float* mctrl_getPhaseTable(size_t i)
 {
@@ -971,13 +441,19 @@ static float _getCurrentSenseFactor(void)
 	// also, the DRV8323 is inverting
 	// for 12V operation, 10A would give 150mV, factor of 10 gives full range for 8A
 	// return Rs * G
+#if SSF_HARDWARE_VERSION < 0x00000600
 	return -1.0f/(0.015f*20.0f);
+#else
+	// TMC6200 uses a 5x amplifier by default
+	// sense resistor is Rs = 5mOhm
+	return 1.0f/(0.005f*5.0f);
+#endif
 }
 
 
 static void _convertAdcToCurrent(volatile float currents[ISENSE_COUNT], const uint16_t adcCounts[ISENSE_COUNT], /*const float lowSideOnFraction[ISENSE_COUNT],*/ const float vdda)
 {
-	float gain = (1.0f/(ADC2_OVERSAMPLING_FACTOR*ADC2_NOMINAL_MAXCOUNT))*vdda*_getCurrentSenseFactor();
+	float gain = (1.0f/ssfa_isenseMaxCount())*vdda*_getCurrentSenseFactor();
 	for (size_t i = 0; i < ISENSE_COUNT; ++i)
 	{
 		float adcCount = (float)(adcCounts[i]);
@@ -1188,7 +664,7 @@ mctrl_pwm_t mctrl_setPhasorPwmSin(float phase, float vRmsPhase, mctrl_motor_type
 }
 
 
-void mctrl_fastLoop(const uint16_t adcCounts[ISENSE_COUNT])
+void mctrl_fastLoop(const uint16_t adcCounts[ISENSE_NUMCHANNELS])
 {
 	// check if we're taking too long to execute, which is bad
 	if ((mctrl.debug.lastEventCount > 12) && (mctrl.debug.lastEventCountDelta != 6))
@@ -1215,13 +691,30 @@ void mctrl_fastLoop(const uint16_t adcCounts[ISENSE_COUNT])
 
 	switch (mctrl_state)
 	{
-		case MCTRL_ANALOG_CALIBRATION_RUN:
+		case MCTRL_ANALOG_CALIBRATION_RUN_LO:
 		{
 			if (mctrl.calibCounter < CALIBREADS/2)
 			{
-				for (size_t i = 0; i < ISENSE_COUNT; ++i)
+				for (size_t i = 0; i < ISENSE_NUMCHANNELS; ++i)
 				{
-					mctrl.adcZeroCalibs[i] += adcCounts[i];
+					ssfa_isenseCalibrateAdcZeros(adcCounts, false);
+				}
+				++mctrl.calibCounter;	
+			}
+			else
+			{
+				mctrl_state = MCTRL_ANALOG_CALIBRATION_FINISH;
+			}
+
+			break;
+		}
+		case MCTRL_ANALOG_CALIBRATION_RUN_HI:
+		{
+			if (mctrl.calibCounter < CALIBREADS/2)
+			{
+				for (size_t i = 0; i < ISENSE_NUMCHANNELS; ++i)
+				{
+					ssfa_isenseCalibrateAdcZeros(adcCounts, true);
 				}
 				++mctrl.calibCounter;	
 			}

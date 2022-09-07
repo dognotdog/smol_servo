@@ -100,20 +100,20 @@ sspi_tmc_state_t _readState(void) {
 	};
 }
 
-static sspi_tmc_state_t _writeGconf(sspi_tmc_state_t state) {
+static uint32_t _writeReg(uint8_t addr, uint32_t data) {
 	
 	// write GCONF
 	uint8_t cmd[1][5] = {
 		{
-			TMC6200_REG_GCONF | 0x80, 
-			state.GCONF.reg << 24, 
-			state.GCONF.reg << 16, 
-			state.GCONF.reg << 8, 
-			state.GCONF.reg << 0
+			(addr & 0x7F) | 0x80, 
+			data << 24, 
+			data << 16, 
+			data << 8, 
+			data << 0
 		},
 	};
 
-	uint8_t rx[1][5];
+	uint8_t rx[5];
 	memset(rx, 0xFF, sizeof(rx));
 
 	spi_block_t block = {
@@ -125,6 +125,11 @@ static sspi_tmc_state_t _writeGconf(sspi_tmc_state_t state) {
 
 	sspi_transmitBlock(&block);
 
+	return ((uint32_t)rx[1] << 24) | ((uint32_t)rx[2] << 16) |((uint32_t)rx[3] << 8) |((uint32_t)rx[3] << 0);
+}
+
+static sspi_tmc_state_t _writeGconf(sspi_tmc_state_t state) {
+	state.GCONF.reg = _writeReg(TMC6200_REG_GCONF, state.GCONF.reg);
 	return state;
 }
 
@@ -175,7 +180,21 @@ bool sspi_detectTmc6200(void) {
 	isPresent = state.GCONF.disable == 1;
 
 	if (isPresent)
+	{
 		sspi.drvDevice = SSPI_DEVICE_TMC6200;
+
+		// sspi_tmc_state_t state = _readState();
+
+		// clear reset
+		state.GSTAT.reset = 1;
+		_writeReg(TMC6200_REG_GSTAT, state.GSTAT.reg);
+
+		state.GCONF.disable = 0;
+		state.GCONF.singleline = 1;
+
+		_writeReg(TMC6200_REG_GCONF, state.GCONF.reg);
+
+	}
 
 	return isPresent;
 }

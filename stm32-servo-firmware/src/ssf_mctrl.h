@@ -42,4 +42,8 @@ extern mctrl_simplePositionEstimate_t mctrl_getSimpleMotorPositionEstimate(void)
 extern void mctrl_dbgPrintSimpleEstimatePair(void);
 extern void mctrl_dbgPrintSimpleEstimate(mctrl_simplePositionEstimate_t est);
 
+extern void mctrl_diag_tmc6200_gstat_rx_callback(uint8_t rx[5]);
+extern void mctrl_diag_tmc6200_ioin_rx_callback(uint8_t rx[5]);
+extern void mctrl_diag_tmc6200_gconf_rx_callback(uint8_t rx[5]);
+
 #endif // SSF_MCTRL_H
