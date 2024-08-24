@@ -552,108 +552,6 @@
 				)
 			)
 		)
-		(symbol "Connector:TestPoint"
-			(pin_numbers hide)
-			(pin_names
-				(offset 0.762) hide)
-			(exclude_from_sim no)
-			(in_bom yes)
-			(on_board yes)
-			(property "Reference" "TP"
-				(at 0 6.858 0)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-				)
-			)
-			(property "Value" "TestPoint"
-				(at 0 5.08 0)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-				)
-			)
-			(property "Footprint" ""
-				(at 5.08 0 0)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-					(hide yes)
-				)
-			)
-			(property "Datasheet" "~"
-				(at 5.08 0 0)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-					(hide yes)
-				)
-			)
-			(property "Description" "test point"
-				(at 0 0 0)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-					(hide yes)
-				)
-			)
-			(property "ki_keywords" "test point tp"
-				(at 0 0 0)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-					(hide yes)
-				)
-			)
-			(property "ki_fp_filters" "Pin* Test*"
-				(at 0 0 0)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-					(hide yes)
-				)
-			)
-			(symbol "TestPoint_0_1"
-				(circle
-					(center 0 3.302)
-					(radius 0.762)
-					(stroke
-						(width 0)
-						(type default)
-					)
-					(fill
-						(type none)
-					)
-				)
-			)
-			(symbol "TestPoint_1_1"
-				(pin passive line
-					(at 0 0 90)
-					(length 2.54)
-					(name "1"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-					(number "1"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-				)
-			)
-		)
 		(symbol "Connector:USB_C_Receptacle_USB2.0"
 			(pin_names
 				(offset 1.016)
@@ -13277,17 +13175,6 @@
 		)
 		(uuid "a8a389df-8d18-4e17-a74f-f60d5d77371e")
 	)
-	(text "Test points for otherwise unused GPIO pins"
-		(exclude_from_sim no)
-		(at 109.22 20.32 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify left bottom)
-		)
-		(uuid "ab15742a-92e1-460d-8b96-7143d21b21fc")
-	)
 	(text "clamp VBUS sense to 20V, 48V ops is not supported"
 		(exclude_from_sim no)
 		(at 502.92 69.215 0)
@@ -13354,28 +13241,6 @@
 		)
 		(uuid "633552dc-3f48-4b5c-b300-da1ed6f90070")
 	)
-	(global_label "PC10"
-		(shape bidirectional)
-		(at 174.625 22.86 180)
-		(fields_autoplaced yes)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify right)
-		)
-		(uuid "02e4ffd9-74ef-4af7-a266-fbbfc90522f2")
-		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 167.3418 22.7806 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify right)
-				(hide yes)
-			)
-		)
-	)
 	(global_label "OC"
 		(shape output)
 		(at 552.45 160.02 90)
@@ -13433,28 +13298,6 @@
 		(uuid "076634d6-f9bc-46e5-bf95-d29667aa6d0a")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
 			(at 546.3158 317.5794 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify right)
-				(hide yes)
-			)
-		)
-	)
-	(global_label "PA15"
-		(shape bidirectional)
-		(at 158.75 22.86 180)
-		(fields_autoplaced yes)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify right)
-		)
-		(uuid "0778d16f-1bb4-4718-87df-6fa8c45fca4a")
-		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 151.6482 22.9394 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -16770,7 +16613,7 @@
 		(at 205.105 182.245 0)
 		(unit 1)
 		(exclude_from_sim no)
-		(in_bom yes)
+		(in_bom no)
 		(on_board yes)
 		(dnp no)
 		(uuid "00000000-0000-0000-0000-00005d4f65d2")
@@ -19464,7 +19307,7 @@
 				(hide yes)
 			)
 		)
-		(property "MPN" "RC0402FR-075K11L"
+		(property "MPN" "RC0402FR-075K1L"
 			(at 216.535 61.595 0)
 			(effects
 				(font
@@ -21055,7 +20898,7 @@
 		(at 239.395 202.565 0)
 		(unit 1)
 		(exclude_from_sim no)
-		(in_bom yes)
+		(in_bom no)
 		(on_board yes)
 		(dnp no)
 		(uuid "00000000-0000-0000-0000-00005daae6e1")
@@ -21118,7 +20961,7 @@
 		(at 239.395 211.455 0)
 		(unit 1)
 		(exclude_from_sim no)
-		(in_bom yes)
+		(in_bom no)
 		(on_board yes)
 		(dnp no)
 		(uuid "00000000-0000-0000-0000-00005daaf290")
@@ -21181,7 +21024,7 @@
 		(at 229.235 211.455 0)
 		(unit 1)
 		(exclude_from_sim no)
-		(in_bom yes)
+		(in_bom no)
 		(on_board yes)
 		(dnp no)
 		(uuid "00000000-0000-0000-0000-00005dab0e4c")
@@ -21244,7 +21087,7 @@
 		(at 229.235 203.835 0)
 		(unit 1)
 		(exclude_from_sim no)
-		(in_bom yes)
+		(in_bom no)
 		(on_board yes)
 		(dnp no)
 		(uuid "00000000-0000-0000-0000-00005dab1c97")
@@ -21502,7 +21345,7 @@
 				(hide yes)
 			)
 		)
-		(property "MPN" "RC0402FR-075K11L"
+		(property "MPN" "RC0402FR-075K1L"
 			(at 239.395 61.595 0)
 			(effects
 				(font
@@ -22139,7 +21982,7 @@
 				(hide yes)
 			)
 		)
-		(property "MPN" "RC0402FR-07120KL"
+		(property "MPN" "RC0402FR-0733RL"
 			(at 332.74 55.88 0)
 			(effects
 				(font
@@ -23048,73 +22891,6 @@
 		)
 	)
 	(symbol
-		(lib_id "Connector:TestPoint")
-		(at 174.625 22.86 0)
-		(unit 1)
-		(exclude_from_sim no)
-		(in_bom yes)
-		(on_board yes)
-		(dnp no)
-		(fields_autoplaced yes)
-		(uuid "12c4fc5f-5863-42bb-9ef1-264f5a613ba1")
-		(property "Reference" "TP2"
-			(at 176.53 18.2879 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify left)
-			)
-		)
-		(property "Value" "TestPoint"
-			(at 176.53 20.8279 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify left)
-			)
-		)
-		(property "Footprint" "TestPoint:TestPoint_Pad_D1.0mm"
-			(at 179.705 22.86 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Datasheet" "~"
-			(at 179.705 22.86 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Description" ""
-			(at 174.625 22.86 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(pin "1"
-			(uuid "94c412bb-2f73-4824-83fb-d352008f9ade")
-		)
-		(instances
-			(project ""
-				(path "/f9c81c26-f253-4227-a69f-53e64841cfbe"
-					(reference "TP2")
-					(unit 1)
-				)
-			)
-		)
-	)
-	(symbol
 		(lib_id "power:+5V")
 		(at 77.47 77.47 0)
 		(unit 1)
@@ -23520,6 +23296,15 @@
 				(hide yes)
 			)
 		)
+		(property "MPN" "TMC6200"
+			(at 494.03 353.06 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
 		(pin "1"
 			(uuid "2929247a-2f51-4bb9-a387-00e5fb129864")
 		)
@@ -23864,6 +23649,15 @@
 			)
 		)
 		(property "Description" "Low-drop Voltage Regulator, Io up to 50mA, Fixed Vo 5V, Ignd 3.2uA , SC70."
+			(at 64.77 81.28 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "MPN" "TPS71550"
 			(at 64.77 81.28 0)
 			(effects
 				(font
@@ -24247,7 +24041,7 @@
 				(hide yes)
 			)
 		)
-		(property "MPN" ""
+		(property "MPN" "RC0402FR-074K7L"
 			(at 501.65 87.63 0)
 			(effects
 				(font
@@ -24391,7 +24185,7 @@
 				(hide yes)
 			)
 		)
-		(property "MPN" ""
+		(property "MPN" "CC0402MRX5R6BB475"
 			(at 337.82 58.42 0)
 			(effects
 				(font
@@ -24461,6 +24255,15 @@
 			)
 		)
 		(property "Description" ""
+			(at 494.03 238.76 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "MPN" "TMC6200"
 			(at 494.03 238.76 0)
 			(effects
 				(font
@@ -24850,7 +24653,7 @@
 				(justify left)
 			)
 		)
-		(property "Value" "200p"
+		(property "Value" "220p"
 			(at 546.3032 107.823 0)
 			(effects
 				(font
@@ -24886,7 +24689,7 @@
 				(hide yes)
 			)
 		)
-		(property "MPN" ""
+		(property "MPN" "CC0402KRX5R8BB224"
 			(at 548.64 106.68 0)
 			(effects
 				(font
@@ -24964,7 +24767,7 @@
 				(hide yes)
 			)
 		)
-		(property "MPN" ""
+		(property "MPN" "CC0402MRX5R6BB475"
 			(at 326.39 73.66 0)
 			(effects
 				(font
@@ -25042,7 +24845,7 @@
 				(hide yes)
 			)
 		)
-		(property "MPN" "RC0402FR-075K11L"
+		(property "MPN" "RC0402FR-075K1L"
 			(at 552.45 167.64 0)
 			(effects
 				(font
@@ -25307,7 +25110,7 @@
 				(hide yes)
 			)
 		)
-		(property "MPN" ""
+		(property "MPN" "RC0402FR-0727RL"
 			(at 429.26 62.23 0)
 			(effects
 				(font
@@ -25410,73 +25213,6 @@
 		)
 	)
 	(symbol
-		(lib_id "Connector:TestPoint")
-		(at 158.75 22.86 0)
-		(unit 1)
-		(exclude_from_sim no)
-		(in_bom yes)
-		(on_board yes)
-		(dnp no)
-		(fields_autoplaced yes)
-		(uuid "350c7ce3-6c30-4546-93ab-2a55f07da722")
-		(property "Reference" "TP1"
-			(at 161.29 18.2879 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify left)
-			)
-		)
-		(property "Value" "TestPoint"
-			(at 161.29 20.8279 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify left)
-			)
-		)
-		(property "Footprint" "TestPoint:TestPoint_Pad_D1.0mm"
-			(at 163.83 22.86 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Datasheet" "~"
-			(at 163.83 22.86 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Description" ""
-			(at 158.75 22.86 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(pin "1"
-			(uuid "79c4f0d4-c63c-42ac-8cd6-4e4280e101a1")
-		)
-		(instances
-			(project ""
-				(path "/f9c81c26-f253-4227-a69f-53e64841cfbe"
-					(reference "TP1")
-					(unit 1)
-				)
-			)
-		)
-	)
-	(symbol
 		(lib_id "Device:R_Small")
 		(at 519.43 167.64 0)
 		(unit 1)
@@ -25530,7 +25266,7 @@
 				(hide yes)
 			)
 		)
-		(property "MPN" "RC0402FR-075K11L"
+		(property "MPN" "RC0402FR-075K1L"
 			(at 519.43 167.64 0)
 			(effects
 				(font
@@ -25840,7 +25576,7 @@
 				(hide yes)
 			)
 		)
-		(property "MPN" ""
+		(property "MPN" "CC0402JRNPO8BN150"
 			(at 328.93 106.68 0)
 			(effects
 				(font
@@ -25978,6 +25714,15 @@
 			)
 		)
 		(property "Description" "RGB LED with integrated controller"
+			(at 64.77 55.88 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "MPN" "BB-2020BGR-TRB"
 			(at 64.77 55.88 0)
 			(effects
 				(font
@@ -26197,7 +25942,7 @@
 				(hide yes)
 			)
 		)
-		(property "MPN" ""
+		(property "MPN" "CC0402MRX5R6BB475"
 			(at 335.28 73.66 0)
 			(effects
 				(font
@@ -26798,7 +26543,7 @@
 				(hide yes)
 			)
 		)
-		(property "MPN" ""
+		(property "MPN" "CC0402JRNPO8BN150"
 			(at 328.93 114.3 0)
 			(effects
 				(font
@@ -27305,7 +27050,7 @@
 				(hide yes)
 			)
 		)
-		(property "MPN" ""
+		(property "MPN" "RC0402FR-0710KL"
 			(at 516.89 87.63 0)
 			(effects
 				(font
@@ -27526,7 +27271,7 @@
 				(hide yes)
 			)
 		)
-		(property "MPN" "CC0402KRX5R8BB104"
+		(property "MPN" "CC0402MRX5R6BB475"
 			(at 350.52 38.1 0)
 			(effects
 				(font
@@ -28725,6 +28470,15 @@
 				(hide yes)
 			)
 		)
+		(property "MPN" "LT3990*DD"
+			(at 169.545 340.995 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
 		(pin "4"
 			(uuid "1dfb2afd-8675-4cae-8eb8-3d4b2b05365d")
 		)
@@ -28786,7 +28540,7 @@
 				(justify left)
 			)
 		)
-		(property "Value" "RP2350_80QFN"
+		(property "Value" "RP2354B"
 			(at 392.0841 204.47 0)
 			(effects
 				(font
@@ -28814,6 +28568,15 @@
 			)
 		)
 		(property "Description" ""
+			(at 389.89 105.41 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "MPN" "RP2354B"
 			(at 389.89 105.41 0)
 			(effects
 				(font
@@ -29193,7 +28956,7 @@
 				(hide yes)
 			)
 		)
-		(property "MPN" ""
+		(property "MPN" "RC0402FR-0747KL"
 			(at 554.99 83.82 0)
 			(effects
 				(font
@@ -29875,6 +29638,15 @@
 			)
 		)
 		(property "Description" ""
+			(at 494.03 269.24 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "MPN" "TMC6200"
 			(at 494.03 269.24 0)
 			(effects
 				(font
@@ -31108,7 +30880,7 @@
 				(hide yes)
 			)
 		)
-		(property "MPN" "RC0402FR-075K11L"
+		(property "MPN" "RC0402FR-075K1L"
 			(at 478.79 167.64 0)
 			(effects
 				(font
@@ -31658,7 +31430,7 @@
 				(hide yes)
 			)
 		)
-		(property "MPN" ""
+		(property "MPN" "RC0402FR-074K7L"
 			(at 509.27 87.63 0)
 			(effects
 				(font
@@ -32065,7 +31837,7 @@
 				(justify left)
 			)
 		)
-		(property "Value" "200p"
+		(property "Value" "220p"
 			(at 555.1932 107.823 0)
 			(effects
 				(font
@@ -32101,7 +31873,7 @@
 				(hide yes)
 			)
 		)
-		(property "MPN" ""
+		(property "MPN" "CC0402KRX5R8BB224"
 			(at 557.53 106.68 0)
 			(effects
 				(font
@@ -32171,6 +31943,15 @@
 			)
 		)
 		(property "Description" ""
+			(at 494.03 325.12 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "MPN" "TMC6200"
 			(at 494.03 325.12 0)
 			(effects
 				(font
@@ -32829,6 +32610,15 @@
 				(hide yes)
 			)
 		)
+		(property "MPN" "FUSB302BMPX"
+			(at 530.86 99.06 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
 		(pin "10"
 			(uuid "33236881-683f-43e1-90b8-6fcfac70b915")
 		)
@@ -33093,7 +32883,7 @@
 				(hide yes)
 			)
 		)
-		(property "MPN" ""
+		(property "MPN" "RC0402FR-0727RL"
 			(at 429.26 64.77 0)
 			(effects
 				(font
@@ -33243,6 +33033,15 @@
 			)
 		)
 		(property "Description" ""
+			(at 169.545 287.655 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "MPN" "LT3990*DD"
 			(at 169.545 287.655 0)
 			(effects
 				(font
@@ -33768,6 +33567,15 @@
 			)
 		)
 		(property "Description" ""
+			(at 494.03 297.18 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "MPN" "TMC6200"
 			(at 494.03 297.18 0)
 			(effects
 				(font
@@ -34481,6 +34289,15 @@
 			)
 		)
 		(property "Description" "Four pin crystal, GND on pins 2 and 4, small symbol"
+			(at 336.55 110.49 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "MPN" "ABM8-272-T3"
 			(at 336.55 110.49 0)
 			(effects
 				(font
