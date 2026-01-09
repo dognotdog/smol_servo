@@ -23,6 +23,8 @@ if (EXISTS ${picoVscode})
     include(${picoVscode})
 endif()
 # ====================================================================================
+set(PICO_BOARD_HEADER_DIRS ${CMAKE_CURRENT_LIST_DIR}/src/boards)
+
 set(PICO_BOARD smol_servo_rpico CACHE STRING "Board type")
 # set(PICO_BOARD pico2 CACHE STRING "Board type")
 
@@ -41,18 +43,25 @@ if (TARGET tinyusb_device)
         src/main.c
         src/fusb302.c
         src/tmc6200.c
+        src/smol_servo_adc.c
+        src/smol_servo_pwm.c
+        src/smol_servo_loop.c
         )
 
     # pull in common dependencies
     target_link_libraries(
         smol_servo_rpico 
         pico_stdlib 
+        pico_multicore 
         hardware_i2c
         hardware_spi
+        hardware_adc
+        hardware_dma
+        hardware_pwm
         )
 
-    target_compile_definitions(${PROJECT_NAME} PUBLIC PICO_DEFAULT_UART_TX_PIN=12)
-    target_compile_definitions(${PROJECT_NAME} PUBLIC PICO_DEFAULT_UART_RX_PIN=13)
+    # target_compile_definitions(${PROJECT_NAME} PUBLIC PICO_DEFAULT_UART_TX_PIN=12)
+    # target_compile_definitions(${PROJECT_NAME} PUBLIC PICO_DEFAULT_UART_RX_PIN=13)
 
     # enable usb output, disable uart output
     pico_enable_stdio_usb(smol_servo_rpico 1)
@@ -69,20 +78,40 @@ endif()
 # assumes a pico-sdk install like done by the VS-Code plugin
 set(OPENOCD_PATH "${PICO_SDK_PATH}/../../openocd/0.12.0+dev/")
 set(PROGRAMMER "${OPENOCD_PATH}/openocd")
-set(PROGRAMMER_FLAGS "-s" "${OPENOCD_PATH}/scripts" -f interface/cmsis-dap.cfg -f target/rp2350.cfg -c "adapter speed 1000")
+set(PROGRAMMER_FLAGS 
+    "-s" "${OPENOCD_PATH}/scripts" 
+    -f interface/cmsis-dap.cfg 
+    -f target/rp2350.cfg 
+    -c "adapter speed 1000")
+
+set(GDB "${PICO_TOOLCHAIN_PATH}/bin/arm-none-eabi-gdb")
 
 add_custom_target(swd_flash
-    COMMAND ${PROGRAMMER} ${PROGRAMMER_FLAGS} -c "program $<TARGET_FILE:smol_servo_rpico> verify reset exit"
+    COMMAND ${PROGRAMMER} ${PROGRAMMER_FLAGS} 
+    -c "program $<TARGET_FILE:smol_servo_rpico> verify"
+    -c "init"
+    -c "reset halt"
+    -c "rp2350.cm1 arp_reset assert 0"
+    -c "rp2350.cm0 arp_reset assert 0"
+    -c "exit"
     DEPENDS smol_servo_rpico
     VERBATIM)
 
 add_custom_target(swd_reset
-    COMMAND ${PROGRAMMER} ${PROGRAMMER_FLAGS} -c "init" -c "reset run" -c "exit"
+    COMMAND ${PROGRAMMER} ${PROGRAMMER_FLAGS} 
+    -c "init" 
+    -c "reset halt"
+    -c "rp2350.cm1 arp_reset assert 0"
+    -c "rp2350.cm0 arp_reset assert 0"
+    -c "exit"
     DEPENDS smol_servo_rpico
     VERBATIM)
 
 add_custom_target(gdbhost
-    ${PROGRAMMER} ${PROGRAMMER_FLAGS} -c "init" -c "reset halt"
+    ${PROGRAMMER} ${PROGRAMMER_FLAGS} 
+    -c "init" 
+    -c "reset halt"
+    # -c "rp2350.dap.core1 cortex_m reset_config sysresetreq"
     DEPENDS  "$<TARGET_FILE:smol_servo_rpico>"
     COMMENT "Running OpenOCD as a GDB host.")
 
@@ -90,9 +119,10 @@ add_custom_target(debug DEPENDS ${PROJECT_NAME}.elf)
 add_custom_command(TARGET debug
     #COMMAND bash "-c" "pgrep -x \"openocd\" || (echo \"Please start openocd\" && exit -1)"
     COMMAND echo "Starting GDB client and loading ${PROJECT_NAME}.elf dashboard to $(GDB_TTY)"
-    COMMAND ${CMAKE_C_GDB} "$<TARGET_FILE:smol_servo_rpico>"
-    -ex "target extended :3333"
-    -ex "dashboard -output $(GDB_TTY)"
-    -ex "load $<TARGET_FILE:smol_servo_rpico>"
+    COMMAND ${GDB} "$<TARGET_FILE:smol_servo_rpico>"
+    -ex "target remote localhost:3333"
+    # -ex "monitor swdp_scan"
+    # -ex "dashboard -output $(GDB_TTY)"
+    # -ex "load $<TARGET_FILE:smol_servo_rpico>"
     -ex "monitor arm semihosting enable"
     )

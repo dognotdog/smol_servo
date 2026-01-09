@@ -6,10 +6,13 @@
 
 #include "pico/stdlib.h"
 #include "pico/binary_info.h"
+#include "pico/critical_section.h"
+#include "pico/multicore.h"
 
 #include "hardware/i2c.h"
 
-#include "smol_servo_rpico.h"
+#include "smol_servo.h"
+#include "pico_debug.h"
 
 #include "fusb302.h"
 #include "tmc6200.h"
@@ -24,6 +27,40 @@ void i2c_fusb_init(void) {
     // Make the I2C pins available to picotool
     bi_decl(bi_2pins_with_func(FUSB_I2C_SDA_PIN, FUSB_I2C_SCL_PIN, GPIO_FUNC_I2C));
 
+}
+
+void smol_hires_time_init(void) {
+	// use a critical section to block IRQs, at least
+	// this should not be called once the second core is up
+	critical_section_t cr;
+	critical_section_init(&cr);
+	critical_section_enter_blocking(&cr);
+	timer_hw_t *timer_us = timer0_hw;
+	timer_hw_t *timer_sysclk = timer1_hw;
+
+
+
+	// pause timers
+	bool was_paused = timer_us->pause;
+	timer_us->pause = 1;
+	timer_sysclk->pause = 1;
+
+	// set 2nd timer to sysclk
+	timer_sysclk->source = 1;
+	// set time to match 1MHz timer
+	uint64_t time_us = timer_us->timelr;
+	time_us = (time_us << 32) | timer_us->timehr;
+	// looking at runtime_init_clocks(), default is 150MHz, we'll just go with that
+	uint64_t time_sysclk = time_us * 150u;
+	timer_sysclk->timelw = time_sysclk;
+	timer_sysclk->timehw = time_sysclk >> 32;
+
+	// unpause both timers with hopefully negligible delay
+	timer_us->pause = was_paused;
+	timer_sysclk->pause = was_paused;
+
+	critical_section_exit(&cr);
+	critical_section_deinit(&cr);
 }
 
 #define LED_PIN 8
@@ -42,9 +79,19 @@ void pico_set_led(bool led_on) {
     gpio_put(LED_PIN, led_on);
 }
 
+static void _core1_init(void) {
+	smol_servo_loop_init();
+	smol_servo_loop_start();
+
+	while (1) {
+		smol_servo_loop_idle();
+	}
+}
 
 int main(int argc, char const *argv[])
 {
+	smol_hires_time_init();
+
     stdio_init_all();
     pico_led_init();
 
@@ -58,9 +105,16 @@ int main(int argc, char const *argv[])
 	i2c_fusb_init();
 	fusb302_init(FUSB_I2C);
 
+	multicore_reset_core1();
+	multicore_launch_core1(_core1_init);
+
 	bool led = false;
 	while (1) {
 		pico_set_led(led = !led);
+		uint64_t t_fast = timer_time_us_64(timer1_hw);
+		dbg_time_t tt = {.seconds = t_fast / 1000000u, .microseconds = t_fast % 1000000u};
+		dbg_println("foo %" PRIu32 ".%06" PRIu32, tt.seconds, tt.microseconds);
+		sleep_ms(1000);
 		// printf("foo\n");
 	}
 	return 0;

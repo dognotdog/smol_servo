@@ -16,13 +16,13 @@
 
 ### 3ph Bridge + Power Resistor
 
-GPIO22 | PWMR
-GPIO24 | PWMA
-GPIO25 | ENA
-GPIO26 | PWMB
-GPIO27 | ENB
-GPIO32 | PWMC
-GPIO33 | ENC
+GPIO22 | PWM[3A] | PWMR 
+GPIO24 | PWM[4A] | PWMA
+GPIO25 | PWM[4B] | ENA
+GPIO26 | PWM[5A] | PWMB
+GPIO27 | PWM[5B] | ENB
+GPIO32 | PWM[8A] | PWMC
+GPIO33 | PWM[8B] | ENC
 
 ### 3ph Driver Comms
 
@@ -93,3 +93,9 @@ GPIO14 | SDA1_EXT
 GPIO15 | SCL1_EXT
 GPIO16 | SYNC
 GPIO17-21 is not connected
+
+## Servo Loop Timing
+
+Assuming `sysclk = 150MHz`, and 20kHz control loop, we should run PWM in up/down mode at 60kHz (3 phases * 20kHz) and do ADC reads at both counter TOP and 0 values. `TOP+1 = 1250` for `2*60 = 120kHz` operation.
+
+

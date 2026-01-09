@@ -1,0 +1,75 @@
+
+#include "smol_servo.h"
+#include "smol_servo_parameters.h"
+#include "pico_debug.h"
+
+#include "hardware/pwm.h"
+#include "hardware/irq.h"
+#include "pico/stdlib.h"
+
+#include <stdint.h>
+#include <assert.h>
+
+static uint32_t _loop_irq_number = -1;
+
+
+void smol_servo_signal_loop(void) {
+	assert(_loop_irq_number != -1);
+	irq_set_pending(_loop_irq_number);
+}
+
+
+void __not_in_flash_func(smol_servo_loop_irq_handler)(void) {
+	// only execute on core 1
+	assert(get_core_num() == 1);
+	irq_clear(_loop_irq_number);
+
+	// for sanity checking, we could check if the IRQ is pending again by the end of the function. If it is, we've taken too long and cannot keep up with the hardware trigger rate.
+	assert(0 == NVIC_GetPendingIRQ(_loop_irq_number));
+}
+
+
+void smol_irq_init(void) {
+	assert(get_core_num() == 1);
+
+	_loop_irq_number = user_irq_claim_unused(true);
+
+	irq_set_exclusive_handler(_loop_irq_number, smol_servo_loop_irq_handler);
+
+	irq_set_priority(ADC_IRQ, 0);
+	irq_set_priority(BRIDGE_PWM_WRAP_IRQ, 0);
+	irq_set_priority(_loop_irq_number, 1u << 4);
+
+	irq_set_enabled(_loop_irq_number, true);
+	irq_set_enabled(ADC_IRQ, true);
+	irq_set_enabled(BRIDGE_PWM_WRAP_IRQ, true);
+
+}
+
+void smol_servo_loop_init(void) {
+	smol_adc_init();
+	smol_pwm_init();
+	smol_irq_init();
+}
+
+void smol_servo_loop_start(void) {
+	smol_pwm_start();
+	smol_adc_start();
+}
+
+static uint64_t t_idle = 0;
+
+void smol_servo_loop_idle(void) {
+	// our idle function on core 1 for when there's nothing else to do.
+	uint64_t t_fast = timer_time_us_64(timer0_hw);
+	dbg_time_t tt = {.seconds = t_fast / 1000000u, .microseconds = t_fast % 1000000u};
+	// if (true && (t_fast - t_idle > 1000000ull)) {
+		t_idle = t_fast;
+		dbg_println("bar %" PRIu32 ".%06" PRIu32, tt.seconds, tt.microseconds);
+		dbg_println("adc block %" PRIu32, smol_adc_block_index());
+		dbg_println("adc pwm counter %" PRIu32, pwm_get_counter(PWM_ADC_SLICE));
+		sleep_ms(1000);
+	// }
+
+}
+

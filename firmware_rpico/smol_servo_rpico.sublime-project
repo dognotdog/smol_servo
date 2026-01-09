@@ -8,7 +8,7 @@
 			"path": "/Users/dog/.pico-sdk",
 		},
 		{
-			"path": "/Users/dog/Documents/electronics/stm32-nema17-servo/stm32-servo-firmware"
+			"path": "/Users/dog/Documents/electronics/stm32-nema17-servo/stm32-servo-firmware",
 		},
 	],
 	"cmake":

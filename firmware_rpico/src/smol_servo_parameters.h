@@ -1,0 +1,23 @@
+#pragma once
+
+#define SMOL_SERVO_PWM_PER_LOOP             (3)
+
+#define SMOL_SERVO_LOOP_FREQ_HZ             (20000)
+#define SMOL_SERVO_LOOP_PERIOD_CLOCKS       (7500)
+
+#define SMOL_SERVO_BRIDGE_PWM_FREQ_HZ       (60000)
+#define SMOL_SERVO_BRIDGE_PWM_PERIOD_CLOCKS (2500)
+
+#define SMOL_SERVO_ADC_FREQ_HZ              (240000)
+#define SMOL_SERVO_ADC_PERIOD_CLOCKS        (625)
+
+#define SMOL_SERVO_ADC_RETARD_COUNT         (150)
+
+#define SMOL_SERVO_PWM_SLICE_MASK ((1u << PWMA_SLICE) | (1u << PWMB_SLICE) | (1u << PWMC_SLICE) | (1u << PWMR_SLICE) | (1u << PWM_ADC_SLICE))
+// #define SMOL_SERVO_PWM_SLICE_MASK (0xFFFFFFFF)
+
+#define BRIDGE_PWM_WRAP_IRQ PWM_IRQ_WRAP_0
+#define ADC_IRQ ADC_IRQ_FIFO
+
+// #define DEBUG_PWM_ADC
+// #define DEBUG_DMA_ADC
