@@ -36,7 +36,11 @@ typedef struct {
 } dbg_time_t;
 
 static inline dbg_time_t dbg_time(void) {
-	const uint64_t us_time = time_us_64();
+	// do a direct read of the microsecond timer, no API
+    uint32_t lo = timer0_hw->timelr;
+    uint32_t hi = timer0_hw->timehr;
+    const uint64_t us_time = ((uint64_t) hi << 32u) | lo;
+    // the convert to seconds and microseconds for nicer printf
 	const uint32_t seconds = us_time / 1000000u;
 	const uint32_t microseconds = us_time % 1000000u;
 	return (dbg_time_t){.seconds = seconds, .microseconds = microseconds};

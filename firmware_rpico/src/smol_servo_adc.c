@@ -50,6 +50,7 @@
  * 
  */
 
+#include "smol_servo.h"
 #include "smol_servo_parameters.h"
 #include "pico_debug.h"
 
@@ -81,6 +82,12 @@ _Static_assert((1 << ADC_RINGBUS_BITS) == (4 * ADC_RINGBUF_WORDS));
 #define ADC_CHANNEL_VDD (4)
 #define ADC_CHANNEL_TEMPERATURE (8)
 
+#define ADC_IRQ_PERIOD_CLOCKS_NOMINAL (ADC_FIFO_THRESHOLD*SMOL_SERVO_ADC_PERIOD_CLOCKS)
+// allow a 2us deviation
+#define ADC_IRQ_PERIOD_CLOCKS_ALLOWANCE (300)
+#define ADC_IRQ_PERIOD_CLOCKS_MIN (ADC_IRQ_PERIOD_CLOCKS_NOMINAL - ADC_IRQ_PERIOD_CLOCKS_ALLOWANCE)
+#define ADC_IRQ_PERIOD_CLOCKS_MAX (ADC_IRQ_PERIOD_CLOCKS_NOMINAL + ADC_IRQ_PERIOD_CLOCKS_ALLOWANCE)
+
 static int _adc_cs_dma_channel = -1;
 
 static uint32_t _block_index = 0;
@@ -90,27 +97,30 @@ static uint32_t _adc_cs_buf[ADC_PATTERN_NUM_BLOCKS][ADC_PATTERN_BLOCK_SIZE];
 
 static uint32_t _adc_cs_ringbuf[ADC_RINGBUF_NUM_BLOCKS][ADC_PATTERN_BLOCK_SIZE] __attribute__((aligned(4*ADC_RINGBUF_WORDS)));
 
-static uint32_t _adc_read_buf[NUM_ADC_CHANNELS][2];
+static volatile uint32_t _adc_read_buf[NUM_ADC_CHANNELS][2];
 
 uint32_t smol_adc_block_index(void) {
 	return _block_index;
 }
 
-
+void __not_in_flash_func(assert_fast)(bool condition) {
+	if (!condition)
+		__breakpoint();
+}
 
 void __not_in_flash_func(smol_adc_fifo_threshold_irq_handler)(void) {
 #ifdef DEBUG_ADC_FIFO_THRES_WITH_GPIO
-	gpio_put(DEBUG_ADC_FIFO_THRES_WITH_GPIO, 1);
+	gpio_out_put_fast(DEBUG_ADC_FIFO_THRES_WITH_GPIO, 1);
 #endif
 	// we expect this to be called every ADC_FIFO_THRESHOLD samples
 #ifdef DEBUG_ADC_FIFO_THRES
 	dbg_println("adc fifo!");
 #endif
 	static bool is_first_run = true;
-	static uint64_t prev_t_us = 0;
-	uint64_t t_us = timer_time_us_64(timer0_hw);
-	uint32_t dt = t_us - prev_t_us;
-	prev_t_us = t_us;
+	static uint64_t prev_t_clocks = 0;
+	uint64_t t_clocks = smol_time64(timer1_hw);
+	uint32_t dt = t_clocks - prev_t_clocks;
+	prev_t_clocks = t_clocks;
 	uint32_t block_complete_index = _block_index;
 	uint32_t ringbuf_complete_index = _ringbuf_index;
 	// Block of ADC reads has completed.
@@ -124,7 +134,8 @@ void __not_in_flash_func(smol_adc_fifo_threshold_irq_handler)(void) {
 		// let's see if this fixes the first run assert
 		// NOTE: first run is N-1 entries we ignore.
 		for (size_t i = 0; i < ADC_FIFO_STARTING_THRESHOLD; ++i) {
-			adc_fifo_get();
+			volatile int val = adc_hw->fifo;
+			// adc_fifo_get();
 		}
 		// update FIFO threshold
 		uint32_t fcs = adc_hw->fcs;
@@ -132,48 +143,51 @@ void __not_in_flash_func(smol_adc_fifo_threshold_irq_handler)(void) {
 
 		adc_hw->fcs = fcs;
 		// *hw_set_alias(&adc_hw->fcs) = ADC_FCS_UNDER_BITS | ADC_FCS_OVER_BITS;
-		assert(0 == (fcs & ADC_FCS_OVER_BITS));
-		assert(0 == (fcs & ADC_FCS_UNDER_BITS));
+		assert_fast(0 == (fcs & ADC_FCS_OVER_BITS));
+		assert_fast(0 == (fcs & ADC_FCS_UNDER_BITS));
+		is_first_run = false;
 	}
 	else
 	{
-		assert(dt > 15);
-		assert(dt < 20);
+		assert_fast(dt > ADC_IRQ_PERIOD_CLOCKS_MIN);
+		assert_fast(dt < ADC_IRQ_PERIOD_CLOCKS_MAX);
 		// gather ADC read results from FIFO
 
 		// sanity check that we have exactly 4 samples waiting and no under/overflows
 		uint32_t fcs = adc_hw->fcs;
 		uint32_t cs = adc_hw->cs;
-		assert(0 == (fcs & ADC_FCS_OVER_BITS));
-		assert(0 == (fcs & ADC_FCS_UNDER_BITS));
-		assert(0 == (cs & ADC_CS_ERR_STICKY_BITS));
+		assert_fast(0 == (fcs & ADC_FCS_OVER_BITS));
+		assert_fast(0 == (fcs & ADC_FCS_UNDER_BITS));
+		assert_fast(0 == (cs & ADC_CS_ERR_STICKY_BITS));
 		uint32_t fifo_level = (fcs & ADC_FCS_LEVEL_BITS) >> ADC_FCS_LEVEL_LSB;
-		assert(fifo_level >= ADC_FIFO_THRESHOLD - 3);
-		assert(fifo_level >= ADC_FIFO_THRESHOLD - 2);
-		assert(fifo_level >= ADC_FIFO_THRESHOLD - 1);
-		assert(fifo_level >= ADC_FIFO_THRESHOLD);
-		// assert(fifo_level <= ADC_FIFO_THRESHOLD + 2);
-		// assert(fifo_level <= ADC_FIFO_THRESHOLD + 1);
-		// assert(fifo_level == ADC_FIFO_THRESHOLD);
-		// assert(0);
+		// assert_fast(fifo_level >= ADC_FIFO_THRESHOLD - 3);
+		// assert_fast(fifo_level >= ADC_FIFO_THRESHOLD - 2);
+		// assert_fast(fifo_level >= ADC_FIFO_THRESHOLD - 1);
+		assert_fast(fifo_level >= ADC_FIFO_THRESHOLD);
+		// assert_fast(fifo_level <= ADC_FIFO_THRESHOLD + 2);
+		// assert_fast(fifo_level <= ADC_FIFO_THRESHOLD + 1);
+		assert_fast(fifo_level == ADC_FIFO_THRESHOLD);
+		// assert_fast(0);
 
 		// read FIFO into local buffer first...
-		uint16_t samples[ADC_FIFO_THRESHOLD] = {0};
+		_Static_assert(ADC_PATTERN_BLOCK_SIZE == ADC_FIFO_THRESHOLD);
+		uint16_t samples[ADC_PATTERN_BLOCK_SIZE] = {0};
 
-		for (size_t i = 0; i < ADC_FIFO_THRESHOLD; ++i) {
-			uint16_t val = adc_fifo_get();
-			assert(0 == (val & 0x8000)); // assert no error bit set
+		for (size_t i = 0; i < ADC_PATTERN_BLOCK_SIZE; ++i) {
+			uint16_t val = adc_hw->fifo;
+			// assert(0 == (val & 0x8000)); // assert no error bit set
 			samples[i] = val;
 		}
 
 		// ...then assign samples to correct ADC channels.
 		// samples contain two evenly spaced current reads [0,2] and two aux reads in between [1,3]
-		_adc_read_buf[block_complete_index][0] = samples[0];
-		_adc_read_buf[block_complete_index][1] = samples[2];
-		_adc_read_buf[2*block_complete_index + 3][0] = samples[1];
-		_adc_read_buf[2*block_complete_index + 4][0] = samples[3];
+		assert_fast(block_complete_index < ADC_PATTERN_NUM_BLOCKS);
+		size_t prev_block_index = (block_complete_index + ADC_PATTERN_NUM_BLOCKS - 1) % ADC_PATTERN_NUM_BLOCKS;
+		_adc_read_buf[prev_block_index][0] = samples[0];
+		_adc_read_buf[prev_block_index][1] = samples[2];
+		_adc_read_buf[2*prev_block_index + 3][0] = samples[1];
+		_adc_read_buf[2*prev_block_index + 4][0] = samples[3];
 	}
-	is_first_run = false;
 
 	// refill CS pattern. This is a software op because of the power-of-two restriction on DMA ringbuffer sizes, but we have a 3x factor for our 3-phase pattern.
 	// we're refilling the block we just executed, so that this isn't timing critical for the next conversion block.
@@ -187,7 +201,7 @@ void __not_in_flash_func(smol_adc_fifo_threshold_irq_handler)(void) {
 	_ringbuf_index = next_ringbuf_index;
 
 #ifdef DEBUG_ADC_FIFO_THRES_WITH_GPIO
-	gpio_put(DEBUG_ADC_FIFO_THRES_WITH_GPIO, 0);
+	gpio_out_put_fast(DEBUG_ADC_FIFO_THRES_WITH_GPIO, 0);
 #endif
 }
 
@@ -297,7 +311,7 @@ int smol_adc_pwm_init(void) {
 #endif
 }
 
-int smol_adc_init(void) {
+void smol_adc_init(void) {
 	assert(get_core_num() == 1);
 
 	adc_init();

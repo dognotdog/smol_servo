@@ -70,12 +70,13 @@ if (TARGET tinyusb_device)
         hardware_adc
         hardware_dma
         hardware_pwm
+        hardware_exception
         )
 
     # target_compile_definitions(${PROJECT_NAME} PUBLIC PICO_DEFAULT_UART_TX_PIN=12)
     # target_compile_definitions(${PROJECT_NAME} PUBLIC PICO_DEFAULT_UART_RX_PIN=13)
 
-    # enable usb output, disable uart output
+    # enable usb / uart output
     pico_enable_stdio_usb(smol_servo_rpico 1)
     pico_enable_stdio_uart(smol_servo_rpico 1)
 

@@ -10,6 +10,7 @@
 #include "pico/multicore.h"
 
 #include "hardware/i2c.h"
+#include "hardware/structs/busctrl.h"
 
 #include "smol_servo.h"
 #include "pico_debug.h"
@@ -80,6 +81,12 @@ void pico_set_led(bool led_on) {
 }
 
 static void _core1_init(void) {
+	// mess with AHB priorities
+	uint32_t prio = busctrl_hw->priority;
+	// increase Core1 bus priority
+	prio = BUSCTRL_BUS_PRIORITY_PROC1_BITS;
+	busctrl_hw->priority = prio;
+
 	smol_servo_loop_init();
 	smol_servo_loop_start();
 

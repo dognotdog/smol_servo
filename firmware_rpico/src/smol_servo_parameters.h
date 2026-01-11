@@ -27,8 +27,10 @@
 #define ADC_VBUS_DIV (ADC_DIV_COMBO / (22.0e3f + ADC_DIV_COMBO))
 #define ADC_VDD_DIV (ADC_DIV_COMBO / (120.0e3f + ADC_DIV_COMBO))
 
+// NOTE: on ARM, the IRQ group.subgroup is configured via the AICR's PRIGROUP field. The default is a single bit for subgroup, rest group.
+// Since the RP2350 only implements the top 4 bits, this should mean we have 16 priority levels with no subpriority selection.
 #define SMOL_ADC_IRQ_PRIORITY  (0x00)
-#define SMOL_PWM_IRQ_PRIORITY  (0x10)
+#define SMOL_PWM_IRQ_PRIORITY  (0x20)
 #define SMOL_LOOP_IRQ_PRIORITY (0x80)
 
 #define DEBUG_PWM_IRQ_WITH_GPIO 13

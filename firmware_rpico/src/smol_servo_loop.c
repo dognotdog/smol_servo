@@ -5,6 +5,7 @@
 
 #include "hardware/pwm.h"
 #include "hardware/irq.h"
+#include "hardware/exception.h"
 #include "pico/stdlib.h"
 #include "pico/platform.h"
 
@@ -48,7 +49,25 @@ void smol_irq_init(void) {
 
 }
 
+static void __not_in_flash_func(_exception_dummy_handler)(void) {
+ assert(0);
+}
+
 void smol_servo_loop_init(void) {
+
+	for (size_t i = 0; i < PICO_NUM_VTABLE_IRQS; ++i) {
+		int prio = irq_get_priority(i);
+		assert(prio > 1);
+	}
+
+	// TODO: this is for figuring out why we still have jitter in our top priority interrupt handlers
+	// NOTE: doesn't seem like we're getting any exceptions, so this was a red herring.
+	for (size_t i = MIN_EXCEPTION_NUM; i < MAX_EXCEPTION_NUM; ++i) {
+		exception_set_exclusive_handler(i, _exception_dummy_handler);
+		// int prio = exception_get_priority(i);
+		// assert(prio > 1);
+	}
+
 	smol_adc_init();
 	smol_pwm_init();
 	smol_irq_init();
@@ -64,7 +83,7 @@ static uint64_t t_idle = 0;
 void smol_servo_loop_idle(void) {
 	// our idle function on core 1 for when there's nothing else to do.
 	// NOTE: do not use functions that use long critical sections disabling interrupts, like sleep_ms()!
-	uint64_t t_fast = timer_time_us_64(timer0_hw);
+	uint64_t t_fast = smol_time64(timer0_hw);
 	dbg_time_t tt = {.seconds = t_fast / 1000000u, .microseconds = t_fast % 1000000u};
 	if (true && (t_fast - t_idle > 300000ull)) {
 		t_idle = t_fast;

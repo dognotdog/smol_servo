@@ -68,7 +68,7 @@ static bool _pwm_is_started = false;
 
 void __not_in_flash_func(smol_bridge_pwm_wrap_irq_handler)(void) {
 #ifdef DEBUG_PWM_IRQ_WITH_GPIO
-	gpio_put(DEBUG_PWM_IRQ_WITH_GPIO, 1);
+	gpio_out_put_fast(DEBUG_PWM_IRQ_WITH_GPIO, 1);
 #endif
 	pwm_clear_irq(PWMA_SLICE);
 	/**
@@ -94,7 +94,7 @@ void __not_in_flash_func(smol_bridge_pwm_wrap_irq_handler)(void) {
 	// not using DMA but directly setting values
 	for (size_t i = 0; i < BRIDGE_PWM_COUNT; ++i) {
 		size_t slice = _bridge_pwm_slices[i];
-		pwm_set_both_levels(slice, _pwm_cc_loop_bufs[i][next_loop_index][0],  _pwm_cc_loop_bufs[i][next_loop_index][1]);
+		pwm_set_both_levels_fast(slice, _pwm_cc_loop_bufs[i][next_loop_index][0],  _pwm_cc_loop_bufs[i][next_loop_index][1]);
 	}
 
 	indices.ringbuf = ringbuf_index;
@@ -102,7 +102,7 @@ void __not_in_flash_func(smol_bridge_pwm_wrap_irq_handler)(void) {
 	_indices = indices;
 
 #ifdef DEBUG_PWM_IRQ_WITH_GPIO
-	gpio_put(DEBUG_PWM_IRQ_WITH_GPIO, 0);
+	gpio_out_put_fast(DEBUG_PWM_IRQ_WITH_GPIO, 0);
 #endif
 }
 
