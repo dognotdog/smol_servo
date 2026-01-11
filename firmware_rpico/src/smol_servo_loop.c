@@ -6,6 +6,7 @@
 #include "hardware/pwm.h"
 #include "hardware/irq.h"
 #include "pico/stdlib.h"
+#include "pico/platform.h"
 
 #include <stdint.h>
 #include <assert.h>
@@ -25,7 +26,8 @@ void __not_in_flash_func(smol_servo_loop_irq_handler)(void) {
 	irq_clear(_loop_irq_number);
 
 	// for sanity checking, we could check if the IRQ is pending again by the end of the function. If it is, we've taken too long and cannot keep up with the hardware trigger rate.
-	assert(0 == NVIC_GetPendingIRQ(_loop_irq_number));
+	assert(0 != nvic_hw->ispr[_loop_irq_number/32] & 1 << (_loop_irq_number % 32));
+	// assert(0 == NVIC_GetPendingIRQ(_loop_irq_number));
 }
 
 
@@ -36,9 +38,9 @@ void smol_irq_init(void) {
 
 	irq_set_exclusive_handler(_loop_irq_number, smol_servo_loop_irq_handler);
 
-	irq_set_priority(ADC_IRQ, 0);
-	irq_set_priority(BRIDGE_PWM_WRAP_IRQ, 0);
-	irq_set_priority(_loop_irq_number, 1u << 4);
+	irq_set_priority(ADC_IRQ, SMOL_ADC_IRQ_PRIORITY);
+	irq_set_priority(BRIDGE_PWM_WRAP_IRQ, SMOL_PWM_IRQ_PRIORITY);
+	irq_set_priority(_loop_irq_number, SMOL_LOOP_IRQ_PRIORITY);
 
 	irq_set_enabled(_loop_irq_number, true);
 	irq_set_enabled(ADC_IRQ, true);
@@ -61,15 +63,27 @@ static uint64_t t_idle = 0;
 
 void smol_servo_loop_idle(void) {
 	// our idle function on core 1 for when there's nothing else to do.
+	// NOTE: do not use functions that use long critical sections disabling interrupts, like sleep_ms()!
 	uint64_t t_fast = timer_time_us_64(timer0_hw);
 	dbg_time_t tt = {.seconds = t_fast / 1000000u, .microseconds = t_fast % 1000000u};
-	// if (true && (t_fast - t_idle > 1000000ull)) {
+	if (true && (t_fast - t_idle > 300000ull)) {
 		t_idle = t_fast;
 		dbg_println("bar %" PRIu32 ".%06" PRIu32, tt.seconds, tt.microseconds);
 		dbg_println("adc block %" PRIu32, smol_adc_block_index());
 		dbg_println("adc pwm counter %" PRIu32, pwm_get_counter(PWM_ADC_SLICE));
-		sleep_ms(1000);
-	// }
+		dbg_println("t_chip %.3f", smol_chip_temperature_celsius());
+		dbg_println("vbus %.3f, vdd %.3f", smol_adc_vbus(), smol_adc_vdd());
+		dbg_println("t_chip %.3f", smol_chip_temperature_celsius());
+
+		for (size_t i = 0; i < NUM_ADC_CHANNELS; ++i) {
+			if (i < 9)
+				dbg_println("v[%u] %.3f %.3f", i, smol_adc_last_voltage(i), smol_adc_last_voltage2(i));
+			else
+				dbg_println("v[%u] %.3f", i, smol_adc_last_voltage(i));
+		}
+
+		// sleep_ms(300);
+	}
 
 }
 

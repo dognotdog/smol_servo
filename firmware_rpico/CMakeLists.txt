@@ -6,6 +6,13 @@ set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+set(CMAKE_BUILD_TYPE "Debug")
+# set(CMAKE_C_FLAGS_DEBUG " -g -Os")
+# string(APPEND CMAKE_C_FLAGS_DEBUG " -Os -g")
+string(REGEX REPLACE "-Og" "-Os" CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG}" ) 
+
+set(CMAKE_VERBOSE_MAKEFILE 1)
+
 # Initialise pico_sdk from installed location
 # (note this can come from environment, CMake cache etc)
 
@@ -27,6 +34,10 @@ set(PICO_BOARD_HEADER_DIRS ${CMAKE_CURRENT_LIST_DIR}/src/boards)
 
 set(PICO_BOARD smol_servo_rpico CACHE STRING "Board type")
 # set(PICO_BOARD pico2 CACHE STRING "Board type")
+set(PICO_USE_STACK_GUARDS 1)
+set(PICO_STACK_SIZE 0x1000) # 4k for stack
+# do not support lockout of core1 because realtime
+set(PICO_FLASH_SAFE_EXECUTE_PICO_SUPPORT_MULTICORE_LOCKOUT 0)
 
 # Pull in Raspberry Pi Pico SDK (must be before project)
 include(pico_sdk_import.cmake)
@@ -46,6 +57,7 @@ if (TARGET tinyusb_device)
         src/smol_servo_adc.c
         src/smol_servo_pwm.c
         src/smol_servo_loop.c
+        src/pico_debug.c
         )
 
     # pull in common dependencies

@@ -41,10 +41,14 @@ static const size_t _bridge_pwm_slices[BRIDGE_PWM_COUNT] = BRIDGE_PWM_SLICES;
 _Static_assert(BRIDGE_PWM_RINGBUF_NUM_ENTRIES > SMOL_SERVO_PWM_PER_LOOP);
 
 static uint16_t _pwm_cc_loop_bufs[BRIDGE_PWM_COUNT][SMOL_SERVO_PWM_PER_LOOP][2] = {
-	{{BRIDGE_PWM_MID, BRIDGE_PWM_MID}, {BRIDGE_PWM_MID, BRIDGE_PWM_MID}, {BRIDGE_PWM_MID, BRIDGE_PWM_MID}},
-	{{BRIDGE_PWM_MID, BRIDGE_PWM_MID}, {BRIDGE_PWM_MID, BRIDGE_PWM_MID}, {BRIDGE_PWM_MID, BRIDGE_PWM_MID}},
-	{{BRIDGE_PWM_MID, BRIDGE_PWM_MID}, {BRIDGE_PWM_MID, BRIDGE_PWM_MID}, {BRIDGE_PWM_MID, BRIDGE_PWM_MID}},
-	{{BRIDGE_PWM_MID, BRIDGE_PWM_MID}, {BRIDGE_PWM_MID, BRIDGE_PWM_MID}, {BRIDGE_PWM_MID, BRIDGE_PWM_MID}},
+	{{150, 150}, {150, 150}, {150, 150}},
+	{{150, 150}, {150, 150}, {150, 150}},
+	{{150, 150}, {150, 150}, {150, 150}},
+	{{150, 150}, {150, 150}, {150, 150}},
+	// {{BRIDGE_PWM_MID, BRIDGE_PWM_MID}, {BRIDGE_PWM_MID, BRIDGE_PWM_MID}, {BRIDGE_PWM_MID, BRIDGE_PWM_MID}},
+	// {{BRIDGE_PWM_MID, BRIDGE_PWM_MID}, {BRIDGE_PWM_MID, BRIDGE_PWM_MID}, {BRIDGE_PWM_MID, BRIDGE_PWM_MID}},
+	// {{BRIDGE_PWM_MID, BRIDGE_PWM_MID}, {BRIDGE_PWM_MID, BRIDGE_PWM_MID}, {BRIDGE_PWM_MID, BRIDGE_PWM_MID}},
+	// {{BRIDGE_PWM_MID, BRIDGE_PWM_MID}, {BRIDGE_PWM_MID, BRIDGE_PWM_MID}, {BRIDGE_PWM_MID, BRIDGE_PWM_MID}},
 	// {{BRIDGE_PWM_MID, 0}, {BRIDGE_PWM_MID, 0}, {BRIDGE_PWM_MID, 0}},
 	// {{BRIDGE_PWM_MID, 0}, {BRIDGE_PWM_MID, 0}, {BRIDGE_PWM_MID, 0}},
 	// {{BRIDGE_PWM_MID, 0}, {BRIDGE_PWM_MID, 0}, {BRIDGE_PWM_MID, 0}},
@@ -58,11 +62,14 @@ typedef struct {
 	uint32_t loop;
 } smol_pwm_index_t;
 
-static _Atomic smol_pwm_index_t _indices;
+static smol_pwm_index_t _indices;
 
 static bool _pwm_is_started = false;
 
 void __not_in_flash_func(smol_bridge_pwm_wrap_irq_handler)(void) {
+#ifdef DEBUG_PWM_IRQ_WITH_GPIO
+	gpio_put(DEBUG_PWM_IRQ_WITH_GPIO, 1);
+#endif
 	pwm_clear_irq(PWMA_SLICE);
 	/**
 	 * 0      1       2       0
@@ -90,11 +97,13 @@ void __not_in_flash_func(smol_bridge_pwm_wrap_irq_handler)(void) {
 		pwm_set_both_levels(slice, _pwm_cc_loop_bufs[i][next_loop_index][0],  _pwm_cc_loop_bufs[i][next_loop_index][1]);
 	}
 
-	indices.ringbuf = next_ringbuf_index;
-	indices.loop = next_loop_index;
+	indices.ringbuf = ringbuf_index;
+	indices.loop = loop_index;
 	_indices = indices;
 
-	// dbg_println("wrap!");
+#ifdef DEBUG_PWM_IRQ_WITH_GPIO
+	gpio_put(DEBUG_PWM_IRQ_WITH_GPIO, 0);
+#endif
 }
 
 
@@ -105,7 +114,7 @@ void smol_servo_bridge_pwm_slice_init(int slice) {
 	pwm_config_set_clkdiv_int(&config, 1);
 	pwm_config_set_clkdiv_mode(&config, PWM_DIV_FREE_RUNNING);
 	pwm_init(slice, &config, false);
-	pwm_set_both_levels(slice, BRIDGE_PWM_TOP*1/4,  BRIDGE_PWM_TOP*3/4);
+	pwm_set_both_levels(slice, BRIDGE_PWM_TOP*2/3,  BRIDGE_PWM_TOP*1/3);
 }
 
 void smol_servo_bridge_pwm_init(void) {
@@ -125,6 +134,11 @@ void smol_servo_bridge_pwm_init(void) {
 	pwm_clear_irq(PWMA_SLICE);
 	pwm_set_irq0_enabled(PWMA_SLICE, true);
 	irq_set_exclusive_handler(BRIDGE_PWM_WRAP_IRQ, smol_bridge_pwm_wrap_irq_handler);
+
+#ifdef DEBUG_PWM_IRQ_WITH_GPIO
+	gpio_init(DEBUG_PWM_IRQ_WITH_GPIO);
+	gpio_set_dir(DEBUG_PWM_IRQ_WITH_GPIO, true);
+#endif
 }
 
 

@@ -68,10 +68,18 @@
 
 #define ADC_RINGBUF_NUM_BLOCKS (4)
 #define ADC_RINGBUF_WORDS (ADC_PATTERN_BLOCK_SIZE*ADC_RINGBUF_NUM_BLOCKS)
+#define ADC_RINGBUS_BITS (6)
+_Static_assert((1 << ADC_RINGBUS_BITS) == (4 * ADC_RINGBUF_WORDS));
 
 #define ADC_PWM_TOP (SMOL_SERVO_ADC_PERIOD_CLOCKS-1)
 
 #define ADC_FIFO_THRESHOLD (4)
+// start with N-1 for the first block to align correctly with bridge PWM
+#define ADC_FIFO_STARTING_THRESHOLD (ADC_FIFO_THRESHOLD-1)
+
+#define ADC_CHANNEL_VBUS (3)
+#define ADC_CHANNEL_VDD (4)
+#define ADC_CHANNEL_TEMPERATURE (8)
 
 static int _adc_cs_dma_channel = -1;
 
@@ -88,9 +96,21 @@ uint32_t smol_adc_block_index(void) {
 	return _block_index;
 }
 
-void smol_adc_fifo_threshold_irq_handler(void) {
+
+
+void __not_in_flash_func(smol_adc_fifo_threshold_irq_handler)(void) {
+#ifdef DEBUG_ADC_FIFO_THRES_WITH_GPIO
+	gpio_put(DEBUG_ADC_FIFO_THRES_WITH_GPIO, 1);
+#endif
 	// we expect this to be called every ADC_FIFO_THRESHOLD samples
-	// dbg_println("adc!");
+#ifdef DEBUG_ADC_FIFO_THRES
+	dbg_println("adc fifo!");
+#endif
+	static bool is_first_run = true;
+	static uint64_t prev_t_us = 0;
+	uint64_t t_us = timer_time_us_64(timer0_hw);
+	uint32_t dt = t_us - prev_t_us;
+	prev_t_us = t_us;
 	uint32_t block_complete_index = _block_index;
 	uint32_t ringbuf_complete_index = _ringbuf_index;
 	// Block of ADC reads has completed.
@@ -100,44 +120,85 @@ void smol_adc_fifo_threshold_irq_handler(void) {
 	uint32_t next_block_index = (block_complete_index + 1) % ADC_PATTERN_NUM_BLOCKS;
 	uint32_t next_ringbuf_index = (ringbuf_complete_index + 1) % ADC_RINGBUF_NUM_BLOCKS;
 
+	if (is_first_run) {
+		// let's see if this fixes the first run assert
+		// NOTE: first run is N-1 entries we ignore.
+		for (size_t i = 0; i < ADC_FIFO_STARTING_THRESHOLD; ++i) {
+			adc_fifo_get();
+		}
+		// update FIFO threshold
+		uint32_t fcs = adc_hw->fcs;
+		fcs = (fcs & ~ADC_FCS_THRESH_BITS) | (ADC_FIFO_THRESHOLD << ADC_FCS_THRESH_LSB);
+
+		adc_hw->fcs = fcs;
+		// *hw_set_alias(&adc_hw->fcs) = ADC_FCS_UNDER_BITS | ADC_FCS_OVER_BITS;
+		assert(0 == (fcs & ADC_FCS_OVER_BITS));
+		assert(0 == (fcs & ADC_FCS_UNDER_BITS));
+	}
+	else
+	{
+		assert(dt > 15);
+		assert(dt < 20);
+		// gather ADC read results from FIFO
+
+		// sanity check that we have exactly 4 samples waiting and no under/overflows
+		uint32_t fcs = adc_hw->fcs;
+		uint32_t cs = adc_hw->cs;
+		assert(0 == (fcs & ADC_FCS_OVER_BITS));
+		assert(0 == (fcs & ADC_FCS_UNDER_BITS));
+		assert(0 == (cs & ADC_CS_ERR_STICKY_BITS));
+		uint32_t fifo_level = (fcs & ADC_FCS_LEVEL_BITS) >> ADC_FCS_LEVEL_LSB;
+		assert(fifo_level >= ADC_FIFO_THRESHOLD - 3);
+		assert(fifo_level >= ADC_FIFO_THRESHOLD - 2);
+		assert(fifo_level >= ADC_FIFO_THRESHOLD - 1);
+		assert(fifo_level >= ADC_FIFO_THRESHOLD);
+		// assert(fifo_level <= ADC_FIFO_THRESHOLD + 2);
+		// assert(fifo_level <= ADC_FIFO_THRESHOLD + 1);
+		// assert(fifo_level == ADC_FIFO_THRESHOLD);
+		// assert(0);
+
+		// read FIFO into local buffer first...
+		uint16_t samples[ADC_FIFO_THRESHOLD] = {0};
+
+		for (size_t i = 0; i < ADC_FIFO_THRESHOLD; ++i) {
+			uint16_t val = adc_fifo_get();
+			assert(0 == (val & 0x8000)); // assert no error bit set
+			samples[i] = val;
+		}
+
+		// ...then assign samples to correct ADC channels.
+		// samples contain two evenly spaced current reads [0,2] and two aux reads in between [1,3]
+		_adc_read_buf[block_complete_index][0] = samples[0];
+		_adc_read_buf[block_complete_index][1] = samples[2];
+		_adc_read_buf[2*block_complete_index + 3][0] = samples[1];
+		_adc_read_buf[2*block_complete_index + 4][0] = samples[3];
+	}
+	is_first_run = false;
+
 	// refill CS pattern. This is a software op because of the power-of-two restriction on DMA ringbuffer sizes, but we have a 3x factor for our 3-phase pattern.
 	// we're refilling the block we just executed, so that this isn't timing critical for the next conversion block.
-	memcpy(_adc_cs_ringbuf[ringbuf_complete_index], _adc_cs_buf[block_complete_index], sizeof(uint32_t)*ADC_PATTERN_BLOCK_SIZE);
+	for (size_t i = 0; i < ADC_PATTERN_BLOCK_SIZE; ++i) {
+		_adc_cs_ringbuf[ringbuf_complete_index][i] = _adc_cs_buf[block_complete_index][i];
+	}
+	// memcpy(_adc_cs_ringbuf[ringbuf_complete_index], _adc_cs_buf[block_complete_index], sizeof(uint32_t)*ADC_PATTERN_BLOCK_SIZE);
 
 	// update indices for next round.
 	_block_index = next_block_index;
 	_ringbuf_index = next_ringbuf_index;
 
-	// gather ADC read results from FIFO
-
-	// sanity check that we have exactly 4 samples waiting.
-	assert(adc_fifo_get_level() == ADC_FIFO_THRESHOLD);
-
-	// read FIFO into local buffer first...
-	uint16_t samples[ADC_FIFO_THRESHOLD] = {0};
-
-	for (size_t i = 0; i < ADC_FIFO_THRESHOLD; ++i) {
-		uint16_t val = adc_fifo_get();
-		assert(0 == (val & 0x8000)); // assert no error bit set
-		samples[i] = val;
-	}
-
-	// ...then assign samples to correct ADC channels.
-	// samples contain two evenly spaced current reads [0,2] and two aux reads in between [1,3]
-	_adc_read_buf[block_complete_index][0] = samples[0];
-	_adc_read_buf[block_complete_index][1] = samples[2];
-	_adc_read_buf[2*block_complete_index + 3][0] = samples[1];
-	_adc_read_buf[2*block_complete_index + 4][0] = samples[3];
+#ifdef DEBUG_ADC_FIFO_THRES_WITH_GPIO
+	gpio_put(DEBUG_ADC_FIFO_THRES_WITH_GPIO, 0);
+#endif
 }
 
 
 static uint32_t smol_adc_cs_for_read(uint32_t ch) {
 	assert(ch < 9);
-	uint32_t ainsel = ch << 12;
-	uint32_t err_clear = 1 << 10;
-	uint32_t start_once = 1 << 2;
-	uint32_t ts_en = 1 < 1;
-	uint32_t en = 1 < 0;
+	uint32_t ainsel     = ch << ADC_CS_AINSEL_LSB;
+	uint32_t err_clear  = 1u << ADC_CS_ERR_STICKY_LSB;
+	uint32_t start_once = 1u << ADC_CS_START_ONCE_LSB;
+	uint32_t ts_en      = 1u << ADC_CS_TS_EN_LSB;
+	uint32_t en         = 1u << ADC_CS_EN_LSB;
 
 	return ainsel | err_clear | start_once | ts_en | en;
 }
@@ -148,6 +209,7 @@ int smol_adc_cs_buf_init(void) {
 	// [0,2] are bridge current sense values on channels 0-2
 	// [1,3] are aux reads on channels 3-8
 	for (size_t i = 0; i < ADC_PATTERN_NUM_BLOCKS; ++i) {
+		_Static_assert(ADC_PATTERN_BLOCK_SIZE == 4);
 		_adc_cs_buf[i][0] = smol_adc_cs_for_read(i);
 		_adc_cs_buf[i][1] = smol_adc_cs_for_read(2*i + 3);
 		_adc_cs_buf[i][2] = smol_adc_cs_for_read(i);
@@ -171,22 +233,36 @@ void smol_adc_pwm_irq_handler(void) {
 
 
 int smol_adc_dma_init(void) {
+	assert(get_core_num() == 1);
+
 	_adc_cs_dma_channel = dma_claim_unused_channel(true);
 
 	dma_channel_config_t config = dma_channel_get_default_config(_adc_cs_dma_channel);
 	// ringbuf byte count is 4 * 8 = 32, which is 5 bits.
-	channel_config_set_ring(&config, true, 5);
+	channel_config_set_transfer_data_size(&config, DMA_SIZE_32);
+	channel_config_set_ring(&config, false, ADC_RINGBUS_BITS);
 	channel_config_set_read_increment(&config, true);
 	channel_config_set_write_increment(&config, false);
 	channel_config_set_dreq(&config, pwm_get_dreq(PWM_ADC_SLICE));
+	// do not chain to other channel
+	channel_config_set_chain_to(&config, _adc_cs_dma_channel);
 	channel_config_set_enable(&config, true);
+	channel_config_set_high_priority(&config, true);
 
-	dma_channel_set_config(_adc_cs_dma_channel, &config, false);
+    // dma_channel_set_read_addr(_adc_cs_dma_channel, _adc_cs_ringbuf, false);
+    // dma_channel_set_write_addr(_adc_cs_dma_channel, &adc_hw->cs, false);
+    // dma_channel_set_transfer_count(_adc_cs_dma_channel, dma_encode_transfer_count_with_self_trigger(1), false);
+    // dma_channel_set_transfer_count(_adc_cs_dma_channel, dma_encode_endless_transfer_count(), false);
+	// dma_channel_set_config(_adc_cs_dma_channel, &config, true);
 
-    dma_channel_set_read_addr(_adc_cs_dma_channel, _adc_cs_ringbuf, false);
-    dma_channel_set_write_addr(_adc_cs_dma_channel, &adc_hw->cs, false);
-    // trigger on the last config (since DREQ is setup, it will wait for DREQ?)
-    dma_channel_set_transfer_count(_adc_cs_dma_channel, dma_encode_transfer_count_with_self_trigger(ADC_PATTERN_BLOCK_SIZE), true);
+    dma_channel_configure(
+    	_adc_cs_dma_channel, 
+    	&config, 
+    	&adc_hw->cs,
+    	_adc_cs_ringbuf[0] + 1, // start first block with N-1 reads for PWM alignment
+    	dma_encode_transfer_count_with_self_trigger(1),
+    	true
+    );
 
 #ifdef DEBUG_DMA_ADC
     dma_channel_set_irq0_enabled(_adc_cs_dma_channel, true);
@@ -203,11 +279,15 @@ int smol_adc_pwm_init(void) {
 	pwm_config_set_clkdiv_mode(&config, PWM_DIV_FREE_RUNNING);
 	pwm_init(PWM_ADC_SLICE, &config, false);
 
-#ifdef DEBUG_PWM_ADC
+	pwm_set_counter(PWM_ADC_SLICE, SMOL_SERVO_ADC_ADVANCE_COUNT);
+
+#ifdef DEBUG_PWM_ADC_GPIO
 	gpio_set_function(28, GPIO_FUNC_PWM);
 	gpio_set_function(29, GPIO_FUNC_PWM);
-	pwm_set_both_levels(PWM_ADC_SLICE, ADC_PWM_TOP * 1 / 3, ADC_PWM_TOP * 2 / 3);
+	pwm_set_both_levels(PWM_ADC_SLICE, 300, 300);
+#endif
 
+#ifdef DEBUG_PWM_ADC_IRQ
 	pwm_clear_irq(PWM_ADC_SLICE);
 	pwm_set_irq1_enabled(PWM_ADC_SLICE, true);
 
@@ -218,7 +298,10 @@ int smol_adc_pwm_init(void) {
 }
 
 int smol_adc_init(void) {
+	assert(get_core_num() == 1);
+
 	adc_init();
+	adc_set_temp_sensor_enabled(true);
 
 	adc_gpio_init(SOA_SENSE_PIN);
 	adc_gpio_init(SOB_SENSE_PIN);
@@ -233,7 +316,13 @@ int smol_adc_init(void) {
 
 	// setup FIFO to trigger IRQ every 4 samples, but no DMA.
 	// Since we already have a FIFO, we can just get the samples from there directly instead of using our own ring buffer.
-	adc_fifo_setup(true, false, ADC_FIFO_THRESHOLD, true, false);
+	adc_fifo_setup(true, false, ADC_FIFO_STARTING_THRESHOLD, true, false);
+	adc_fifo_drain();
+	// clear errors
+	*hw_set_alias(&adc_hw->fcs) = ADC_FCS_UNDER_BITS | ADC_FCS_OVER_BITS;
+	assert(0 == (adc_hw->fcs & ADC_FCS_OVER_BITS));
+	assert(0 == (adc_hw->fcs & ADC_FCS_UNDER_BITS));
+
 	adc_irq_set_enabled(true);
 	irq_set_exclusive_handler(ADC_IRQ, smol_adc_fifo_threshold_irq_handler);
 
@@ -241,18 +330,54 @@ int smol_adc_init(void) {
 	smol_adc_pwm_init();
 	smol_adc_dma_init();
 
-	// setup trigger PWM
+
+#ifdef DEBUG_ADC_FIFO_THRES_WITH_GPIO
+	gpio_init(DEBUG_ADC_FIFO_THRES_WITH_GPIO);
+	gpio_set_dir(DEBUG_ADC_FIFO_THRES_WITH_GPIO, true);
+#endif
 
 }
 
 void smol_adc_start(void) {
-	// PWM has to be running so we can do the counter adjustment.
-	assert(smol_pwm_was_started());
+	// PWM has to be running so we can do the counter retarding.
+	// assert(smol_pwm_was_started());
+	// However, since we're "advancing" the counter, this is a NOP, as the advance is done by setting the counter register before enabling the PWM slice.
+}
 
-	// make ADC reads centered on PWM wrap by retarding the ADC read timer
-	// TODO: check if this could be done by initing PWM.CTR with a "negative" value instead.
-	for (size_t i = 0; i < SMOL_SERVO_ADC_RETARD_COUNT; ++i) {
-		pwm_retard_count(PWM_ADC_SLICE);
-	}
+#define ADC_COUNT_TO_VOLTAGE (ADC_REF_VOLTAGE / 4095.0f)
+
+static float _adc_to_temperature_celsius(uint16_t sample) {
+	float vbe = 0.706f;
+	float slope = -1.721e-3f;
+	float adc_voltage = sample * ADC_COUNT_TO_VOLTAGE;
+	float t_celsius = 27.0f + (adc_voltage - vbe) / slope;
+	return t_celsius;
+}
+
+float smol_adc_last_voltage(size_t channel) {
+	assert(channel < NUM_ADC_CHANNELS);
+	uint16_t sample = _adc_read_buf[channel][0];
+	return sample * ADC_COUNT_TO_VOLTAGE;
+}
+
+float smol_adc_last_voltage2(size_t channel) {
+	assert(channel < NUM_ADC_CHANNELS);
+	uint16_t sample = _adc_read_buf[channel][1];
+	return sample * ADC_COUNT_TO_VOLTAGE;
+}
+
+float smol_adc_vbus(void) {
+	uint16_t sample = _adc_read_buf[ADC_CHANNEL_VBUS][0];
+	return sample * ADC_COUNT_TO_VOLTAGE; // / ADC_VBUS_DIV;
+}
+
+float smol_adc_vdd(void) {
+	uint16_t sample = _adc_read_buf[ADC_CHANNEL_VDD][0];
+	return sample * ADC_COUNT_TO_VOLTAGE; // / ADC_VDD_DIV;
+}
+
+float smol_chip_temperature_celsius(void) {
+	uint16_t sample = _adc_read_buf[ADC_CHANNEL_TEMPERATURE][0];
+	return _adc_to_temperature_celsius(sample);
 }
 

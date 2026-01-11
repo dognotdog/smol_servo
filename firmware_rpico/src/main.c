@@ -110,11 +110,12 @@ int main(int argc, char const *argv[])
 
 	bool led = false;
 	while (1) {
-		pico_set_led(led = !led);
-		uint64_t t_fast = timer_time_us_64(timer1_hw);
-		dbg_time_t tt = {.seconds = t_fast / 1000000u, .microseconds = t_fast % 1000000u};
-		dbg_println("foo %" PRIu32 ".%06" PRIu32, tt.seconds, tt.microseconds);
-		sleep_ms(1000);
+		picobug_process_core1_queue();
+		// pico_set_led(led = !led);
+		// uint64_t t_fast = timer_time_us_64(timer1_hw);
+		// dbg_time_t tt = {.seconds = t_fast / 1000000u, .microseconds = t_fast % 1000000u};
+		// dbg_println("foo %" PRIu32 ".%06" PRIu32, tt.seconds, tt.microseconds);
+		// sleep_ms(1000);
 		// printf("foo\n");
 	}
 	return 0;

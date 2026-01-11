@@ -19,12 +19,12 @@
 	"build_systems":
 	[
 		{
-			"config": "Release",
+			"config": "Debug",
 			"env":
 			{
 			},
 			"generator": "Unix Makefiles",
-			"name": "Release",
+			"name": "Debug",
 			"target": "cmake_build",
 			"variants":
 			[
