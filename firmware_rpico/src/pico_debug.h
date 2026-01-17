@@ -35,16 +35,15 @@ typedef struct {
 	uint32_t microseconds;
 } dbg_time_t;
 
-static inline dbg_time_t dbg_time(void) {
-	// do a direct read of the microsecond timer, no API
-    uint32_t lo = timer0_hw->timelr;
-    uint32_t hi = timer0_hw->timehr;
-    const uint64_t us_time = ((uint64_t) hi << 32u) | lo;
-    // the convert to seconds and microseconds for nicer printf
-	const uint32_t seconds = us_time / 1000000u;
-	const uint32_t microseconds = us_time % 1000000u;
-	return (dbg_time_t){.seconds = seconds, .microseconds = microseconds};
-}
+extern const uint32_t dbg_one_million;
+
+extern dbg_time_t dbg_time(void);
+
+#define assert_fast(condition) \
+	({                         \
+		if (!(condition))      \
+			__breakpoint();    \
+	})
 
 extern void picobug_set_level(int id, dbg_level_t level);
 

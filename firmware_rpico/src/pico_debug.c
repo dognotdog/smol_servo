@@ -22,6 +22,20 @@ static char* _queued_buffers[PICOBUG_BUF_MAX_COUNT];
 static volatile uint32_t _buf_queued_index;
 static volatile uint32_t _queue_processed_index;
 
+const uint32_t __not_in_flash("picobug") dbg_one_million = 1000000;
+
+dbg_time_t __not_in_flash_func(dbg_time)(void) {
+	// do a direct read of the microsecond timer, no API
+    uint32_t lo = timer0_hw->timelr;
+    uint32_t hi = timer0_hw->timehr;
+    const uint64_t us_time = ((uint64_t) hi << 32u) | lo;
+    // the convert to seconds and microseconds for nicer printf
+	const uint32_t seconds = us_time / dbg_one_million;
+	const uint32_t microseconds = us_time % dbg_one_million;
+	return (dbg_time_t){.seconds = seconds, .microseconds = microseconds};
+}
+
+
 // the first 32 IDs are active in early boot,
 // the rest have to be activated specifically
 static uint32_t _ids_active[PICOBUG_STORAGE_U32] = {

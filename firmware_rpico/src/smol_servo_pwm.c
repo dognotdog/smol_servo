@@ -19,6 +19,7 @@
 
 #include "smol_servo.h"
 #include "smol_servo_parameters.h"
+#include "smol_fast.h"
 #include "pico_debug.h"
 
 #include "hardware/pwm.h"
@@ -36,24 +37,7 @@ _Static_assert((SMOL_SERVO_BRIDGE_PWM_PERIOD_CLOCKS % 2) == 0);
 #define BRIDGE_PWM_COUNT (4) // A,B,C,R
 #define BRIDGE_PWM_RINGBUF_NUM_ENTRIES (4)
 
-static const size_t _bridge_pwm_slices[BRIDGE_PWM_COUNT] = BRIDGE_PWM_SLICES;
-
 _Static_assert(BRIDGE_PWM_RINGBUF_NUM_ENTRIES > SMOL_SERVO_PWM_PER_LOOP);
-
-static uint16_t _pwm_cc_loop_bufs[BRIDGE_PWM_COUNT][SMOL_SERVO_PWM_PER_LOOP][2] = {
-	{{150, 150}, {150, 150}, {150, 150}},
-	{{150, 150}, {150, 150}, {150, 150}},
-	{{150, 150}, {150, 150}, {150, 150}},
-	{{150, 150}, {150, 150}, {150, 150}},
-	// {{BRIDGE_PWM_MID, BRIDGE_PWM_MID}, {BRIDGE_PWM_MID, BRIDGE_PWM_MID}, {BRIDGE_PWM_MID, BRIDGE_PWM_MID}},
-	// {{BRIDGE_PWM_MID, BRIDGE_PWM_MID}, {BRIDGE_PWM_MID, BRIDGE_PWM_MID}, {BRIDGE_PWM_MID, BRIDGE_PWM_MID}},
-	// {{BRIDGE_PWM_MID, BRIDGE_PWM_MID}, {BRIDGE_PWM_MID, BRIDGE_PWM_MID}, {BRIDGE_PWM_MID, BRIDGE_PWM_MID}},
-	// {{BRIDGE_PWM_MID, BRIDGE_PWM_MID}, {BRIDGE_PWM_MID, BRIDGE_PWM_MID}, {BRIDGE_PWM_MID, BRIDGE_PWM_MID}},
-	// {{BRIDGE_PWM_MID, 0}, {BRIDGE_PWM_MID, 0}, {BRIDGE_PWM_MID, 0}},
-	// {{BRIDGE_PWM_MID, 0}, {BRIDGE_PWM_MID, 0}, {BRIDGE_PWM_MID, 0}},
-	// {{BRIDGE_PWM_MID, 0}, {BRIDGE_PWM_MID, 0}, {BRIDGE_PWM_MID, 0}},
-	// {{BRIDGE_PWM_MID, 0}, {BRIDGE_PWM_MID, 0}, {BRIDGE_PWM_MID, 0}},
-};
 
 static uint16_t _pwm_cc_ringbufs[BRIDGE_PWM_COUNT][BRIDGE_PWM_RINGBUF_NUM_ENTRIES][2] __attribute__((aligned(4*BRIDGE_PWM_RINGBUF_NUM_ENTRIES)));
 
@@ -66,11 +50,50 @@ static smol_pwm_index_t _indices;
 
 static bool _pwm_is_started = false;
 
-void __not_in_flash_func(smol_bridge_pwm_wrap_irq_handler)(void) {
+typedef struct {
+	uint32_t ringbuf_num_entries;
+	uint32_t pwm_per_servo_loop;
+	uint32_t pwma_slice;
+	uint32_t bridge_pwm_count;
+	size_t bridge_pwm_slices[BRIDGE_PWM_COUNT];
+	uint16_t pwm_cc_loop_bufs[BRIDGE_PWM_COUNT][SMOL_SERVO_PWM_PER_LOOP][2];
+
+} _smol_servo_pwm_ram_vars_t;
+
+static _smol_servo_pwm_ram_vars_t __not_in_flash("smol_pwm") _ram;
+
+static _smol_servo_pwm_ram_vars_t _ram = {
+	.ringbuf_num_entries = BRIDGE_PWM_RINGBUF_NUM_ENTRIES,
+	.pwm_per_servo_loop = SMOL_SERVO_PWM_PER_LOOP,
+	.pwma_slice = PWMA_SLICE,
+	.bridge_pwm_count = BRIDGE_PWM_COUNT,
+	.bridge_pwm_slices = BRIDGE_PWM_SLICES,
+
+	.pwm_cc_loop_bufs = {
+		{{150, 150}, {150, 150}, {150, 150}},
+		{{150, 150}, {150, 150}, {150, 150}},
+		{{150, 150}, {150, 150}, {150, 150}},
+		{{150, 150}, {150, 150}, {150, 150}},
+		// {{BRIDGE_PWM_MID, BRIDGE_PWM_MID}, {BRIDGE_PWM_MID, BRIDGE_PWM_MID}, {BRIDGE_PWM_MID, BRIDGE_PWM_MID}},
+		// {{BRIDGE_PWM_MID, BRIDGE_PWM_MID}, {BRIDGE_PWM_MID, BRIDGE_PWM_MID}, {BRIDGE_PWM_MID, BRIDGE_PWM_MID}},
+		// {{BRIDGE_PWM_MID, BRIDGE_PWM_MID}, {BRIDGE_PWM_MID, BRIDGE_PWM_MID}, {BRIDGE_PWM_MID, BRIDGE_PWM_MID}},
+		// {{BRIDGE_PWM_MID, BRIDGE_PWM_MID}, {BRIDGE_PWM_MID, BRIDGE_PWM_MID}, {BRIDGE_PWM_MID, BRIDGE_PWM_MID}},
+		// {{BRIDGE_PWM_MID, 0}, {BRIDGE_PWM_MID, 0}, {BRIDGE_PWM_MID, 0}},
+		// {{BRIDGE_PWM_MID, 0}, {BRIDGE_PWM_MID, 0}, {BRIDGE_PWM_MID, 0}},
+		// {{BRIDGE_PWM_MID, 0}, {BRIDGE_PWM_MID, 0}, {BRIDGE_PWM_MID, 0}},
+		// {{BRIDGE_PWM_MID, 0}, {BRIDGE_PWM_MID, 0}, {BRIDGE_PWM_MID, 0}},
+	},
+};
+
+
+// void  __not_in_flash_func(smol_bridge_pwm_wrap_irq_handler)(void) __attribute__ ((optimize(0)));
+void  __not_in_flash_func(smol_bridge_pwm_wrap_irq_handler)(void);
+
+void  smol_bridge_pwm_wrap_irq_handler(void) {
 #ifdef DEBUG_PWM_IRQ_WITH_GPIO
 	gpio_out_put_fast(DEBUG_PWM_IRQ_WITH_GPIO, 1);
 #endif
-	pwm_clear_irq(PWMA_SLICE);
+	pwm_clear_irq(_ram.pwma_slice);
 	/**
 	 * 0      1       2       0
 	 *        |       ^
@@ -85,21 +108,25 @@ void __not_in_flash_func(smol_bridge_pwm_wrap_irq_handler)(void) {
 	uint32_t prev_ringbuf_index = indices.ringbuf;
 	uint32_t prev_loop_index = indices.loop;
 
-	uint32_t ringbuf_index = (prev_ringbuf_index + 1) % BRIDGE_PWM_RINGBUF_NUM_ENTRIES;
-	uint32_t loop_index = (prev_loop_index + 1) % SMOL_SERVO_PWM_PER_LOOP;
+	uint32_t ringbuf_index = (prev_ringbuf_index + 1) % _ram.ringbuf_num_entries;
+	uint32_t loop_index = (prev_loop_index + 1) % _ram.pwm_per_servo_loop;
 
-	uint32_t next_ringbuf_index = (prev_ringbuf_index + 2) % BRIDGE_PWM_RINGBUF_NUM_ENTRIES;
-	uint32_t next_loop_index = (prev_loop_index + 2) % SMOL_SERVO_PWM_PER_LOOP;
+	uint32_t next_ringbuf_index = (prev_ringbuf_index + 2) % _ram.ringbuf_num_entries;
+	uint32_t next_loop_index = (prev_loop_index + 2) % _ram.pwm_per_servo_loop;
 
 	// not using DMA but directly setting values
-	for (size_t i = 0; i < BRIDGE_PWM_COUNT; ++i) {
-		size_t slice = _bridge_pwm_slices[i];
-		pwm_set_both_levels_fast(slice, _pwm_cc_loop_bufs[i][next_loop_index][0],  _pwm_cc_loop_bufs[i][next_loop_index][1]);
+	for (size_t i = 0; i < _ram.bridge_pwm_count; ++i) {
+		size_t slice = _ram.bridge_pwm_slices[i];
+		pwm_set_both_levels_fast(slice, _ram.pwm_cc_loop_bufs[i][next_loop_index][0],  _ram.pwm_cc_loop_bufs[i][next_loop_index][1]);
 	}
 
 	indices.ringbuf = ringbuf_index;
 	indices.loop = loop_index;
 	_indices = indices;
+
+	// NOTE: "0" signal condition was emperically determined to make the off-by-ones line up. This way, the servo loop starts after the phase 2 (of 0-2) current was sampled by the ADC.
+	if (prev_loop_index == 0)
+		smol_servo_signal_loop();
 
 #ifdef DEBUG_PWM_IRQ_WITH_GPIO
 	gpio_out_put_fast(DEBUG_PWM_IRQ_WITH_GPIO, 0);

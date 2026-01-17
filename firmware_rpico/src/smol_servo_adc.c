@@ -52,6 +52,7 @@
 
 #include "smol_servo.h"
 #include "smol_servo_parameters.h"
+#include "smol_fast.h"
 #include "pico_debug.h"
 
 #include "hardware/platform_defs.h"
@@ -103,11 +104,6 @@ uint32_t smol_adc_block_index(void) {
 	return _block_index;
 }
 
-void __not_in_flash_func(assert_fast)(bool condition) {
-	if (!condition)
-		__breakpoint();
-}
-
 void __not_in_flash_func(smol_adc_fifo_threshold_irq_handler)(void) {
 #ifdef DEBUG_ADC_FIFO_THRES_WITH_GPIO
 	gpio_out_put_fast(DEBUG_ADC_FIFO_THRES_WITH_GPIO, 1);
@@ -127,6 +123,7 @@ void __not_in_flash_func(smol_adc_fifo_threshold_irq_handler)(void) {
 	// 1. Gather ADC reads
 	// 2. Refill CS pattern ringbuf
 
+	uint32_t prev_block_index = (block_complete_index + ADC_PATTERN_NUM_BLOCKS - 1) % ADC_PATTERN_NUM_BLOCKS;
 	uint32_t next_block_index = (block_complete_index + 1) % ADC_PATTERN_NUM_BLOCKS;
 	uint32_t next_ringbuf_index = (ringbuf_complete_index + 1) % ADC_RINGBUF_NUM_BLOCKS;
 
@@ -182,7 +179,6 @@ void __not_in_flash_func(smol_adc_fifo_threshold_irq_handler)(void) {
 		// ...then assign samples to correct ADC channels.
 		// samples contain two evenly spaced current reads [0,2] and two aux reads in between [1,3]
 		assert_fast(block_complete_index < ADC_PATTERN_NUM_BLOCKS);
-		size_t prev_block_index = (block_complete_index + ADC_PATTERN_NUM_BLOCKS - 1) % ADC_PATTERN_NUM_BLOCKS;
 		_adc_read_buf[prev_block_index][0] = samples[0];
 		_adc_read_buf[prev_block_index][1] = samples[2];
 		_adc_read_buf[2*prev_block_index + 3][0] = samples[1];
@@ -202,6 +198,12 @@ void __not_in_flash_func(smol_adc_fifo_threshold_irq_handler)(void) {
 
 #ifdef DEBUG_ADC_FIFO_THRES_WITH_GPIO
 	gpio_out_put_fast(DEBUG_ADC_FIFO_THRES_WITH_GPIO, 0);
+	// if (prev_block_index == 2) {
+	// 	gpio_out_put_fast(DEBUG_ADC_FIFO_THRES_WITH_GPIO, 0);
+	// 	gpio_out_put_fast(DEBUG_ADC_FIFO_THRES_WITH_GPIO, 1);
+	// 	gpio_out_put_fast(DEBUG_ADC_FIFO_THRES_WITH_GPIO, 1);
+	// 	gpio_out_put_fast(DEBUG_ADC_FIFO_THRES_WITH_GPIO, 0);
+	// }
 #endif
 }
 
@@ -235,14 +237,25 @@ int smol_adc_cs_buf_init(void) {
 	}
 }
 
-void smol_adc_dma_irq_handler(void) {
+void __not_in_flash_func(smol_adc_dma_irq_handler)(void) {
 	dma_channel_acknowledge_irq0(_adc_cs_dma_channel);
 	dbg_println("adc cs dma!");
 }
 
-void smol_adc_pwm_irq_handler(void) {
+void __not_in_flash_func(smol_adc_pwm_irq_handler)(void) {
 	pwm_clear_irq(PWM_ADC_SLICE);
 	dbg_println("adc wrap!");
+}
+
+void __not_in_flash_func(smol_adc_timing_irq_handler)(void) {
+#ifdef DEBUG_ADC_TIMING_WITH_GPIO
+	gpio_out_put_fast(DEBUG_ADC_TIMING_WITH_GPIO, 1);
+#endif
+	pwm_clear_irq(PWM_SERVO_LOOP_SLICE);
+	// dbg_println("adc wrap!");
+#ifdef DEBUG_ADC_TIMING_WITH_GPIO
+	gpio_out_put_fast(DEBUG_ADC_TIMING_WITH_GPIO, 0);
+#endif
 }
 
 
@@ -281,23 +294,46 @@ int smol_adc_dma_init(void) {
 #ifdef DEBUG_DMA_ADC
     dma_channel_set_irq0_enabled(_adc_cs_dma_channel, true);
 	irq_set_exclusive_handler(DMA_IRQ_0, smol_adc_dma_irq_handler);
-	irq_set_priority(DMA_IRQ_0, 0);
+	irq_set_priority(DMA_IRQ_0, 1);
 	irq_set_enabled(DMA_IRQ_0, true);
 #endif
 }
 
 int smol_adc_pwm_init(void) {
-	pwm_config config = pwm_get_default_config();
-	pwm_config_set_wrap(&config, ADC_PWM_TOP);
-	pwm_config_set_phase_correct(&config, false);
-	pwm_config_set_clkdiv_mode(&config, PWM_DIV_FREE_RUNNING);
-	pwm_init(PWM_ADC_SLICE, &config, false);
+	{
+		pwm_config config = pwm_get_default_config();
+		pwm_config_set_wrap(&config, ADC_PWM_TOP);
+		pwm_config_set_phase_correct(&config, false);
+		pwm_config_set_clkdiv_mode(&config, PWM_DIV_FREE_RUNNING);
+		pwm_init(PWM_ADC_SLICE, &config, false);
 
-	pwm_set_counter(PWM_ADC_SLICE, SMOL_SERVO_ADC_ADVANCE_COUNT);
+		pwm_set_counter(PWM_ADC_SLICE, SMOL_SERVO_ADC_ADVANCE_COUNT);
+	}
+
+#ifdef DEBUG_ADC_TIMING_WITH_GPIO
+	gpio_init(DEBUG_ADC_TIMING_WITH_GPIO);
+	gpio_set_dir(DEBUG_ADC_TIMING_WITH_GPIO, true);
+	{
+		pwm_config config = pwm_get_default_config();
+		pwm_config_set_wrap(&config, SMOL_SERVO_BRIDGE_PWM_PERIOD_CLOCKS-1);
+		pwm_config_set_phase_correct(&config, false);
+		pwm_config_set_clkdiv_mode(&config, PWM_DIV_FREE_RUNNING);
+		pwm_init(PWM_SERVO_LOOP_SLICE, &config, false);
+
+		pwm_set_counter(PWM_SERVO_LOOP_SLICE, SMOL_SERVO_ADC_ADVANCE_COUNT);
+
+	}
+	pwm_clear_irq(PWM_ADC_SLICE);
+	pwm_set_irq1_enabled(PWM_SERVO_LOOP_SLICE, true);
+
+	irq_set_exclusive_handler(PWM_IRQ_WRAP_1, smol_adc_timing_irq_handler);
+	irq_set_priority(PWM_IRQ_WRAP_1, 0);
+	irq_set_enabled(PWM_IRQ_WRAP_1, true);
+#endif
 
 #ifdef DEBUG_PWM_ADC_GPIO
-	gpio_set_function(28, GPIO_FUNC_PWM);
-	gpio_set_function(29, GPIO_FUNC_PWM);
+	gpio_set_function(DEBUG_PWM_ADC_GPIO, GPIO_FUNC_PWM);
+	gpio_set_function(DEBUG_PWM_ADC_GPIO+1, GPIO_FUNC_PWM);
 	pwm_set_both_levels(PWM_ADC_SLICE, 300, 300);
 #endif
 
@@ -306,7 +342,7 @@ int smol_adc_pwm_init(void) {
 	pwm_set_irq1_enabled(PWM_ADC_SLICE, true);
 
 	irq_set_exclusive_handler(PWM_IRQ_WRAP_1, smol_adc_pwm_irq_handler);
-	irq_set_priority(PWM_IRQ_WRAP_1, 0);
+	irq_set_priority(PWM_IRQ_WRAP_1, 1);
 	irq_set_enabled(PWM_IRQ_WRAP_1, true);
 #endif
 }
@@ -382,12 +418,12 @@ float smol_adc_last_voltage2(size_t channel) {
 
 float smol_adc_vbus(void) {
 	uint16_t sample = _adc_read_buf[ADC_CHANNEL_VBUS][0];
-	return sample * ADC_COUNT_TO_VOLTAGE; // / ADC_VBUS_DIV;
+	return sample * ADC_COUNT_TO_VOLTAGE / ADC_VBUS_DIV;
 }
 
 float smol_adc_vdd(void) {
 	uint16_t sample = _adc_read_buf[ADC_CHANNEL_VDD][0];
-	return sample * ADC_COUNT_TO_VOLTAGE; // / ADC_VDD_DIV;
+	return sample * ADC_COUNT_TO_VOLTAGE / ADC_VDD_DIV;
 }
 
 float smol_chip_temperature_celsius(void) {

@@ -11,6 +11,8 @@
  * 
  * MSB is READ=0, WRITE=1.
  * 
+ * The current sense circuitry is susceptible to switching spikes for 2-4us. The 60kHz PWM is ~16.67us. We sample the channels at 120kHz intervals, centered on the pulse hi and low periods, so one of them should always be at more than 4us from an edge.
+ * 
  */
 
 #define TMC_RW_BLOCK_SIZE 5

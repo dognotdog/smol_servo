@@ -3,7 +3,20 @@
 pico_board_cmake_set(PICO_PLATFORM, rp2350)
 
 // --- RP2350 VARIANT ---
+#define PICO_RP2350A 0
 #define PICO_RP2350B 1
+
+// #define PICO_BOOT_STAGE2_CHOOSE_W25Q080 1
+
+// RP2354 has a W25Q16JV 16Mbit chip in the package
+pico_board_cmake_set_default(PICO_FLASH_SIZE_BYTES, (2 * 1024 * 1024))
+#ifndef PICO_FLASH_SIZE_BYTES
+#define PICO_FLASH_SIZE_BYTES (2 * 1024 * 1024)
+#endif
+
+#ifndef PICO_FLASH_SPI_CLKDIV
+#define PICO_FLASH_SPI_CLKDIV 2
+#endif
 
 // board detect?
 #define RASPBERRYPI_SMOL_SERVO_RPICO

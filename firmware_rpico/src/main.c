@@ -11,8 +11,10 @@
 
 #include "hardware/i2c.h"
 #include "hardware/structs/busctrl.h"
+#include "hardware/structs/accessctrl.h"
 
 #include "smol_servo.h"
+#include "smol_console.h"
 #include "pico_debug.h"
 
 #include "fusb302.h"
@@ -80,18 +82,22 @@ void pico_set_led(bool led_on) {
     gpio_put(LED_PIN, led_on);
 }
 
-static void _core1_init(void) {
-	// mess with AHB priorities
-	uint32_t prio = busctrl_hw->priority;
-	// increase Core1 bus priority
-	prio = BUSCTRL_BUS_PRIORITY_PROC1_BITS;
-	busctrl_hw->priority = prio;
+static void __not_in_flash_func(_core1_init)(void) {
+	// // mess with AHB priorities
+	// uint32_t prio = busctrl_hw->priority;
+	// // increase Core1 bus priority
+	// prio = BUSCTRL_BUS_PRIORITY_PROC1_BITS;
+	// busctrl_hw->priority = prio;
 
 	smol_servo_loop_init();
 	smol_servo_loop_start();
 
+
+	// disable FLASH access for CORE 1 so we don't get XIP data stalls
+	hw_clear_bits(&accessctrl_hw->xip_main, 0xACCE0000 | ACCESSCTRL_XIP_MAIN_CORE1_BITS);
+
 	while (1) {
-		smol_servo_loop_idle();
+		smol_servo_loop_idle_core1();
 	}
 }
 
@@ -110,7 +116,8 @@ int main(int argc, char const *argv[])
     tmc6200_spi_init(DRV_SPI, DRV_MOSI_PIN, DRV_NSS_PIN, DRV_SLCK_PIN, DRV_MISO_PIN);
 
 	i2c_fusb_init();
-	fusb302_init(FUSB_I2C);
+	fusb302_init(FUSB_I2C, FUSB_INT_PIN);
+	smol_usb_pd_init();
 
 	multicore_reset_core1();
 	multicore_launch_core1(_core1_init);
@@ -118,6 +125,16 @@ int main(int argc, char const *argv[])
 	bool led = false;
 	while (1) {
 		picobug_process_core1_queue();
+
+		int ch = getchar_timeout_us(0);
+		if (ch >= 0) {
+			smol_console_process_char(ch);
+		}
+
+		smol_usb_pd_run();
+		
+		smol_servo_loop_idle_core0();
+
 		// pico_set_led(led = !led);
 		// uint64_t t_fast = timer_time_us_64(timer1_hw);
 		// dbg_time_t tt = {.seconds = t_fast / 1000000u, .microseconds = t_fast % 1000000u};
