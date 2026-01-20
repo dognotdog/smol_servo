@@ -214,16 +214,21 @@ int fusb302_measure_vbus(float vbus_threshold, bool* input_is_higher) {
     // enable VBUS measurement
     measure |= FUSB_MEASURE_MEAS_VBUS_MASK;
     measure &= ~FUSB_MEASURE_MDAC_MASK;
-    uint8_t threshold_int = vbus_threshold / 0.42f;
+    // TODO: initial PCB's VBUS_LV didn't work right.
+    uint8_t threshold_int = vbus_threshold / 0.42f - 1;
     measure |= threshold_int;
     assert(0 == fusb302_write_reg(FUSB_REG_MEASURE, measure));
+    dbg_println("MEASURE:MDAC = %u", threshold_int);
 
     // read result
     sleep_us(250);
     uint8_t status0 = 0;
     assert(0 == fusb302_read_reg(FUSB_REG_STATUS0, &status0));
 
-    *input_is_higher = (0 != (status0 & FUSB_STATUS0_COMP_MASK));
+    bool comp = (0 != (status0 & FUSB_STATUS0_COMP_MASK));
+    dbg_println("STATUS0:COMP = %u", comp);
+
+    *input_is_higher = comp;
 
     // disable measurement
     measure = measure_initial;

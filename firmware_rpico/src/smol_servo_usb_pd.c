@@ -497,6 +497,8 @@ static void _parse_pd_data_object(bool is_sop, uint32_t cmd, uint8_t obj[4], siz
 
 /**
  * Idle function for PD negotiations. Statemachine and RX checks.
+ * 
+ * Since we're not running the FUSB302 in "autonomous" mode, and with the VUSB sense pin connected to the TPD4S480's VBUS_LV pin, we have to manually read out VUSB to detect attach/detach.
  */
 void smol_usb_pd_run(void) {
 	bool have_irq = fusb302_have_irq();
@@ -687,7 +689,7 @@ void smol_usb_pd_run(void) {
 	float vusb_lv = 4.0f * VBUS_LV_RATIO;
 	bool vusb_ok = false;
 	fusb302_measure_vbus(vusb_lv, &vusb_ok);
-	// info_println("PD check VUSB_OK = %u", vusb_ok);
+	info_println("PD check VUSB_OK = %u", vusb_ok);
 	float vbus = smol_adc_vbus();
 	// info_println("PD check VBUS = %.3f", vbus);
 
