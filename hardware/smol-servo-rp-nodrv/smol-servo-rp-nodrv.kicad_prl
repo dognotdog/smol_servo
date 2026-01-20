@@ -50,7 +50,7 @@
       "conflict_shadows",
       "shapes"
     ],
-    "visible_layers": "00000000_00000000_0ffcdff4_ffffffff",
+    "visible_layers": "00000000_00000000_0ffcdff4_fffdffff",
     "zone_display_mode": 0
   },
   "git": {
@@ -60,7 +60,7 @@
     "ssh_key": ""
   },
   "meta": {
-    "filename": "smol-servo-rpi2350-tmc6200.kicad_prl",
+    "filename": "smol-servo-rp-nodrv.kicad_prl",
     "version": 5
   },
   "net_inspector_panel": {
