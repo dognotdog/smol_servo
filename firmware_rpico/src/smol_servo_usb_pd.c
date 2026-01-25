@@ -242,9 +242,9 @@ static bool _pd_check_vbus(void) {
 	float vusb_lv = 4.0f * VBUS_LV_RATIO;
 	bool vusb_ok = false;
 	fusb302_measure_vbus(vusb_lv, &vusb_ok);
-	info_println("PD check VUSB_OK = %u", vusb_ok);
+	// info_println("PD check VUSB_OK = %u", vusb_ok);
 	float vbus = smol_adc_vbus();
-	info_println("PD check VBUS = %.3f", vbus);
+	// info_println("PD check VBUS = %.3f", vbus);
 
 	return false;
 }
@@ -505,7 +505,7 @@ void smol_usb_pd_run(void) {
 	uint64_t now_us = smol_time64(timer0_hw);
 
 	if (have_irq) {
-		dbg_println("ISB PD have_irq");
+		// dbg_println("USB PD have_irq");
 		uint8_t interrupta = 0;
 		fusb302_read_reg(FUSB_REG_INTERRUPTA, &interrupta);
 		uint8_t interruptb = 0;
@@ -513,9 +513,9 @@ void smol_usb_pd_run(void) {
 		uint8_t interrupt = 0;
 		fusb302_read_reg(FUSB_REG_INTERRUPT, &interrupt);
 
-		dbg_println("USB PD INTERRUPT  0x%02x", interrupt);
-		dbg_println("USB PD INTERRUPTA 0x%02x", interrupta);
-		dbg_println("USB PD INTERRUPTB 0x%02x", interruptb);
+		// dbg_println("USB PD INTERRUPT  0x%02x", interrupt);
+		// dbg_println("USB PD INTERRUPTA 0x%02x", interrupta);
+		// dbg_println("USB PD INTERRUPTB 0x%02x", interruptb);
 
 		bool vbus_ok = (interrupt >> 7) & 0x01;
 		bool activity = (interrupt >> 6) & 0x01;
@@ -689,7 +689,7 @@ void smol_usb_pd_run(void) {
 	float vusb_lv = 4.0f * VBUS_LV_RATIO;
 	bool vusb_ok = false;
 	fusb302_measure_vbus(vusb_lv, &vusb_ok);
-	info_println("PD check VUSB_OK = %u", vusb_ok);
+	// info_println("PD check VUSB_OK = %u", vusb_ok);
 	float vbus = smol_adc_vbus();
 	// info_println("PD check VBUS = %.3f", vbus);
 

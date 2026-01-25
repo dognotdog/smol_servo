@@ -70,10 +70,14 @@ static _smol_servo_pwm_ram_vars_t _ram = {
 	.bridge_pwm_slices = BRIDGE_PWM_SLICES,
 
 	.pwm_cc_loop_bufs = {
-		{{150, 150}, {150, 150}, {150, 150}},
-		{{150, 150}, {150, 150}, {150, 150}},
-		{{150, 150}, {150, 150}, {150, 150}},
-		{{150, 150}, {150, 150}, {150, 150}},
+		// {{150, 150}, {150, 150}, {150, 150}},
+		// {{150, 150}, {150, 150}, {150, 150}},
+		// {{150, 150}, {150, 150}, {150, 150}},
+		// {{150, 150}, {150, 150}, {150, 150}},
+		{{75, 75}, {150, 150}, {225, 225}},
+		{{75, 75}, {150, 150}, {225, 225}},
+		{{75, 75}, {150, 150}, {225, 225}},
+		{{75, 75}, {150, 150}, {225, 225}},
 		// {{BRIDGE_PWM_MID, BRIDGE_PWM_MID}, {BRIDGE_PWM_MID, BRIDGE_PWM_MID}, {BRIDGE_PWM_MID, BRIDGE_PWM_MID}},
 		// {{BRIDGE_PWM_MID, BRIDGE_PWM_MID}, {BRIDGE_PWM_MID, BRIDGE_PWM_MID}, {BRIDGE_PWM_MID, BRIDGE_PWM_MID}},
 		// {{BRIDGE_PWM_MID, BRIDGE_PWM_MID}, {BRIDGE_PWM_MID, BRIDGE_PWM_MID}, {BRIDGE_PWM_MID, BRIDGE_PWM_MID}},
@@ -85,6 +89,11 @@ static _smol_servo_pwm_ram_vars_t _ram = {
 	},
 };
 
+
+void __not_in_flash_func(smol_pwm_fill)(uint32_t pwm_values[3][3], size_t starting_phase);
+void smol_pwm_fill(uint32_t pwm_values[3][3], size_t starting_phase) {
+
+}
 
 // void  __not_in_flash_func(smol_bridge_pwm_wrap_irq_handler)(void) __attribute__ ((optimize(0)));
 void  __not_in_flash_func(smol_bridge_pwm_wrap_irq_handler)(void);
@@ -144,11 +153,36 @@ void smol_servo_bridge_pwm_slice_init(int slice) {
 	pwm_set_both_levels(slice, BRIDGE_PWM_TOP*2/3,  BRIDGE_PWM_TOP*1/3);
 }
 
+void smol_servo_bridge_doubletime_slice_init(int slice) {
+	pwm_config config = pwm_get_default_config();
+	pwm_config_set_wrap(&config, BRIDGE_PWM_TOP);
+	pwm_config_set_phase_correct(&config, false);
+	pwm_config_set_clkdiv_int(&config, 1);
+	pwm_config_set_clkdiv_mode(&config, PWM_DIV_FREE_RUNNING);
+	pwm_init(slice, &config, false);
+	pwm_set_both_levels(slice, BRIDGE_PWM_TOP*2/3,  BRIDGE_PWM_TOP*1/3);
+}
+
+void smol_servo_bridge_twothirds_slice_init(int slice) {
+	pwm_config config = pwm_get_default_config();
+	pwm_config_set_wrap(&config, SMOL_SERVO_LOOP_PERIOD_CLOCKS/4 - 1);
+	pwm_config_set_phase_correct(&config, false);
+	pwm_config_set_clkdiv_int(&config, 1);
+	pwm_config_set_clkdiv_mode(&config, PWM_DIV_FREE_RUNNING);
+	pwm_init(slice, &config, false);
+	pwm_set_both_levels(slice, BRIDGE_PWM_TOP*2/3,  BRIDGE_PWM_TOP*1/3);
+
+	pwm_set_counter(slice, SMOL_SERVO_LOOP_PERIOD_CLOCKS/6);
+}
+
+
 void smol_servo_bridge_pwm_init(void) {
 	smol_servo_bridge_pwm_slice_init(PWMA_SLICE);
 	smol_servo_bridge_pwm_slice_init(PWMB_SLICE);
 	smol_servo_bridge_pwm_slice_init(PWMC_SLICE);
 	smol_servo_bridge_pwm_slice_init(PWMR_SLICE);
+	smol_servo_bridge_doubletime_slice_init(PWM_DOUBLETIME_SLICE);
+	smol_servo_bridge_twothirds_slice_init(PWM_TWOTHIRDS_SLICE);
 
 	gpio_set_function(PWMA_PIN, GPIO_FUNC_PWM);
 	gpio_set_function(PWMB_PIN, GPIO_FUNC_PWM);

@@ -13,6 +13,19 @@ string(REGEX REPLACE "-Og" "-Os" CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG}" )
 
 set(CMAKE_VERBOSE_MAKEFILE 1)
 
+
+# enable FetchContent
+include(FetchContent)
+
+# declare Catch2
+FetchContent_Declare(littlefs
+    GIT_REPOSITORY https://github.com/littlefs-project/littlefs.git
+    GIT_TAG        v2.11.2
+    )
+
+# make available
+FetchContent_MakeAvailable(littlefs)
+
 # Initialise pico_sdk from installed location
 # (note this can come from environment, CMake cache etc)
 
@@ -34,10 +47,17 @@ set(PICO_BOARD_HEADER_DIRS ${CMAKE_CURRENT_LIST_DIR}/src/boards)
 
 set(PICO_BOARD smol_servo_rpico CACHE STRING "Board type")
 # set(PICO_BOARD pico2 CACHE STRING "Board type")
-set(PICO_USE_STACK_GUARDS 1)
-set(PICO_STACK_SIZE 0x1000) # 4k for stack
+
+add_compile_definitions(smol_servo_rpico PUBLIC
+    PICO_USE_STACK_GUARDS=1
+    PICO_STACK_SIZE=0x1000
 # do not support lockout of core1 because realtime
-set(PICO_FLASH_SAFE_EXECUTE_PICO_SUPPORT_MULTICORE_LOCKOUT 0)
+# core1 will never access flash (including XIP)
+    PICO_FLASH_SAFE_EXECUTE_PICO_SUPPORT_MULTICORE_LOCKOUT=0
+    PICO_FLASH_ASSUME_CORE1_SAFE=1
+# TODO: PICO_EMBED_XIP_SETUP=1 is supposed to configure flash better, but seems to crash in the debugger?
+    PICO_EMBED_XIP_SETUP=0
+    )
 
 # Pull in Raspberry Pi Pico SDK (must be before project)
 include(pico_sdk_import.cmake)
@@ -54,10 +74,22 @@ if (TARGET tinyusb_device)
         src/main.c
         src/fusb302.c
         src/tmc6200.c
+        src/as5047d.c
         src/smol_servo_adc.c
-        src/smol_servo_pwm.c
+        src/smol_servo_drv.c
+        src/smol_servo_mag.c
         src/smol_servo_loop.c
+        src/smol_servo_pwm.c
+        src/smol_servo_usb_pd.c
+        src/smol_console.c
+        src/smol_fs.c
         src/pico_debug.c
+        ${littlefs_SOURCE_DIR}/lfs.c
+        ${littlefs_SOURCE_DIR}/lfs_util.c
+        )
+
+    target_include_directories(smol_servo_rpico PUBLIC
+        ${littlefs_SOURCE_DIR}
         )
 
     # pull in common dependencies
@@ -76,12 +108,19 @@ if (TARGET tinyusb_device)
     # target_compile_definitions(${PROJECT_NAME} PUBLIC PICO_DEFAULT_UART_TX_PIN=12)
     # target_compile_definitions(${PROJECT_NAME} PUBLIC PICO_DEFAULT_UART_RX_PIN=13)
 
+pico_set_linker_script(smol_servo_rpico ${CMAKE_SOURCE_DIR}/src/mmap_smol_servo_rp2350.ld)
+
     # enable usb / uart output
     pico_enable_stdio_usb(smol_servo_rpico 1)
     pico_enable_stdio_uart(smol_servo_rpico 1)
+    # do not enable semihosting
+    pico_enable_stdio_semihosting(smol_servo_rpico 0)
 
     # create map/bin/hex/uf2 file etc.
     pico_add_extra_outputs(smol_servo_rpico)
+
+    # for debugging flash access latency issues, use copy_to_ram to eliminate all flash access
+    # pico_set_binary_type(smol_servo_rpico copy_to_ram)
 
     # add url via pico_set_program_url
 elseif(PICO_ON_DEVICE)
@@ -137,5 +176,5 @@ add_custom_command(TARGET debug
     # -ex "monitor swdp_scan"
     # -ex "dashboard -output $(GDB_TTY)"
     # -ex "load $<TARGET_FILE:smol_servo_rpico>"
-    -ex "monitor arm semihosting enable"
+    # -ex "monitor arm semihosting enable"
     )

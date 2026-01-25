@@ -19,10 +19,10 @@
 #define TMC_STATE_NUM_REGISTERS 5
 
 static spi_inst_t *m_spi = NULL;
-int m_spi_mosi_pin;
-int m_spi_nss_pin;
-int m_spi_sclk_pin;
-int m_spi_miso_pin;
+static int m_spi_mosi_pin;
+static int m_spi_nss_pin;
+static int m_spi_sclk_pin;
+static int m_spi_miso_pin;
 
 int tmc6200_read_registers(uint8_t cmd[], uint8_t result[][5], size_t numregs) {
 	for (size_t i = 0; i < numregs; ++i)

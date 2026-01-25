@@ -6,14 +6,22 @@
 
 #include "hardware/timer.h"
 #include "hardware/pwm.h"
+#include "hardware/sync.h"
 #include "pico/platform.h"
 
 #define smol_time64(timer)           \
 	({                               \
+		uint32_t irq = save_and_disable_interrupts(); \
 	    uint32_t lo = timer->timelr; \
 	    uint32_t hi = timer->timehr; \
-		uint64_t result =((uint64_t) hi << 32u) | lo; \
+	    restore_interrupts(irq); \
+		uint64_t result = ((uint64_t) hi << 32u) | lo; \
 		result; \
+	})
+
+#define smol_time32(timer) \
+	({                     \
+	    timer->timerawl;   \
 	})
 
 

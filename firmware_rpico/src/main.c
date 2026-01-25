@@ -14,6 +14,7 @@
 #include "hardware/structs/accessctrl.h"
 
 #include "smol_servo.h"
+#include "smol_fs.h"
 #include "smol_console.h"
 #include "pico_debug.h"
 
@@ -90,7 +91,7 @@ static void __not_in_flash_func(_core1_init)(void) {
 	// busctrl_hw->priority = prio;
 
 	smol_servo_loop_init();
-	smol_servo_loop_start();
+	// smol_servo_loop_start();
 
 
 	// disable FLASH access for CORE 1 so we don't get XIP data stalls
@@ -107,6 +108,8 @@ int main(int argc, char const *argv[])
 
     stdio_init_all();
     pico_led_init();
+
+    smol_fs_init();
 
     // Make the SPI pins available to picotool
     bi_decl(bi_3pins_with_func(DRV_MISO_PIN, DRV_MOSI_PIN, DRV_SLCK_PIN, GPIO_FUNC_SPI));
@@ -132,7 +135,7 @@ int main(int argc, char const *argv[])
 		}
 
 		smol_usb_pd_run();
-		
+
 		smol_servo_loop_idle_core0();
 
 		// pico_set_led(led = !led);

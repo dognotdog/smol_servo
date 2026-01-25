@@ -218,7 +218,7 @@ int fusb302_measure_vbus(float vbus_threshold, bool* input_is_higher) {
     uint8_t threshold_int = vbus_threshold / 0.42f - 1;
     measure |= threshold_int;
     assert(0 == fusb302_write_reg(FUSB_REG_MEASURE, measure));
-    dbg_println("MEASURE:MDAC = %u", threshold_int);
+    // dbg_println("MEASURE:MDAC = %u", threshold_int);
 
     // read result
     sleep_us(250);
@@ -226,7 +226,7 @@ int fusb302_measure_vbus(float vbus_threshold, bool* input_is_higher) {
     assert(0 == fusb302_read_reg(FUSB_REG_STATUS0, &status0));
 
     bool comp = (0 != (status0 & FUSB_STATUS0_COMP_MASK));
-    dbg_println("STATUS0:COMP = %u", comp);
+    // dbg_println("STATUS0:COMP = %u", comp);
 
     *input_is_higher = comp;
 

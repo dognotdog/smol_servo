@@ -4,9 +4,10 @@
 #include "smol_fast.h"
 #include "pico_debug.h"
 
-#include "hardware/pwm.h"
+#include "hardware/dma.h"
 #include "hardware/irq.h"
 #include "hardware/exception.h"
+#include "hardware/pwm.h"
 #include "pico/stdlib.h"
 #include "pico/platform.h"
 
@@ -14,6 +15,9 @@
 #include <assert.h>
 
 static uint32_t _loop_irq_number = -1;
+
+static int _timer1_sample_dma_channel = -1;
+static uint32_t _timer1_sample_dma_buf[1] __aligned(4);
 
 
 static inline void irq_set_pending_fast(uint num) {
@@ -29,6 +33,7 @@ void __not_in_flash_func(smol_servo_signal_loop)(void) {
 	irq_set_pending_fast(_loop_irq_number);
 }
 
+static uint32_t _bridge_pwm_values[3][3];
 
 void __not_in_flash_func(smol_servo_loop_irq_handler)(void) {
 #ifdef DEBUG_LOOP_IRQ_WITH_GPIO
@@ -37,6 +42,42 @@ void __not_in_flash_func(smol_servo_loop_irq_handler)(void) {
 	// only execute on core 1
 	assert_fast(get_core_num() == 1);
 	irq_clear(_loop_irq_number);
+
+	/**
+	 * Fill previously computed PWM values with some assumptions about latency:
+	 *        0     1     2     3     4     5     6     7 ...
+	 * PHASE: 0     1     2     0     1     2     0     1
+	 * PWM:   |w    |w    |w    |w    |w    |w    |w    |w
+	 * LOOP:   |w------|         |w------|         |w------|
+	 * 
+	 * The LOOP might execute up to almost the end of the 3rd phase, and PWM values will be latched in an interrupt callback, so the callback at PH[0] will latch values for PH[1]. Since the PWM IRQ is higher priority than the servo loop, the  next value to apply that is written out at the beginning of LOOP is for PH[2].
+	 * 
+	 * Thus, we have a 5 PWM cycle latency from sampling sensor inputs to applying PWM signals
+	 */
+
+	smol_pwm_fill(_bridge_pwm_values, 2);
+
+	/**
+	 * There are a few things to sample at the beginning of the loop to have available.
+	 * - `now_clocks` current PWM wrap sytem timestamp
+	 * - magnetic encoder reads
+	 * - current sensor reads
+	 */
+
+	// ADC values are at highest sample rate, so do that first
+	float isense_values[3][2];
+	uint32_t isense_times_clocks[3][2];
+	smol_adc_get_isense_values(isense_values, isense_times_clocks);
+
+	uint32_t now_clocks = _timer1_sample_dma_buf[0];
+
+
+
+	uint32_t mag_reading_values[2];
+	int32_t mag_reading_ages_ns[2];
+	smol_mag_get_reading_values(mag_reading_values);
+	smol_mag_get_reading_ages_ns(mag_reading_ages_ns);
+
 
 
 	/**
@@ -75,6 +116,41 @@ static void __not_in_flash_func(_exception_dummy_handler)(void) {
  assert_fast(0);
 }
 
+static void _timer1_sample_dma_init(void) {
+	assert(get_core_num() == 1);
+
+	/**
+	 * Ok, so how do we actually read that 64 bit timer correctly from an interrupt?
+	 * 
+	 * The registers come in [H,L] pairs, but we have to read the L registers first. To make this work via DMA, we thus have to have a READ RING config. However, that leaves us with having to reset the write address after every transfer.
+	 * 
+	 * OR... we only use DMA for the lower 32 bits. At 150MHz, the wrap around time is ~28s which is plenty for short term deltas, and additionally we can always reconstruct the full time with the help of a close software 64bit read.
+	 */
+
+	_timer1_sample_dma_channel = dma_claim_unused_channel(true);
+
+	dma_channel_config_t config = dma_channel_get_default_config(_timer1_sample_dma_channel);
+
+	channel_config_set_transfer_data_size(&config, DMA_SIZE_32);
+	channel_config_set_read_increment(&config, false);
+	channel_config_set_write_increment(&config, false);
+	channel_config_set_dreq(&config, pwm_get_dreq(PWMA_SLICE));
+	// do not chain to other channel
+	channel_config_set_chain_to(&config, _timer1_sample_dma_channel);
+	channel_config_set_enable(&config, true);
+	channel_config_set_high_priority(&config, true);
+
+    dma_channel_configure(
+    	_timer1_sample_dma_channel, 
+    	&config, 
+    	_timer1_sample_dma_buf, 
+    	&timer1_hw->timerawl,
+    	dma_encode_endless_transfer_count(),
+    	true
+    );
+
+}
+
 void smol_servo_loop_init(void) {
 
 	for (size_t i = 0; i < PICO_NUM_VTABLE_IRQS; ++i) {
@@ -89,6 +165,9 @@ void smol_servo_loop_init(void) {
 		// assert(prio > 1);
 	}
 
+	_timer1_sample_dma_init();
+
+	smol_mag_init();
 	smol_adc_init();
 	smol_pwm_init();
 	smol_drv_init();
@@ -96,6 +175,7 @@ void smol_servo_loop_init(void) {
 }
 
 void smol_servo_loop_start(void) {
+    smol_mag_start();
 	smol_pwm_start();
 	smol_adc_start();
 }

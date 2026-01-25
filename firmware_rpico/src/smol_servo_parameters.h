@@ -1,5 +1,18 @@
 #pragma once
 
+/**
+ * 3 phase servo loop sketch
+ * 
+ * LOOP  0                                               1  ...
+ * 20k   |                                               |
+ * PWM   0               1               2               0  ...
+ * 60k   |               |               |               |
+ * MAG   0           1           2           3           0  ...
+ * 80k   |           |           |           |           |
+ * ADC  0.0 0.1 0.2 0.3 1.0 1.1 1.2 1.3 2.0 2.1 2.2 2.3 0.0 ... 
+ * 240k  |   |   |   |   |   |   |   |   |   |   |   |   |
+ */
+
 #define SMOL_SERVO_PHASES                   (3)
 #define SMOL_SERVO_PWM_PER_LOOP             (3)
 
@@ -14,7 +27,7 @@
 
 #define SMOL_SERVO_ADC_ADVANCE_COUNT         (150)
 
-#define SMOL_SERVO_PWM_SLICE_MASK ((1u << PWMA_SLICE) | (1u << PWMB_SLICE) | (1u << PWMC_SLICE) | (1u << PWMR_SLICE) | (1u << PWM_ADC_SLICE)| (1u << PWM_SERVO_LOOP_SLICE))
+#define SMOL_SERVO_PWM_SLICE_MASK ((1u << PWMA_SLICE) | (1u << PWMB_SLICE) | (1u << PWMC_SLICE) | (1u << PWMR_SLICE) | (1u << PWM_ADC_SLICE) | (1u << PWM_SERVO_LOOP_SLICE) | (1u << PWM_DOUBLETIME_SLICE) | (1u << PWM_TWOTHIRDS_SLICE))
 // #define SMOL_SERVO_PWM_SLICE_MASK (0xFFFFFFFF)
 
 #define BRIDGE_PWM_WRAP_IRQ PWM_IRQ_WRAP_0
@@ -49,7 +62,7 @@
 #define SMOL_LOOP_IRQ_PRIORITY (0x80)
 
 #define DEBUG_LOOP_IRQ_WITH_GPIO 8
-#define DEBUG_ADC_TIMING_WITH_GPIO 9
+// #define DEBUG_ADC_TIMING_WITH_GPIO 9
 #define DEBUG_PWM_IRQ_WITH_GPIO 13
 // #define DEBUG_PWM_ADC_IRQ
 // #define DEBUG_PWM_ADC_GPIO 28

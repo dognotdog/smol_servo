@@ -117,6 +117,8 @@ pico_board_cmake_set_default(PICO_FLASH_SIZE_BYTES, (2 * 1024 * 1024))
 #define PWM_ADC_SLICE 6
 #define PWM_SERVO_LOOP_SLICE 7
 #define PWMC_SLICE 8
+#define PWM_DOUBLETIME_SLICE 9
+#define PWM_TWOTHIRDS_SLICE 10
 
 pico_board_cmake_set_default(PICO_RP2350_A2_SUPPORTED, 1)
 #ifndef PICO_RP2350_A2_SUPPORTED

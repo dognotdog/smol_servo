@@ -89,6 +89,9 @@ _Static_assert((1 << ADC_RINGBUS_BITS) == (4 * ADC_RINGBUF_WORDS));
 #define ADC_IRQ_PERIOD_CLOCKS_MIN (ADC_IRQ_PERIOD_CLOCKS_NOMINAL - ADC_IRQ_PERIOD_CLOCKS_ALLOWANCE)
 #define ADC_IRQ_PERIOD_CLOCKS_MAX (ADC_IRQ_PERIOD_CLOCKS_NOMINAL + ADC_IRQ_PERIOD_CLOCKS_ALLOWANCE)
 
+static int __not_in_flash("ADC") _adc_irq_period_clocks_min = ADC_IRQ_PERIOD_CLOCKS_MIN;
+static int __not_in_flash("ADC") _adc_irq_period_clocks_max = ADC_IRQ_PERIOD_CLOCKS_MAX;
+
 static int _adc_cs_dma_channel = -1;
 
 static uint32_t _block_index = 0;
@@ -99,10 +102,13 @@ static uint32_t _adc_cs_buf[ADC_PATTERN_NUM_BLOCKS][ADC_PATTERN_BLOCK_SIZE];
 static uint32_t _adc_cs_ringbuf[ADC_RINGBUF_NUM_BLOCKS][ADC_PATTERN_BLOCK_SIZE] __attribute__((aligned(4*ADC_RINGBUF_WORDS)));
 
 static volatile uint32_t _adc_read_buf[NUM_ADC_CHANNELS][2];
+static volatile uint32_t _adc_time_buf[NUM_ADC_CHANNELS][2];
 
 uint32_t smol_adc_block_index(void) {
 	return _block_index;
 }
+
+static uint32_t _prev_irq_t_clocks = 0;
 
 void __not_in_flash_func(smol_adc_fifo_threshold_irq_handler)(void) {
 #ifdef DEBUG_ADC_FIFO_THRES_WITH_GPIO
@@ -112,13 +118,18 @@ void __not_in_flash_func(smol_adc_fifo_threshold_irq_handler)(void) {
 #ifdef DEBUG_ADC_FIFO_THRES
 	dbg_println("adc fifo!");
 #endif
+	/**
+	 * ADC block interrupt handler
+	 * 
+	 * store samples and times
+	 */
 	static bool is_first_run = true;
-	static uint64_t prev_t_clocks = 0;
-	uint64_t t_clocks = smol_time64(timer1_hw);
-	uint32_t dt = t_clocks - prev_t_clocks;
-	prev_t_clocks = t_clocks;
+
 	uint32_t block_complete_index = _block_index;
 	uint32_t ringbuf_complete_index = _ringbuf_index;
+
+	uint32_t t_clocks = smol_time32(timer1_hw);
+	uint32_t dt = t_clocks - _prev_irq_t_clocks;
 	// Block of ADC reads has completed.
 	// 1. Gather ADC reads
 	// 2. Refill CS pattern ringbuf
@@ -146,8 +157,8 @@ void __not_in_flash_func(smol_adc_fifo_threshold_irq_handler)(void) {
 	}
 	else
 	{
-		assert_fast(dt > ADC_IRQ_PERIOD_CLOCKS_MIN);
-		assert_fast(dt < ADC_IRQ_PERIOD_CLOCKS_MAX);
+		assert_fast(dt > _adc_irq_period_clocks_min);
+		assert_fast(dt < _adc_irq_period_clocks_max);
 		// gather ADC read results from FIFO
 
 		// sanity check that we have exactly 4 samples waiting and no under/overflows
@@ -178,11 +189,18 @@ void __not_in_flash_func(smol_adc_fifo_threshold_irq_handler)(void) {
 
 		// ...then assign samples to correct ADC channels.
 		// samples contain two evenly spaced current reads [0,2] and two aux reads in between [1,3]
+		// 
 		assert_fast(block_complete_index < ADC_PATTERN_NUM_BLOCKS);
 		_adc_read_buf[prev_block_index][0] = samples[0];
 		_adc_read_buf[prev_block_index][1] = samples[2];
 		_adc_read_buf[2*prev_block_index + 3][0] = samples[1];
 		_adc_read_buf[2*prev_block_index + 4][0] = samples[3];
+
+		// TIME: we're executed roughly at the end of the ADC sampling of the 4th block, so at about +1us (150clk) past center of sample.
+		_adc_time_buf[prev_block_index][0] = t_clocks - 3 *SMOL_SERVO_ADC_PERIOD_CLOCKS - 150;
+		_adc_time_buf[prev_block_index][1] = t_clocks - 1 *SMOL_SERVO_ADC_PERIOD_CLOCKS - 150;
+		_adc_time_buf[2*prev_block_index + 3][0] = t_clocks - 2 *SMOL_SERVO_ADC_PERIOD_CLOCKS - 150;
+		_adc_time_buf[2*prev_block_index + 4][0] = t_clocks - 0 *SMOL_SERVO_ADC_PERIOD_CLOCKS - 150;
 	}
 
 	// refill CS pattern. This is a software op because of the power-of-two restriction on DMA ringbuffer sizes, but we have a 3x factor for our 3-phase pattern.
@@ -195,6 +213,7 @@ void __not_in_flash_func(smol_adc_fifo_threshold_irq_handler)(void) {
 	// update indices for next round.
 	_block_index = next_block_index;
 	_ringbuf_index = next_ringbuf_index;
+	_prev_irq_t_clocks = t_clocks;
 
 #ifdef DEBUG_ADC_FIFO_THRES_WITH_GPIO
 	gpio_out_put_fast(DEBUG_ADC_FIFO_THRES_WITH_GPIO, 0);
@@ -402,6 +421,17 @@ static float _adc_to_temperature_celsius(uint16_t sample) {
 	float adc_voltage = sample * ADC_COUNT_TO_VOLTAGE;
 	float t_celsius = 27.0f + (adc_voltage - vbe) / slope;
 	return t_celsius;
+}
+
+void __not_in_flash_func(smol_adc_get_isense_values)(float values[3][2], uint32_t times[3][2]) {
+	for (size_t i = 0; i < 3; ++i) {
+		uint16_t sample0 = _adc_read_buf[i][0];
+		uint16_t sample1 = _adc_read_buf[i][1];
+		values[i][0] = sample0 * ADC_COUNT_TO_VOLTAGE;
+		values[i][1] = sample1 * ADC_COUNT_TO_VOLTAGE;
+		times[i][0] = _adc_time_buf[i][0];
+		times[i][1] = _adc_time_buf[i][1];
+	}
 }
 
 float smol_adc_last_voltage(size_t channel) {
