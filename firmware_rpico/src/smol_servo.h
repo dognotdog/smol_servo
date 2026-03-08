@@ -36,5 +36,7 @@ void smol_adc_get_isense_values(float values[3][2], uint32_t times_clocks[3][2])
 void smol_mag_get_reading_values(uint32_t values[2]);
 void smol_mag_get_reading_ages_ns(int32_t ages[2]);
 
+float smol_sin(float x);
+
 // debugging / watchdog
 uint32_t smol_adc_block_index(void);

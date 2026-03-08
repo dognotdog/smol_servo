@@ -113,8 +113,7 @@ static void _tx_dma_init(void) {
 	channel_config_set_read_increment(&tx_config, true);
 	channel_config_set_write_increment(&tx_config, false);
 
-	// 2x faster than the PWM phase correct interrupts
-	channel_config_set_dreq(&tx_config, pwm_get_dreq(PWM_TWOTHIRDS_SLICE));
+	channel_config_set_dreq(&tx_config, pwm_get_dreq(PWM_MAG_SLICE));
 
 	// do not chain to other channel
 	channel_config_set_chain_to(&tx_config, _mag_tx_dma_channel);

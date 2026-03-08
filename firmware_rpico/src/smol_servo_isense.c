@@ -8,6 +8,9 @@
 
 #define ISENSE_SAMPLE_CYCLES 150 // half of the 2us sampling time
 
+#define VSENSE_SIGMA (16.0f/4096.0f*3.3f)
+#define VSENSE_VAR (ISENSE_SIGMA * ISENSE_SIGMA)
+
 void smol_isense_update_phase_current(size_t phase, float vsense[2], float amplification, const uint32_t pwm_min_cycles, const uint32_t pwm_max_cycles, const uint32_t pwm_half_period_cycles) {
 	// find out if low (0) or high (1) current sample is valid
 	int32_t low_margin = pwm_min_cycles - ISENSE_SAMPLE_CYCLES -ISENSE_SETTLING_CYCLES;
@@ -25,4 +28,11 @@ void smol_isense_update_phase_current(size_t phase, float vsense[2], float ampli
 
 	float isense = 
 
+}
+
+void smol_isense_observe_adc(float vsense, uint32_t tsense_clocks) {
+	float vsense_variance = VSENSE_VAR;
+
+	smol_model_predict(tsense_clocks);
+	smol_model_update_vsense(vsense, vsense_variance);
 }

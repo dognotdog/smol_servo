@@ -11,7 +11,7 @@
  * 
  * We have the FUSB302 connected through a TPD4S480, which means it is getting a reduced voltage by a factor of 0.42 to account for ESR 48V supplies. This means that likely VBUSOK will never trigger, but that's ok because we can measure it.
  * 
- * The default negotiation is requesting at least 9V at the highes power envelope.
+ * The default negotiation is requesting at least 9V at the highest power envelope.
  * 
  * If we already have a VBUS we will not request higher voltage over USB. 
  * 

@@ -52,7 +52,7 @@ void __not_in_flash_func(smol_servo_loop_irq_handler)(void) {
 	 * 
 	 * The LOOP might execute up to almost the end of the 3rd phase, and PWM values will be latched in an interrupt callback, so the callback at PH[0] will latch values for PH[1]. Since the PWM IRQ is higher priority than the servo loop, the  next value to apply that is written out at the beginning of LOOP is for PH[2].
 	 * 
-	 * Thus, we have a 5 PWM cycle latency from sampling sensor inputs to applying PWM signals
+	 * Thus, we have a 5 PWM cycle latency from sampling sensor inputs to applying PWM signals.
 	 */
 
 	smol_pwm_fill(_bridge_pwm_values, 2);

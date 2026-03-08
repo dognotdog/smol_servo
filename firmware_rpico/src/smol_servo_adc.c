@@ -94,7 +94,7 @@ static int __not_in_flash("ADC") _adc_irq_period_clocks_max = ADC_IRQ_PERIOD_CLO
 
 static int _adc_cs_dma_channel = -1;
 
-static uint32_t _block_index = 0;
+static uint32_t _block_index = ADC_PATTERN_NUM_BLOCKS - 1;
 static uint32_t _ringbuf_index = 0;
 
 static uint32_t _adc_cs_buf[ADC_PATTERN_NUM_BLOCKS][ADC_PATTERN_BLOCK_SIZE];
@@ -240,6 +240,9 @@ static uint32_t smol_adc_cs_for_read(uint32_t ch) {
 
 
 int smol_adc_cs_buf_init(void) {
+	// reset indices
+	_block_index = ADC_PATTERN_NUM_BLOCKS - 1;
+	_ringbuf_index = 0;
 	// init interleaved read pattern
 	// [0,2] are bridge current sense values on channels 0-2
 	// [1,3] are aux reads on channels 3-8
@@ -251,8 +254,11 @@ int smol_adc_cs_buf_init(void) {
 		_adc_cs_buf[i][3] = smol_adc_cs_for_read(2*i + 4);
 	}
 	// pre-fill ringbuffer
+	// we are starting at N-1 to proper alignment with the servo loop
+	// (see smol_servo_parameters.h for timing description)
 	for (size_t i = 0; i < ADC_RINGBUF_NUM_BLOCKS; ++i) {
-		memcpy(_adc_cs_ringbuf[i], _adc_cs_buf[i % ADC_PATTERN_NUM_BLOCKS], 4 * ADC_PATTERN_BLOCK_SIZE);
+		size_t this_block_index = (_block_index + i) % ADC_PATTERN_NUM_BLOCKS;
+		memcpy(_adc_cs_ringbuf[_ringbuf_index + i], _adc_cs_buf[this_block_index], 4 * ADC_PATTERN_BLOCK_SIZE);
 	}
 }
 
