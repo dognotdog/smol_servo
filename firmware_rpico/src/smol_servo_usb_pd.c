@@ -23,6 +23,9 @@
 // timeout for initial power negotation
 #define PD_ATTACH_TIMEOUT_US (5000000)
 
+// USB PD message header Spec Revision field [6:5]: 00=Rev1.0, 01=Rev2.0, 10=Rev3.0/3.1
+#define PD_SPEC_REV_30  2
+
 #define TXON_TOKEN 0xA1
 
 #define PD_TOKEN_SOP  0x7
@@ -205,7 +208,6 @@ typedef struct {
 
 static src_cap_t _src_capabilities[MAX_NUM_SRC_CAPS] = {};
 static uint32_t _msg_counter = 0;
-static uint32_t _pd_revision = 1;
 static pd_preference_t _pd_power_preference = PD_PREFERENCE_MAX_POWER;
 
 static void _pd_tx_header(uint32_t cmd, size_t num_objects) {
@@ -214,7 +216,7 @@ static void _pd_tx_header(uint32_t cmd, size_t num_objects) {
 	uint8_t packsym = FUSB_FIFO_TX_PACKSYM | (2 + 4*num_objects);
 	fusb302_tx(&packsym, 1);
 	uint16_t header = 0;
-	header |= _pd_revision << 6;
+	header |= PD_SPEC_REV_30 << 5;
 	header |= ((_msg_counter++) & 0x7) << 9;
 	header |= num_objects << 12;
 	header |= cmd << 0;
@@ -232,7 +234,7 @@ static void _pd_tx_send(void) {
 	uint8_t eop = FUSB_FIFO_TX_EOP;
 	fusb302_tx(&eop, 1);
 	uint8_t off = FUSB_FIFO_TX_OFF;
-	fusb302_tx(&eop, 1);
+	fusb302_tx(&off, 1);
 	uint8_t on = FUSB_FIFO_TX_ON;
 	fusb302_tx(&on, 1);
 }
@@ -272,7 +274,7 @@ static void _pd_respond_to_src_caps(void) {
 		}
 		if (_src_capabilities[i].max_current > _src_capabilities[best_current_cap].max_current)
 			best_current_cap = i;
-		if (_src_capabilities[i].max_power > _src_capabilities[best_current_cap].max_power)
+		if (_src_capabilities[i].max_power > _src_capabilities[best_power_cap].max_power)
 			best_power_cap = i;
 	}
 
@@ -294,7 +296,7 @@ static void _pd_respond_to_src_caps(void) {
 	best_voltage = _src_capabilities[pdo_index].is_variable ? _src_capabilities[pdo_index].min_voltage : _src_capabilities[pdo_index].max_voltage;
 
 	uint32_t request_obj = 0;
-	request_obj |= pdo_index << 28;
+	request_obj |= (pdo_index + 1) << 28;  // PD object positions are 1-based; array index 0 = PDO position 1
 	request_obj |= ((best_voltage < 9000) && !already_have_vbus) << 26; // cap mismatch
 	request_obj |= 1u << 25; // USB comms
 	request_obj |= 1u << 24; // no SUSPEND

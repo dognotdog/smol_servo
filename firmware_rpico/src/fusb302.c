@@ -138,6 +138,7 @@ int fusb302_check_cc1(uint8_t* bc_lvl) {
     switches0 &= ~(FUSB_SWITCHES0_MEAS_CC2_MASK);
     switches0 |= (FUSB_SWITCHES0_MEAS_CC1_MASK);
     assert(0 == fusb302_write_reg(FUSB_REG_SWITCHES0, switches0));
+    sleep_us(250);  // allow CC mux and comparator to settle before reading BC_LVL
 
     uint8_t status0 = 0;
     assert(0 == fusb302_read_reg(FUSB_REG_STATUS0, &status0));
@@ -147,13 +148,14 @@ int fusb302_check_cc1(uint8_t* bc_lvl) {
 }
 
 int fusb302_check_cc2(uint8_t* bc_lvl) {
-    // set to measure CC1
+    // set to measure CC2
     uint8_t switches0 = 0;
     assert(0 == fusb302_read_reg(FUSB_REG_SWITCHES0, &switches0));
 
     switches0 &= ~(FUSB_SWITCHES0_MEAS_CC1_MASK);
     switches0 |= (FUSB_SWITCHES0_MEAS_CC2_MASK);
     assert(0 == fusb302_write_reg(FUSB_REG_SWITCHES0, switches0));
+    sleep_us(250);  // allow CC mux and comparator to settle before reading BC_LVL
 
     uint8_t status0 = 0;
     assert(0 == fusb302_read_reg(FUSB_REG_STATUS0, &status0));
