@@ -139,6 +139,31 @@ set(PROGRAMMER_FLAGS
 
 set(GDB "${PICO_TOOLCHAIN_PATH}/bin/arm-none-eabi-gdb")
 
+add_custom_target(bmp_flash
+    COMMAND ${GDB} --batch
+      -ex "target extended-remote /dev/cu.usbmodem97B70B291"
+      -ex "monitor tpwr enable"
+      -ex "monitor swdp_scan"
+      -ex "attach 1"
+      -ex "monitor halt_timeout 2000"
+      -ex "load"
+      -ex "compare-sections"
+      -ex "monitor reset"
+      -ex "detach"
+      $<TARGET_FILE:smol_servo_rpico>
+    DEPENDS smol_servo_rpico
+    VERBATIM)
+
+add_custom_target(bmp_reset
+    COMMAND ${GDB} --batch
+      -ex "target extended-remote /dev/cu.usbmodem97B70B291"
+      -ex "monitor tpwr enable"
+      -ex "monitor swdp_scan"
+      -ex "monitor reset"
+      $<TARGET_FILE:smol_servo_rpico>
+    DEPENDS smol_servo_rpico
+    VERBATIM)
+
 add_custom_target(swd_flash
     COMMAND ${PROGRAMMER} ${PROGRAMMER_FLAGS} 
     -c "program $<TARGET_FILE:smol_servo_rpico> verify"
