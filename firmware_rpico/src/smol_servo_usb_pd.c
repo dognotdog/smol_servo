@@ -22,11 +22,17 @@
 
 // timeout for initial power negotation
 #define PD_ATTACH_TIMEOUT_US (5000000)
-
 // USB PD message header Spec Revision field [6:5]: 00=Rev1.0, 01=Rev2.0, 10=Rev3.0/3.1
 #define PD_SPEC_REV_30  2
 
 #define TXON_TOKEN 0xA1
+
+// frequent FUSB302 interrupts: printing them delays the PD response too much
+#ifdef SMOL_PD_DEBUG_IRQ
+#define PD_IRQ_DBG(...) dbg_println(__VA_ARGS__)
+#else
+#define PD_IRQ_DBG(...) do {} while (0)
+#endif
 
 #define PD_TOKEN_SOP  0x7
 #define PD_TOKEN_SOP1 0x6
@@ -116,6 +122,17 @@ typedef enum {
 
 static smol_usb_pd_state_t m_usb_pd_state = SMOL_USB_PD_IDLE;
 static uint64_t _attach_time_us = 0;
+static size_t _cc_index = 0;
+static uint32_t _msg_counter = 0;
+
+static void _pd_attach(void) {
+	// reset PD machinery, then connect the BMC transceiver with AUTO_CRC to the active CC pin
+	fusb302_write_reg(FUSB_REG_RESET, FUSB_RESET_PD_MASK);
+	fusb302_set_pd_cc(_cc_index);
+	_msg_counter = 0;
+	_attach_time_us = smol_time64(timer0_hw);
+	m_usb_pd_state = SMOL_USB_PD_CABLE_ATTACHED;
+}
 
 void smol_usb_pd_init(void) {
 	// float vbus_lv = 0.0f;
@@ -142,32 +159,8 @@ void smol_usb_pd_init(void) {
 	else
 	{
 		info_println("USB PD source detected on CC%u!", cc_index);
-		_attach_time_us = smol_time64(timer0_hw);
-		m_usb_pd_state = SMOL_USB_PD_CABLE_ATTACHED;
-
-		// reset PD machinery
-		fusb302_write_reg(FUSB_REG_RESET, FUSB_RESET_PD_MASK);
-
-		// we detected an active CC pin so configure our PD TX/RX
-		if (0)
-		{
-			uint8_t switches1 = 0;
-			fusb302_read_reg(FUSB_REG_SWITCHES1, &switches1);
-			// enable PD on cc_index
-			switches1 &= ~0x03;
-			switches1 |= cc_index;
-			// enable AUTO_CRC while we're at it
-			switches1 |= FUSB_SWITCHES1_AUTO_CRC_MASK;
-			fusb302_write_reg(FUSB_REG_SWITCHES1, switches1);
-		}
-		// reconnect measure to the right pin, too
-		{
-			uint8_t switches0 = 0;
-			fusb302_read_reg(FUSB_REG_SWITCHES0, &switches0);
-			switches0 &= ~(FUSB_SWITCHES0_MEAS_CC1_MASK | FUSB_SWITCHES0_MEAS_CC2_MASK);
-			switches0 |= cc_index << FUSB_SWITCHES0_MEAS_CC_LSB;
-			fusb302_write_reg(FUSB_REG_SWITCHES0, switches0);
-		}
+		_cc_index = cc_index;
+		_pd_attach();
 	}
 
 	// float cc1, cc2;
@@ -202,12 +195,12 @@ typedef struct {
 	uint32_t max_power;
 	bool is_battery;
 	bool is_variable;
+	bool is_apdo;
 } src_cap_t;
 
 #define MAX_NUM_SRC_CAPS (7+4) // SPR + EPR
 
 static src_cap_t _src_capabilities[MAX_NUM_SRC_CAPS] = {};
-static uint32_t _msg_counter = 0;
 static pd_preference_t _pd_power_preference = PD_PREFERENCE_MAX_POWER;
 
 static void _pd_tx_header(uint32_t cmd, size_t num_objects) {
@@ -220,7 +213,6 @@ static void _pd_tx_header(uint32_t cmd, size_t num_objects) {
 	header |= ((_msg_counter++) & 0x7) << 9;
 	header |= num_objects << 12;
 	header |= cmd << 0;
-	uint8_t* header_data = (void*)&header;
 	fusb302_tx(&header, 2);
 }
 
@@ -263,6 +255,9 @@ static void _pd_respond_to_src_caps(void) {
 	int best_power_cap = 0;
 	uint32_t best_voltage = 5000;
 	for (size_t i = 1; i < MAX_NUM_SRC_CAPS; ++i) {
+		// APDOs (PPS, AVS) need a different RDO format, which is not implemented yet.
+		if (_src_capabilities[i].is_apdo)
+			continue;
 		// need at least 9V, so variable supplies are not allowed to dip below.
 		uint32_t voltage = _src_capabilities[i].is_variable ? _src_capabilities[i].min_voltage : _src_capabilities[i].max_voltage;
 		if (voltage < 9000)
@@ -318,19 +313,51 @@ static void _pd_respond_to_src_caps(void) {
 	_pd_tx_object(request_obj);
 	_pd_tx_send();
 
-	dbg_println("PD Request 0x%08x", request_obj);
+	m_usb_pd_state = SMOL_USB_PD_REQUEST_SENT;
+	_attach_time_us = smol_time64(timer0_hw);
+
+	dbg_println("PD Request 0x%08x: PDO %u, %umV, %umA", request_obj, pdo_index + 1, best_voltage, _src_capabilities[pdo_index].max_current);
 }
 
 static void _pd_hard_reset(void) {
 	// reset source caps
 	memset(_src_capabilities, 0, sizeof(_src_capabilities));
 
-	// reset PD machinery
+	// reset PD machinery. The chip re-init clears SWITCHES0/1, so attach again to restore the CC setup.
 	fusb302_hard_reset();
+	if (_cc_index != 0)
+		_pd_attach();
 }
 
 static void _parse_pd_command(bool is_sop, uint32_t cmd) {
 	switch(cmd) {
+		case PD_CMD_GOOD_CRC:
+			break;
+		case PD_CMD_ACCEPT:
+			if (m_usb_pd_state == SMOL_USB_PD_REQUEST_SENT) {
+				m_usb_pd_state = SMOL_USB_PD_REQUEST_ACCEPTED;
+				dbg_println("PD request accepted");
+			}
+			break;
+		case PD_CMD_REJECT:
+		case PD_CMD_WAIT:
+			if (m_usb_pd_state == SMOL_USB_PD_REQUEST_SENT) {
+				m_usb_pd_state = SMOL_USB_PD_REQUEST_REJECTED;
+				warn_println("PD request rejected (cmd %u)", cmd);
+			}
+			break;
+		case PD_CMD_PS_READY:
+			dbg_println("PD PS_RDY, contract established");
+			break;
+		case PD_CMD_SOFT_RESET:
+			// the source resets the protocol layer: accept, then wait for new Source_Capabilities
+			_msg_counter = 0;
+			_pd_tx_header(PD_CMD_ACCEPT, 0);
+			_pd_tx_send();
+			m_usb_pd_state = SMOL_USB_PD_CABLE_ATTACHED;
+			_attach_time_us = smol_time64(timer0_hw);
+			dbg_println("PD soft reset received, accepted");
+			break;
 		case PD_CMD_GET_SINK_CAP:
 		{
 			uint32_t safe5vcap = 0;
@@ -384,10 +411,12 @@ static void _pd_respond_to_chunk_request(uint32_t cmd, size_t n) {
 }
 
 static void _pd_soft_reset(void) {
+	// a Soft_Reset message always uses MessageID 0
+	_msg_counter = 0;
 	_pd_tx_header(PD_CMD_SOFT_RESET, 0);
 	_pd_tx_send();
 	_attach_time_us = smol_time64(timer0_hw);
-	_msg_counter = 0;
+	m_usb_pd_state = SMOL_USB_PD_CABLE_ATTACHED;
 }
 
 static void _parse_pd_data_object(bool is_sop, uint32_t cmd, uint8_t obj[4], size_t i) {
@@ -407,6 +436,7 @@ static void _parse_pd_data_object(bool is_sop, uint32_t cmd, uint8_t obj[4], siz
 
 			if (pdo_type == PDO_APDO) // APDO
 			{
+				src_cap.is_apdo = true;
 				uint32_t apdo_type = (capability >> 28) & 0x3;
 				// info_println("  APDO type %u", apdo_type);
 
@@ -503,8 +533,9 @@ static void _parse_pd_data_object(bool is_sop, uint32_t cmd, uint8_t obj[4], siz
  * Since we're not running the FUSB302 in "autonomous" mode, and with the VUSB sense pin connected to the TPD4S480's VBUS_LV pin, we have to manually read out VUSB to detect attach/detach.
  */
 void smol_usb_pd_run(void) {
-	bool have_irq = fusb302_have_irq();
 	uint64_t now_us = smol_time64(timer0_hw);
+
+	bool have_irq = fusb302_have_irq();
 
 	if (have_irq) {
 		// dbg_println("USB PD have_irq");
@@ -538,27 +569,27 @@ void smol_usb_pd_run(void) {
 		bool gcrc_sent = (interruptb >> 0) & 0x01;
 
 		if (vbus_ok) {
-			dbg_println("USB PD I_VBUSOK");
+			PD_IRQ_DBG("USB PD I_VBUSOK");
 			// fusb302_write_reg(FUSB_REG_INTERRUPT, 1u << 7);
 		}
 		if (activity) {
-			dbg_println("USB PD I_ACTIVITY");
+			PD_IRQ_DBG("USB PD I_ACTIVITY");
 			// fusb302_write_reg(FUSB_REG_INTERRUPT, 1u << 6);
 		}
 		if (comp_chng) {
-			dbg_println("USB PD I_COMP_CHNG");
+			PD_IRQ_DBG("USB PD I_COMP_CHNG");
 			// fusb302_write_reg(FUSB_REG_INTERRUPT, 1u << 5);
 		}
 		if (crc_chk) {
-			dbg_println("USB PD I_CRC_CHK");
+			PD_IRQ_DBG("USB PD I_CRC_CHK");
 			// fusb302_write_reg(FUSB_REG_INTERRUPT, 1u << 4);
 		}
 		if (alert) {
-			dbg_println("USB PD I_ALERT");
+			PD_IRQ_DBG("USB PD I_ALERT");
 			// fusb302_write_reg(FUSB_REG_INTERRUPT, 1u << 3);
 		}
 		if (wake) {
-			dbg_println("USB PD I_WAKE");
+			PD_IRQ_DBG("USB PD I_WAKE");
 			// fusb302_write_reg(FUSB_REG_INTERRUPT, 1u << 2);
 		}
 		if (collision) {
@@ -566,7 +597,7 @@ void smol_usb_pd_run(void) {
 			// fusb302_write_reg(FUSB_REG_INTERRUPT, 1u << 1);
 		}
 		if (bc_lvl) {
-			dbg_println("USB PD I_BC_LVL");
+			PD_IRQ_DBG("USB PD I_BC_LVL");
 			// fusb302_write_reg(FUSB_REG_INTERRUPT, 1u << 0);
 		}
 		if (overtemp) {
@@ -574,7 +605,7 @@ void smol_usb_pd_run(void) {
 			// fusb302_write_reg(FUSB_REG_INTERRUPTA, 1u << 7);
 		}
 		if (togdone) {
-			dbg_println("USB PD I_TOGDONE");
+			PD_IRQ_DBG("USB PD I_TOGDONE");
 			// fusb302_write_reg(FUSB_REG_INTERRUPTA, 1u << 6);
 		}
 		if (soft_fail) {
@@ -591,7 +622,7 @@ void smol_usb_pd_run(void) {
 			// fusb302_write_reg(FUSB_REG_INTERRUPTA, 1u << 3);
 		}
 		if (tx_sent) {
-			dbg_println("USB PD I_TXSENT");
+			PD_IRQ_DBG("USB PD I_TXSENT");
 			// fusb302_write_reg(FUSB_REG_INTERRUPTA, 1u << 2);
 		}
 		if (soft_rst) {
@@ -606,7 +637,7 @@ void smol_usb_pd_run(void) {
 
 		}
 		if (gcrc_sent) {
-			dbg_println("USB PD I_GCRCSENT");
+			PD_IRQ_DBG("USB PD I_GCRCSENT");
 			// fusb302_write_reg(FUSB_REG_INTERRUPTB, 1u << 0);
 		}
 	}
@@ -618,51 +649,35 @@ void smol_usb_pd_run(void) {
 
 	if (have_rx) {
 		// start reading token
+		uint64_t rx_start_us = smol_time64(timer0_hw);
 		uint8_t rx_token = 0;
 		assert(0 == fusb302_rx(&rx_token, 1));
 		uint32_t token = rx_token >> 5;
-		bool is_sop = token == 0x7;
-		dbg_println("RX is_sop = %u (0x%02x)", is_sop, token);
-		// switch(token) {
-		// 	default:
-		// 	{
-		// 		err_println("USB PD RX unknown token: 0x%02x", rx_token);
-		// 		break;
-		// 	}
-		// }
+		bool is_sop = token == PD_TOKEN_SOP;
 
-		uint16_t header;
-
-		fusb302_rx(&header, 2);
-
-		dbg_println("RX header = 0x%02x %02x", header & 0xFF, header >> 8);
+		/**
+		 * The RX FIFO holds: token, 2 header bytes, 4 bytes per data object, 4 CRC bytes.
+		 * Read the full message in one burst, so the next message starts at a token byte.
+		 * Do not print before the response is sent: the sink has only tSenderResponse (~24ms) to send a Request.
+		 */
+		uint8_t msg[2 + 7*4 + 4];
+		fusb302_rx(msg, 2);
+		uint16_t header = msg[0] | ((uint16_t)msg[1] << 8);
 		bool is_extended_message = 0 != (header & 0x8000);
-		// TODO: support extended messages
-		size_t command = (header >> 0) & 0x0f;
+		size_t command = (header >> 0) & 0x1f;
 		size_t num_data_objects = (header >> 12) & 0x07;
-		bool is_command = num_data_objects > 0;
+		fusb302_rx(msg + 2, 4*num_data_objects + 4);
 
-		dbg_println("num_data_objects = %u", num_data_objects);
-		dbg_println("command          = %u", command);
-
-		bool is_chunked = false;
-		bool request_chunk = false;
-		int chunk_number = 0;
-		uint32_t data_size = 0;
-		if (is_extended_message) {
-			uint16_t ext_header;
-			fusb302_rx(&ext_header, 2);
-			is_chunked = (ext_header >> 15) & 0x1;
-			if (is_chunked) {
-				chunk_number = (ext_header >> 11) & 0xF;
-				request_chunk = (ext_header >> 10) & 0x1;
-				data_size = ext_header & 0x1FF;
-			}
+		if (!is_sop) {
+			// SOP' / SOP'' messages go to the cable, ignore them
 		}
-
-		if (is_extended_message) {
+		else if (is_extended_message) {
+			// TODO: support extended messages. The data is drained above.
+			uint16_t ext_header = msg[2] | ((uint16_t)msg[3] << 8);
+			bool is_chunked = (ext_header >> 15) & 0x1;
+			bool request_chunk = is_chunked && ((ext_header >> 10) & 0x1);
 			if (request_chunk) {
-				_pd_respond_to_chunk_request(command, chunk_number);
+				_pd_respond_to_chunk_request(command, (ext_header >> 11) & 0xF);
 			}
 		}
 		else if (num_data_objects == 0) {
@@ -670,11 +685,11 @@ void smol_usb_pd_run(void) {
 		}
 		else
 		{
-			for (size_t i = 0; i < num_data_objects; ++i) {
-				uint8_t obj[4];
-				fusb302_rx(obj, 4);
+			if (command == PD_DATA_SOURCE_CAPS)
+				memset(_src_capabilities, 0, sizeof(_src_capabilities));
 
-				_parse_pd_data_object(is_sop, command, obj, i);
+			for (size_t i = 0; i < num_data_objects; ++i) {
+				_parse_pd_data_object(is_sop, command, msg + 2 + 4*i, i);
 			}
 
 			switch(command) {
@@ -685,20 +700,18 @@ void smol_usb_pd_run(void) {
 
 		}
 
+		uint32_t rx_handling_us = (uint32_t)(smol_time64(timer0_hw) - rx_start_us);
+		dbg_println("PD RX token 0x%x header 0x%04x cmd %u n %u ext %u, handled in %u us", token, header, command, num_data_objects, is_extended_message, rx_handling_us);
 	}
 
-	// measure VUSB
-	float vusb_lv = 4.0f * VBUS_LV_RATIO;
-	bool vusb_ok = false;
-	fusb302_measure_vbus(vusb_lv, &vusb_ok);
-	// info_println("PD check VUSB_OK = %u", vusb_ok);
-	float vbus = smol_adc_vbus();
-	// info_println("PD check VBUS = %.3f", vbus);
+	/**
+	 * NOTE: Do not call fusb302_measure_vbus() here. It disconnects the CC measure switch for each call, and the BMC receiver then misses messages. VUSB detach detection needs a different approach (eg. the VBUSOK interrupt or the ADC).
+	 */
 
-	if ((m_usb_pd_state == SMOL_USB_PD_CABLE_ATTACHED) && (now_us > _attach_time_us + PD_ATTACH_TIMEOUT_US)) {
-		_attach_time_us = now_us;
-		// if there is no comms after cable was attached, issue a soft reset.
-		dbg_println("PD issuing soft reset due to timeout...");
+	bool waiting = (m_usb_pd_state == SMOL_USB_PD_CABLE_ATTACHED) || (m_usb_pd_state == SMOL_USB_PD_REQUEST_SENT);
+	if (waiting && (now_us > _attach_time_us + PD_ATTACH_TIMEOUT_US)) {
+		// if there is no comms after cable was attached, or no reply to the request, issue a soft reset.
+		dbg_println("PD issuing soft reset due to timeout (state %u)...", m_usb_pd_state);
 		_pd_soft_reset();
 	}
 

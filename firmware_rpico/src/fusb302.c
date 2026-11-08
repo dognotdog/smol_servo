@@ -289,6 +289,44 @@ int fusb302_tx(const void* tx_data, size_t tx_len) {
     return 0;
 }
 
+int fusb302_set_pd_cc(size_t cc_index) {
+    // connect the measure block and the BMC transmitter to the active CC pin, and let the FUSB302 send GoodCRC automatically.
+    uint8_t switches0 = 0;
+    int result = fusb302_read_reg(FUSB_REG_SWITCHES0, &switches0);
+    if (result != 0)
+        return result;
+    switches0 &= ~(FUSB_SWITCHES0_MEAS_CC1_MASK | FUSB_SWITCHES0_MEAS_CC2_MASK);
+    switches0 |= cc_index << FUSB_SWITCHES0_MEAS_CC_LSB;
+    result = fusb302_write_reg(FUSB_REG_SWITCHES0, switches0);
+    if (result != 0)
+        return result;
+
+    uint8_t switches1 = 0;
+    result = fusb302_read_reg(FUSB_REG_SWITCHES1, &switches1);
+    if (result != 0)
+        return result;
+    switches1 &= ~(FUSB_SWITCHES1_TXCC1_MASK | FUSB_SWITCHES1_TXCC2_MASK | FUSB_SWITCHES1_POWERROLE_MASK | FUSB_SWITCHES1_DATAROLE_MASK);
+    switches1 |= cc_index; // TXCC1 = bit 0, TXCC2 = bit 1
+    switches1 |= FUSB_SWITCHES1_AUTO_CRC_MASK;
+    result = fusb302_write_reg(FUSB_REG_SWITCHES1, switches1);
+    if (result != 0)
+        return result;
+
+    // flush stale data
+    uint8_t control0 = 0;
+    result = fusb302_read_reg(FUSB_REG_CONTROL0, &control0);
+    if (result != 0)
+        return result;
+    result = fusb302_write_reg(FUSB_REG_CONTROL0, control0 | FUSB_CONTROL0_TX_FLUSH_MASK);
+    if (result != 0)
+        return result;
+    uint8_t control1 = 0;
+    result = fusb302_read_reg(FUSB_REG_CONTROL1, &control1);
+    if (result != 0)
+        return result;
+    return fusb302_write_reg(FUSB_REG_CONTROL1, control1 | FUSB_CONTROL1_RX_FLUSH_MASK);
+}
+
 int fusb302_software_reset(void) {
     return fusb302_write_reg(FUSB_REG_RESET, 0x01);
 }

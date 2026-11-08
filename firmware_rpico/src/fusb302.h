@@ -27,7 +27,14 @@
 #define FUSB_CONTROL3_N_RETRIES_MASK 0x06
 #define FUSB_CONTROL3_N_RETRIES_LSB (1)
 
+#define FUSB_SWITCHES1_TXCC1_MASK 0x01
+#define FUSB_SWITCHES1_TXCC2_MASK 0x02
 #define FUSB_SWITCHES1_AUTO_CRC_MASK 0x04
+#define FUSB_SWITCHES1_DATAROLE_MASK 0x10
+#define FUSB_SWITCHES1_POWERROLE_MASK 0x80
+
+#define FUSB_CONTROL0_TX_FLUSH_MASK 0x40
+#define FUSB_CONTROL1_RX_FLUSH_MASK 0x04
 
 #define FUSB_RESET_PD_MASK 0x02
 
@@ -75,6 +82,7 @@ int fusb302_read_reg(fusb302_reg_addr_t reg, uint8_t* value);
 
 int fusb302_rx(void* rx_data, size_t rx_len);
 int fusb302_tx(const void* tx_data, size_t tx_len);
+int fusb302_set_pd_cc(size_t cc_index);
 int fusb302_software_reset(void);
 int fusb302_hard_reset(void);
 
