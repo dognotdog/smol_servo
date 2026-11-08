@@ -29,20 +29,34 @@
 			"variants":
 			[
 				{
-					"build_target": "bs2_default",
-					"name": "bs2_default",
+					"build_target": "bmp_flash",
+					"name": "bmp_flash",
 				},
 				{
-					"artifact": "pico-sdk/src/rp2350/boot_stage2/bs2_default.elf",
+					/*"artifact": "pico-sdk/src/rp2350/boot_stage2/bs2_default.elf",*/
+					"build_target": "bmp_reset",
+					"name": "bmp_reset",
+					/*"target": "cmake_run",*/
+				},
+				{
+					/*"artifact": "pico-sdk/src/rp2350/boot_stage2/bs2_default.elf",*/
+					"build_target": "bs2_default",
+					/*"debug": true,*/
+					"name": "bs2_default",
+					/*"target": "cmake_run",*/
+				},
+				{
 					"build_target": "bs2_default",
 					"name": "Run: bs2_default",
+					"artifact": "pico-sdk/src/rp2350/boot_stage2/bs2_default.elf",
+					/*"debug": true,*/
 					"target": "cmake_run",
 				},
 				{
-					"artifact": "pico-sdk/src/rp2350/boot_stage2/bs2_default.elf",
 					"build_target": "bs2_default",
-					"debug": true,
 					"name": "Run under LLDB: bs2_default",
+					"artifact": "pico-sdk/src/rp2350/boot_stage2/bs2_default.elf",
+					"debug": true,
 					"target": "cmake_run",
 				},
 				{
@@ -58,48 +72,56 @@
 					"name": "cyw43_driver_picow_cyw43_bus_pio_spi_pio_h",
 				},
 				{
+					/*"artifact": "smol_servo_rpico.elf",*/
 					"build_target": "debug",
 					"name": "debug",
-				},
-				{
-					"build_target": "gdbhost",
-					"name": "gdbhost",
+					/*"target": "cmake_run",*/
+					/*"artifact": "smol_servo_rpico.elf",*/
+					/*"target": "cmake_run",*/
 				},
 				{
 					/*"artifact": "smol_servo_rpico.elf",*/
-					"build_target": "pico_status_led_ws2812_pio_h",
+					"build_target": "gdbhost",
+					/*"debug": true,*/
+					"name": "gdbhost",
+					/*"target": "cmake_run",*/
+					/*"debug": true,*/
+				},
+				{
 					"name": "pico_status_led_ws2812_pio_h",
 					/*"target": "cmake_run",*/
 					/*"artifact": "smol_servo_rpico.elf",*/
+					"build_target": "pico_status_led_ws2812_pio_h",
+					/*"debug": true,*/
+					/*"artifact": "smol_servo_rpico.elf",*/
 					/*"target": "cmake_run",*/
 				},
 				{
-					/*"artifact": "smol_servo_rpico.elf",*/
-					"build_target": "smol_servo_rpico",
-					/*"debug": true,*/
 					"name": "smol_servo_rpico",
 					/*"target": "cmake_run",*/
-					/*"debug": true,*/
-				},
-				{
-					"name": "Run: smol_servo_rpico",
-					/*"target": "cmake_run",*/
 					/*"artifact": "smol_servo_rpico.elf",*/
 					"build_target": "smol_servo_rpico",
 					/*"debug": true,*/
+				},
+				{
+					"build_target": "smol_servo_rpico",
+					"name": "Run: smol_servo_rpico",
 					"artifact": "smol_servo_rpico.elf",
+					/*"debug": true,*/
 					"target": "cmake_run",
 				},
 				{
 					"name": "Run under LLDB: smol_servo_rpico",
-					"target": "cmake_run",
-					"artifact": "smol_servo_rpico.elf",
+					/*"target": "ctest_run"*/
 					"build_target": "smol_servo_rpico",
+					"artifact": "smol_servo_rpico.elf",
 					"debug": true,
+					"target": "cmake_run",
 				},
 				{
-					"build_target": "swd_flash",
 					"name": "swd_flash",
+					/*"target": "ctest_run",*/
+					"build_target": "swd_flash",
 				},
 				{
 					"name": "swd_reset",
@@ -108,7 +130,7 @@
 				},
 				{
 					"name": "ctest",
-					"target": "ctest_run",
+					"target": "ctest_run"
 				},
 			],
 			"working_dir": "$folder/build",

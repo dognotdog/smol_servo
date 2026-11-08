@@ -98,4 +98,11 @@ GPIO17-21 is not connected
 
 Assuming `sysclk = 150MHz`, and 20kHz control loop, we should run PWM in up/down mode at 60kHz (3 phases * 20kHz) and do ADC reads at both counter TOP and 0 values. `TOP+1 = 1250` for `2*60 = 120kHz` operation.
 
+## Debugging
 
+Using an rpico2, the SWD pin mapping is
+| Pico 2 GPIO | Pico 2 header | Signal | 10-pin SWD (J3)
+| GP2         | 4             | SWCLK  | 4
+| GP3         | 5             | SWDIO  | 2
+| GP1         | 2             | nRESET | 10
+| GND         | 3 (or 8, 38)  | GND    | 3, 5 or 9
