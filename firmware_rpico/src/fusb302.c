@@ -6,6 +6,7 @@
 
 #include <stdbool.h>
 #include <stdio.h>
+#include <string.h>
 
 #include "pico_debug.h"
 
@@ -249,24 +250,41 @@ bool fusb302_have_rx(void) {
     return 0 == (status1 & FUSB_STATUS1_RX_EMPTY_MASK);
 }
 
+/**
+ * The FIFO register does not auto-increment, so a burst read or write of the FIFO address moves all bytes in one I2C transaction. This keeps the PD response time short.
+ */
 int fusb302_rx(void* rx_data, size_t rx_len) {
-    for (size_t i = 0; i < rx_len; ++i) {
-        uint8_t fifo = 0;
-        int result = fusb302_read_reg(FUSB_REG_FIFO, &fifo);
-        if (result != 0)
-            return result;
-        ((uint8_t*)rx_data)[i] = fifo;
+    if (rx_len == 0)
+        return 0;
+    absolute_time_t timeout = make_timeout_time_ms(100);
+    uint8_t reg_byte = FUSB_REG_FIFO;
+    int result = i2c_write_blocking_until(m_fusb_i2c_bus, FUSB302_I2C_ADDR, &reg_byte, 1, true, timeout);
+    if (result != 1) {
+        err_println("fusb302_rx failed: i2c_write_blocking_until()=%i.", result);
+        return result;
+    }
+    result = i2c_read_blocking_until(m_fusb_i2c_bus, FUSB302_I2C_ADDR, rx_data, rx_len, false, timeout);
+    if (result != (int)rx_len) {
+        err_println("fusb302_rx failed: i2c_read_blocking_until()=%i.", result);
+        return result;
     }
     return 0;
 }
 
+#define FUSB_TX_MAX_BYTES (64)
+
 int fusb302_tx(const void* tx_data, size_t tx_len) {
-    const uint8_t* tx_bytes = tx_data;
-    for (size_t i = 0; i < tx_len; ++i) {
-        uint8_t fifo = 0;
-        int result = fusb302_write_reg(FUSB_REG_FIFO, tx_bytes[i]);
-        if (result != 0)
-            return result;
+    if (tx_len == 0)
+        return 0;
+    assert(tx_len <= FUSB_TX_MAX_BYTES);
+    uint8_t bytes[1 + FUSB_TX_MAX_BYTES];
+    bytes[0] = FUSB_REG_FIFO;
+    memcpy(bytes + 1, tx_data, tx_len);
+    absolute_time_t timeout = make_timeout_time_ms(100);
+    int result = i2c_write_blocking_until(m_fusb_i2c_bus, FUSB302_I2C_ADDR, bytes, 1 + tx_len, false, timeout);
+    if (result != (int)(1 + tx_len)) {
+        err_println("fusb302_tx failed: i2c_write_blocking_until()=%i.", result);
+        return result;
     }
     return 0;
 }
