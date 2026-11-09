@@ -444,7 +444,8 @@ void smol_usb_pd_init(void) {
 		_cc_index = cc_index;
 		_hard_reset_counter = 0;
 		_pd_attach(PD_SINK_WAIT_CAP_US);
-		// Startup Soft_Reset: the Source then sends Source_Capabilities again. It can have an Explicit Contract (reset of the RP2350 only), or it sent Source_Capabilities before the FUSB302 was ready (power-on).
+		// Startup Soft_Reset: the Source then sends Source_Capabilities again (EPR_Source_Capabilities if it is in EPR Mode).
+		// It is sent without a check for SinkTxOk: a Soft_Reset Message is sent regardless of the Rp value (PD 3.2 6.3.13, PRL_Tx_Snk_Pending 6.12.2.2.3.2). It can have an Explicit Contract (reset of the RP2350 only), or it sent Source_Capabilities before the FUSB302 was ready (power-on).
 		_pd_soft_reset();
 		_startup_soft_reset = true;
 	}
@@ -1008,6 +1009,7 @@ static void _parse_pd_command(uint32_t cmd) {
 				_contract_is_pps = _requested_is_pps;
 				_contract_mv = _requested_mv;
 				_hard_reset_counter = 0;
+				_startup_soft_reset = false;
 				_pd_set_state(SMOL_USB_PD_READY);
 				dbg_println("PD PS_RDY, %s%s contract established", _contract_is_epr ? "EPR" : "SPR", _contract_is_pps ? " PPS" : "");
 			}
@@ -1085,8 +1087,15 @@ static void _pd_handle_src_caps(uint16_t header, const uint8_t* objects, size_t 
 
 static void _pd_handle_epr_src_caps(const uint8_t* data, size_t size) {
 	if (!_epr_mode) {
-		// in SPR Mode, EPR_Source_Capabilities is informational only
-		return;
+		// After a reset of the RP2350 only (for example SWD reset), the Source can still be in EPR Mode. After the startup Soft_Reset it then sends EPR_Source_Capabilities, and the sink must evaluate them (PD 3.2 8.3.3.3.3). In SPR Mode, the Source sends EPR_Source_Capabilities only as a reply to EPR_Get_Source_Cap, which this sink does not send.
+		bool source_in_epr_mode = SMOL_PD_EPR_ENABLE && _startup_soft_reset && !_have_contract && (m_usb_pd_state == SMOL_USB_PD_WAIT_CAPS);
+		if (!source_in_epr_mode) {
+			// in SPR Mode, EPR_Source_Capabilities is informational only
+			return;
+		}
+		_epr_mode = true;
+		_epr_entry_attempts = 0;
+		dbg_println("PD EPR_Source_Capabilities after startup Soft_Reset: Source is in EPR Mode");
 	}
 	size_t num_objects = size / 4;
 	if (num_objects > MAX_NUM_SRC_CAPS)
@@ -1104,6 +1113,8 @@ static void _pd_handle_epr_src_caps(const uint8_t* data, size_t size) {
 		_src_pdos[i] = pdo;
 		_src_capabilities[i] = _parse_pdo(pdo);
 	}
+	// EPR Mode Capable: bit 23 of the 5V Fixed PDO, also in EPR_Source_Capabilities
+	_src_epr_capable = (0 != (_src_pdos[0] & (1u << 23)));
 	_pd_respond_to_src_caps();
 }
 

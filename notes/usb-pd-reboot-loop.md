@@ -58,7 +58,7 @@ The first fix had only the Soft_Reset at the SinkWaitCapTimer timeout. It passed
 
 ## Open items
 
-- Not tested: SWD reset with an EPR contract. After a Soft_Reset in EPR Mode, the Source can send EPR_Source_Capabilities. The sink starts with `_epr_mode = false` and ignores EPR_Source_Capabilities in that state. The Source then can send Hard Reset, and VBUS goes off.
-- The startup Soft_Reset does not check SinkTxOk (BC_LVL was 1 or 2 at some power-ons). The hub accepted it each time. Check the PD 3.2 collision avoidance rules for Soft_Reset.
+- SWD reset with an EPR contract. Branch `pd-soft-reset-epr` adds this: in Wait_for_Capabilities after the startup Soft_Reset, with no contract, an EPR_Source_Capabilities message sets `_epr_mode = true`, and the sink evaluates it with an EPR_Request (PD 3.2 8.3.3.3.3: in EPR Mode the sink must evaluate EPR_Source_Capabilities). Before this change, the sink ignored the message and sent Hard Reset at the SinkWaitCapTimer timeout (one VBUS power cycle). Not tested: the bench hub is not EPR capable (bit 23 of its 5 V PDO is 0).
+- SinkTxOk for the startup Soft_Reset: closed, no change. PD 3.2 6.3.13: "A Soft_Reset Message Shall be sent regardless of the Rp value". The Protocol Layer state PRL_Tx_Snk_Pending (6.12.2.2.3.2) also sends a Soft_Reset without a wait for SinkTxOk.
 - After startup, `picobug_process_core1_queue()` prints all core 1 lines with blocking writes in the main loop. This can still delay a PD response (for example EPR_KeepAlive or a PPS Request).
 - The I2C bus to the FUSB302 runs at 100 kHz. A faster bus can make the attach faster than 12 ms. First, check the pull-up resistors on the board.
