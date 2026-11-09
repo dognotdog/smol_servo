@@ -6,6 +6,7 @@
 
 void smol_usb_pd_init(void);
 void smol_usb_pd_run(void);
+void smol_usb_pd_run_startup(void);
 
 void smol_drv_init(void);
 void smol_mag_init(void);

@@ -12,6 +12,13 @@
 
 static i2c_inst_t* m_fusb_i2c_bus;
 static int _irq_gpio = -1;
+static uint8_t _device_id = 0;
+static bool _vbus_ok = false;
+
+/**
+ * Do not write log output in the chip init. The board gets its power from VBUS, and the Source starts the PD exchange soon after VBUS is on.
+ * The log output is a blocking UART write (approximately 3.5 ms for each line at 115200 baud), and it delays AUTO_CRC (GoodCRC) and the Request.
+ */
 
 int fusb302_chip_init(void) {
 
@@ -23,7 +30,7 @@ int fusb302_chip_init(void) {
         return result;
     }
 
-    info_println("FUSB302 device_id 0x%02X", device_id);
+    _device_id = device_id;
 
     result = fusb302_software_reset();
     if (result != 0) {
@@ -46,8 +53,7 @@ int fusb302_chip_init(void) {
         return result;
     }
 
-    bool vbus_ok = 0 != (status0 & FUSB_STATUS0_VBUSOK_MASK);
-    dbg_println("FUSB VBUSOK %u", vbus_ok);
+    _vbus_ok = 0 != (status0 & FUSB_STATUS0_VBUSOK_MASK);
 
     // enable host interrupts
     uint8_t control0 = 0;
@@ -82,8 +88,15 @@ int fusb302_chip_init(void) {
     return result;
 }
 
+uint8_t fusb302_device_id(void) {
+    return _device_id;
+}
+
+bool fusb302_init_vbus_ok(void) {
+    return _vbus_ok;
+}
+
 int fusb302_init(i2c_inst_t* i2c, int irq_gpio) {
-    dbg_println("fusb302_init()...");
     m_fusb_i2c_bus = i2c;
     _irq_gpio = irq_gpio;
 

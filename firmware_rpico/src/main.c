@@ -12,6 +12,8 @@
 #include "hardware/i2c.h"
 #include "hardware/structs/busctrl.h"
 #include "hardware/structs/accessctrl.h"
+#include "hardware/structs/powman.h"
+#include "hardware/structs/watchdog.h"
 
 #include "smol_servo.h"
 #include "smol_fs.h"
@@ -109,8 +111,6 @@ int main(int argc, char const *argv[])
     stdio_init_all();
     pico_led_init();
 
-    smol_fs_init();
-
     // Make the SPI pins available to picotool
     bi_decl(bi_3pins_with_func(DRV_MISO_PIN, DRV_MOSI_PIN, DRV_SLCK_PIN, GPIO_FUNC_SPI));
     // Make the CS pin available to picotool
@@ -118,9 +118,16 @@ int main(int argc, char const *argv[])
 
     tmc6200_spi_init(DRV_SPI, DRV_MOSI_PIN, DRV_NSS_PIN, DRV_SLCK_PIN, DRV_MISO_PIN);
 
+	// USB PD before all log output and slow init: VBUS is the only power supply. If the sink does not reply to Source_Capabilities in time, the Source sends Hard Reset and removes VBUS, and the board starts again.
 	i2c_fusb_init();
 	fusb302_init(FUSB_I2C, FUSB_INT_PIN);
 	smol_usb_pd_init();
+	smol_usb_pd_run_startup();
+
+	// reset cause of this boot: POWMAN CHIP_RESET has the HAD_* flags (HAD_POR = power-on reset), WATCHDOG REASON tells a watchdog reset
+	info_println("reset cause: CHIP_RESET 0x%08x, WATCHDOG REASON 0x%x", powman_hw->chip_reset, watchdog_hw->reason);
+
+    smol_fs_init();
 
 	multicore_reset_core1();
 	multicore_launch_core1(_core1_init);

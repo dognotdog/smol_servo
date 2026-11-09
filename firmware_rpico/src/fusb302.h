@@ -80,6 +80,10 @@ typedef enum {
 
 
 int fusb302_init(i2c_inst_t* i2c, int irq_pin);
+// DEVICE_ID register value from the last chip init
+uint8_t fusb302_device_id(void);
+// STATUS0 VBUSOK from the last chip init
+bool fusb302_init_vbus_ok(void);
 
 int fusb302_write_reg(fusb302_reg_addr_t reg, uint8_t value);
 int fusb302_read_reg(fusb302_reg_addr_t reg, uint8_t* value);

@@ -4,6 +4,8 @@
 #include "fusb302.h"
 #include "pico_debug.h"
 
+#include <stdarg.h>
+#include <stdio.h>
 #include <string.h>
 
 /**
@@ -20,7 +22,74 @@
  * EPR: after an SPR Explicit Contract, when the Source sets the EPR Mode Capable bit in its 5V PDO, the sink sends EPR_Mode (Enter). In EPR Mode the Source sends EPR_Source_Capabilities, and the sink replies with EPR_Request. The sink sends EPR_KeepAlive when there is no other traffic.
  *
  * Extended Messages are always Chunked: the RDO does not set "Unchunked Extended Messages Supported".
+ *
+ * Power: the board gets its power only from VBUS. A Hard Reset sets VBUS to vSafe0V, and the RP2350 and the FUSB302 then do a power-on reset.
+ * Thus:
+ * - After a reset of the RP2350 only (SWD reset, watchdog), the Source can have an Explicit Contract and does not send Source_Capabilities.
+ * - After a power-on, the RP2350 starts approximately 40 ms after VBUS is on. The Source sends its first Source_Capabilities before the FUSB302 is ready. After a Hard Reset, the Source then sends Hard Reset again, VBUS goes off, and the board starts again: a reboot loop.
+ * For both cases, smol_usb_pd_init() sends Soft_Reset just after attach. The Source accepts and sends Source_Capabilities. VBUS stays on.
+ * If there is no Accept, the sink waits for Source_Capabilities. At the SinkWaitCapTimer timeout, the sink sends Soft_Reset again, and then Hard Reset.
+ * main() starts the PD sink before all other init and log output, and smol_usb_pd_run_startup() runs only the PD sink until the contract is complete.
  */
+
+/**
+ * PD log output: a queue, not a blocking UART write. A log line is approximately 100 characters, that is approximately 9 ms at 115200 baud.
+ * Some log lines come before a response (for example the RX line of an Accept, just before Source_Capabilities). With blocking writes, the sink then sends the Request after tSenderResponse, and the Source sends Hard Reset.
+ * smol_usb_pd_run() prints at most one queued line for each call, after the RX handling. The queue is for core 0 only.
+ */
+#define PD_LOG_LINES (32)
+#define PD_LOG_LEN (160)
+
+static struct {
+	char text[PD_LOG_LINES][PD_LOG_LEN];
+	dbg_level_t level[PD_LOG_LINES];
+	uint32_t head;
+	uint32_t tail;
+	uint32_t dropped;
+} _pd_log = {};
+
+static void _pd_log_queue(dbg_level_t level, const char* fmt, ...) __attribute__((format(printf, 2, 3)));
+static void _pd_log_queue(dbg_level_t level, const char* fmt, ...) {
+	if (_pd_log.head - _pd_log.tail >= PD_LOG_LINES) {
+		_pd_log.dropped++;
+		return;
+	}
+	uint32_t i = _pd_log.head % PD_LOG_LINES;
+	va_list args;
+	va_start(args, fmt);
+	vsnprintf(_pd_log.text[i], PD_LOG_LEN, fmt, args);
+	va_end(args);
+	_pd_log.level[i] = level;
+	_pd_log.head++;
+}
+
+static void _pd_log_print_one(void) {
+	if (_pd_log.dropped != 0) {
+		uint32_t dropped = _pd_log.dropped;
+		_pd_log.dropped = 0;
+		picobug_printf(PICOBUG_ID, DEBUG_LEVEL_WRN, "WRN PD log: %u lines dropped\r\n", dropped);
+		return;
+	}
+	if (_pd_log.head == _pd_log.tail)
+		return;
+	uint32_t i = _pd_log.tail % PD_LOG_LINES;
+	picobug_printf(PICOBUG_ID, _pd_log.level[i], "%s", _pd_log.text[i]);
+	_pd_log.tail++;
+}
+
+// the pico_debug.h macros, but with the PD log queue. The time is the time of the event, not of the print.
+#undef dbg_println
+#undef info_println
+#undef warn_println
+#undef err_println
+#define _PD_LOG(level, tag, fmt, ...) do { \
+	const dbg_time_t t = dbg_time(); \
+	_pd_log_queue(level, tag " %"PRIu32".%06"PRIu32" " fmt "\r\n", t.seconds, t.microseconds, ##__VA_ARGS__); \
+} while (0)
+#define dbg_println(fmt, ...) _PD_LOG(DEBUG_LEVEL_DBG, "DBG", fmt, ##__VA_ARGS__)
+#define info_println(fmt, ...) _PD_LOG(DEBUG_LEVEL_INF, "INF", fmt, ##__VA_ARGS__)
+#define warn_println(fmt, ...) _PD_LOG(DEBUG_LEVEL_WRN, "WRN", fmt, ##__VA_ARGS__)
+#define err_println(fmt, ...) _PD_LOG(DEBUG_LEVEL_ERR, "ERR", fmt, ##__VA_ARGS__)
 
 #define VBUS_LV_RATIO (0.42f)
 #define PD_VBUS_MIN_THRESHOLD 4.5f
@@ -57,6 +126,9 @@
 
 // tSenderResponse (max)
 #define PD_SENDER_RESPONSE_US (30000)
+// smol_usb_pd_run_startup(): stop when the contract is complete and there was no PD traffic for this time, or at the max time
+#define PD_STARTUP_QUIET_US (250000)
+#define PD_STARTUP_MAX_US (2000000)
 // tTypeCSinkWaitCap (max)
 #define PD_SINK_WAIT_CAP_US (620000)
 // after a Hard Reset: tSafe0V + tSrcRecover + tSrcTurnOn + tTypeCSinkWaitCap (max)
@@ -258,6 +330,10 @@ static uint64_t _wait_until_us = 0;
 // SinkWaitCapTimer value for the current WAIT_CAPS state. 0 = no timeout.
 static uint32_t _wait_caps_timeout_us = 0;
 static uint32_t _hard_reset_counter = 0;
+// Soft_Reset sent at the SinkWaitCapTimer timeout, since attach or Hard Reset
+static bool _wait_caps_soft_reset_sent = false;
+// the Soft_Reset in SMOL_USB_PD_SOFT_RESET_SENT is the startup Soft_Reset of smol_usb_pd_init()
+static bool _startup_soft_reset = false;
 
 // contract and EPR state
 static bool _have_contract = false;
@@ -332,6 +408,8 @@ static void _pd_reset_contract(void) {
 	_ext_tx.size = 0;
 }
 
+static void _pd_soft_reset(void);
+
 static void _pd_attach(uint32_t wait_caps_timeout_us) {
 	// reset PD machinery, then connect the BMC transceiver with AUTO_CRC to the active CC pin
 	fusb302_write_reg(FUSB_REG_RESET, FUSB_RESET_PD_MASK);
@@ -340,17 +418,18 @@ static void _pd_attach(uint32_t wait_caps_timeout_us) {
 	_last_rx_msgid = -1;
 	_spec_rev = PD_SPEC_REV_30;
 	_cc_low_since_us = 0;
+	_wait_caps_soft_reset_sent = false;
 	_pd_reset_contract();
 	_pd_wait_for_caps(wait_caps_timeout_us);
 }
 
+// Attach before the log output: the Source can send Source_Capabilities at any time after VBUS is on.
 void smol_usb_pd_init(void) {
 	uint8_t bc_lvl1 = 0;
 	fusb302_check_cc1(&bc_lvl1);
 
 	uint8_t bc_lvl2 = 0;
 	fusb302_check_cc2(&bc_lvl2);
-	info_println("BC_LVL1 = %u, BC_LVL2 = %0u", bc_lvl1, bc_lvl2);
 
 	size_t cc_index = 0;
 	if ((bc_lvl1 != 0) && (bc_lvl2 == 0))
@@ -358,16 +437,20 @@ void smol_usb_pd_init(void) {
 	else if ((bc_lvl1 == 0) && (bc_lvl2 != 0))
 		cc_index = 2;
 
-	if (cc_index == 0) {
-		warn_println("No USB PD source detected!");
-	}
-	else
-	{
-		info_println("USB PD source detected on CC%u!", cc_index);
+	if (cc_index != 0) {
 		_cc_index = cc_index;
 		_hard_reset_counter = 0;
 		_pd_attach(PD_SINK_WAIT_CAP_US);
+		// Startup Soft_Reset: the Source then sends Source_Capabilities again. It can have an Explicit Contract (reset of the RP2350 only), or it sent Source_Capabilities before the FUSB302 was ready (power-on).
+		_pd_soft_reset();
+		_startup_soft_reset = true;
 	}
+
+	info_println("FUSB302 device_id 0x%02X, VBUSOK %u, BC_LVL1 = %u, BC_LVL2 = %u", fusb302_device_id(), fusb302_init_vbus_ok(), bc_lvl1, bc_lvl2);
+	if (cc_index == 0)
+		warn_println("No USB PD source detected!");
+	else
+		info_println("USB PD source detected on CC%u!", cc_index);
 }
 
 static void _pd_tx_header(uint32_t type, size_t num_objects, bool extended) {
@@ -520,6 +603,7 @@ static void _pd_send_hard_reset(const char* reason) {
 }
 
 static void _pd_soft_reset(void) {
+	_startup_soft_reset = false;
 	// a Soft_Reset message always uses MessageID 0
 	_msg_counter = 0;
 	// the reply (Accept) also starts at MessageID 0
@@ -1285,9 +1369,15 @@ static void _pd_run_timers(uint64_t now_us) {
 
 	switch (m_usb_pd_state) {
 		case SMOL_USB_PD_WAIT_CAPS:
-			// SinkWaitCapTimer: Hard Reset, at most nHardResetCount times. After that, stay at USB Type-C current.
+			// SinkWaitCapTimer: first Soft_Reset, then Hard Reset at most nHardResetCount times. After that, stay at USB Type-C current.
+			// Soft_Reset first: after a reset of the RP2350 only, the Source keeps its Explicit Contract and does not send Source_Capabilities. A Hard Reset removes VBUS, which is the only power supply of the board.
 			if ((_wait_caps_timeout_us != 0) && (in_state_us > _wait_caps_timeout_us)) {
-				if (_hard_reset_counter < PD_HARD_RESET_COUNT) {
+				if (!_wait_caps_soft_reset_sent) {
+					_wait_caps_soft_reset_sent = true;
+					_pd_soft_reset();
+					warn_println("PD no Source_Capabilities, Soft_Reset sent");
+				}
+				else if (_hard_reset_counter < PD_HARD_RESET_COUNT) {
 					_pd_send_hard_reset("no Source_Capabilities");
 				}
 				else {
@@ -1313,8 +1403,16 @@ static void _pd_run_timers(uint64_t now_us) {
 				_pd_send_hard_reset("no PS_RDY");
 			break;
 		case SMOL_USB_PD_SOFT_RESET_SENT:
-			if (in_state_us > PD_SENDER_RESPONSE_US)
-				_pd_send_hard_reset("no response to Soft_Reset");
+			if (in_state_us > PD_SENDER_RESPONSE_US) {
+				if (_startup_soft_reset) {
+					// the Source can be busy with the power-on. Wait for Source_Capabilities, then continue as after attach.
+					warn_println("PD no response to startup Soft_Reset");
+					_pd_wait_for_caps(PD_SINK_WAIT_CAP_US);
+				}
+				else {
+					_pd_send_hard_reset("no response to Soft_Reset");
+				}
+			}
 			break;
 		case SMOL_USB_PD_EPR_ENTER_SENT:
 			if (in_state_us > PD_SENDER_RESPONSE_US)
@@ -1504,4 +1602,26 @@ void smol_usb_pd_run(void) {
 	uint64_t now_us = smol_time64(timer0_hw);
 	_pd_run_timers(now_us);
 	_pd_check_attach_detach(now_us);
+
+	_pd_log_print_one();
+}
+
+/**
+ * Run only the PD sink after smol_usb_pd_init(), until the Explicit Contract is complete and the Source has no more messages, or PD_STARTUP_MAX_US.
+ * The main loop prints the log output of core 1 with blocking UART writes. If this delays the Request for more than tSenderResponse, the Source sends Hard Reset and removes VBUS.
+ */
+void smol_usb_pd_run_startup(void) {
+	uint64_t start_us = smol_time64(timer0_hw);
+	while (m_usb_pd_state != SMOL_USB_PD_IDLE) {
+		smol_usb_pd_run();
+		uint64_t now_us = smol_time64(timer0_hw);
+		if (now_us > start_us + PD_STARTUP_MAX_US) {
+			warn_println("PD startup: no complete contract after %u ms, state %u", (uint32_t)((now_us - start_us) / 1000), m_usb_pd_state);
+			break;
+		}
+		if (_have_contract && (m_usb_pd_state == SMOL_USB_PD_READY) && (now_us > _last_traffic_us + PD_STARTUP_QUIET_US)) {
+			info_println("PD startup: contract complete after %u ms", (uint32_t)((now_us - start_us) / 1000));
+			break;
+		}
+	}
 }
