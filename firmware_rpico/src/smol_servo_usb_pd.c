@@ -28,7 +28,7 @@
  * - After a reset of the RP2350 only (SWD reset, watchdog), the Source can have an Explicit Contract and does not send Source_Capabilities.
  * - After a power-on, the RP2350 starts approximately 40 ms after VBUS is on. The Source sends its first Source_Capabilities before the FUSB302 is ready. After a Hard Reset, the Source then sends Hard Reset again, VBUS goes off, and the board starts again: a reboot loop.
  * For both cases, smol_usb_pd_init() sends Soft_Reset just after attach. The Source accepts and sends Source_Capabilities. VBUS stays on.
- * If there is no Accept, the sink waits for Source_Capabilities. At the SinkWaitCapTimer timeout, the sink sends Soft_Reset again, and then Hard Reset.
+ * If there is no Accept, the sink waits for Source_Capabilities. At the SinkWaitCapTimer timeout, the sink sends Hard Reset.
  * main() starts the PD sink before all other init and log output, and smol_usb_pd_run_startup() runs only the PD sink until the contract is complete.
  */
 
@@ -330,8 +330,6 @@ static uint64_t _wait_until_us = 0;
 // SinkWaitCapTimer value for the current WAIT_CAPS state. 0 = no timeout.
 static uint32_t _wait_caps_timeout_us = 0;
 static uint32_t _hard_reset_counter = 0;
-// Soft_Reset sent at the SinkWaitCapTimer timeout, since attach or Hard Reset
-static bool _wait_caps_soft_reset_sent = false;
 // the Soft_Reset in SMOL_USB_PD_SOFT_RESET_SENT is the startup Soft_Reset of smol_usb_pd_init()
 static bool _startup_soft_reset = false;
 
@@ -418,7 +416,6 @@ static void _pd_attach(uint32_t wait_caps_timeout_us) {
 	_last_rx_msgid = -1;
 	_spec_rev = PD_SPEC_REV_30;
 	_cc_low_since_us = 0;
-	_wait_caps_soft_reset_sent = false;
 	_pd_reset_contract();
 	_pd_wait_for_caps(wait_caps_timeout_us);
 }
@@ -1369,15 +1366,9 @@ static void _pd_run_timers(uint64_t now_us) {
 
 	switch (m_usb_pd_state) {
 		case SMOL_USB_PD_WAIT_CAPS:
-			// SinkWaitCapTimer: first Soft_Reset, then Hard Reset at most nHardResetCount times. After that, stay at USB Type-C current.
-			// Soft_Reset first: after a reset of the RP2350 only, the Source keeps its Explicit Contract and does not send Source_Capabilities. A Hard Reset removes VBUS, which is the only power supply of the board.
+			// SinkWaitCapTimer: Hard Reset, at most nHardResetCount times. After that, stay at USB Type-C current.
 			if ((_wait_caps_timeout_us != 0) && (in_state_us > _wait_caps_timeout_us)) {
-				if (!_wait_caps_soft_reset_sent) {
-					_wait_caps_soft_reset_sent = true;
-					_pd_soft_reset();
-					warn_println("PD no Source_Capabilities, Soft_Reset sent");
-				}
-				else if (_hard_reset_counter < PD_HARD_RESET_COUNT) {
+				if (_hard_reset_counter < PD_HARD_RESET_COUNT) {
 					_pd_send_hard_reset("no Source_Capabilities");
 				}
 				else {

@@ -35,7 +35,7 @@ The Source behavior after a Hard Reset is an inference from the timing and from 
 - `main()` starts the PD sink before all other init and log output. Only `stdio_init_all()`, the LED GPIO and the TMC6200 SPI init come before it.
 - `smol_usb_pd_init()` sends Soft_Reset just after the attach. The Source sends Accept and then Source_Capabilities. This works when the Source has a contract (SWD reset) and also after a power-on. VBUS stays on.
 - If the startup Soft_Reset gets no Accept, the sink waits for Source_Capabilities. It does not send Hard Reset at once.
-- At the SinkWaitCapTimer timeout, the sink sends Soft_Reset first, and then Hard Reset.
+- At the SinkWaitCapTimer timeout, the sink sends Hard Reset (spec behavior). An older version of the fix sent Soft_Reset first. The startup Soft_Reset made that redundant, so it is removed. The other paths to the wait for Source_Capabilities (attach by CC polling, received Hard Reset) start with a new Source, and that Source sends Source_Capabilities.
 - `smol_usb_pd_run_startup()` runs only the PD sink until the contract is complete and there is no PD traffic for 250 ms (2 s max). Core 1 starts after this.
 - The PD log output goes into a queue. `smol_usb_pd_run()` prints at most one line for each call, after the RX handling. The time in each line is the time of the event.
 - `fusb302_chip_init()` writes no log output. `smol_usb_pd_init()` prints the device ID and VBUSOK after the attach.
@@ -45,6 +45,7 @@ The Source behavior after a Hard Reset is an inference from the timing and from 
 - `make swd_flash` with an active 20 V contract: 6 of 6 pass. "PD soft reset accepted" at 27 ms. PS_RDY at 118 ms. VBUS stayed between 19.994 V and 20.006 V.
 - Hard Reset from the hub (`hub.pd[1].request(0)`): 3 of 3 pass. VBUS goes off one time. After the power-on, PS_RDY comes at approximately 140 ms.
 - Port power cycle: pass. PS_RDY at 132 ms.
+- After the removal of the Soft_Reset at the SinkWaitCapTimer timeout: `make swd_flash` 3 of 3 pass (PS_RDY at 118 ms to 121 ms, VBUS between 19.995 V and 20.006 V). Hard Reset from the hub 3 of 3 pass (PS_RDY at approximately 138 ms).
 
 The first fix had only the Soft_Reset at the SinkWaitCapTimer timeout. It passed 4 of 4 `swd_flash` tests (PS_RDY at 745 ms). But the hub Hard Reset test still looped. The startup Soft_Reset and the log queue fixed that.
 
