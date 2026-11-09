@@ -124,7 +124,7 @@ int tmc6200_enable_driver(bool en) {
 	if (read_result != 0)
 		return read_result;
 
-	state.GCONF.disable = en;
+	state.GCONF.disable = !en;
 
 	return _write_gconf(&state);
 }

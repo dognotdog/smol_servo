@@ -18,6 +18,13 @@ static void _process_command(char* cmd, size_t cmd_len, char* args, size_t args_
 	if (0 == strcmp("s", cmd)) {
 		smol_servo_loop_start();
 	}
+	else if (0 == strcmp("drv_en", cmd)) {
+		smol_drv_enable();
+	}
+	else if (0 == strcmp("drv_dis", cmd)) {
+		smol_drv_disable();
+		info_println("TMC6200 disabled");
+	}
 }
 
 static void smol_console_process_input_line(char* line, size_t linelen) {

@@ -117,6 +117,8 @@ int main(int argc, char const *argv[])
     bi_decl(bi_1pin_with_name(DRV_NSS_PIN, "DRV_SPI CS"));
 
     tmc6200_spi_init(DRV_SPI, DRV_MOSI_PIN, DRV_NSS_PIN, DRV_SLCK_PIN, DRV_MISO_PIN);
+	// TMC6200 registers with DRV_EN low, no log output (approx. 0.5ms). The enable waits for the PD contract.
+	smol_drv_init();
 
 	// USB PD before all log output and slow init: VBUS is the only power supply. If the sink does not reply to Source_Capabilities in time, the Source sends Hard Reset and removes VBUS, and the board starts again.
 	i2c_fusb_init();
@@ -126,6 +128,7 @@ int main(int argc, char const *argv[])
 
 	// reset cause of this boot: POWMAN CHIP_RESET has the HAD_* flags (HAD_POR = power-on reset), WATCHDOG REASON tells a watchdog reset
 	info_println("reset cause: CHIP_RESET 0x%08x, WATCHDOG REASON 0x%x", powman_hw->chip_reset, watchdog_hw->reason);
+	smol_drv_log_status();
 
     smol_fs_init();
 
@@ -142,6 +145,7 @@ int main(int argc, char const *argv[])
 		}
 
 		smol_usb_pd_run();
+		smol_drv_run();
 
 		smol_servo_loop_idle_core0();
 

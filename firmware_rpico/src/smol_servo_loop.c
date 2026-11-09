@@ -170,7 +170,6 @@ void smol_servo_loop_init(void) {
 	smol_mag_init();
 	smol_adc_init();
 	smol_pwm_init();
-	smol_drv_init();
 	smol_irq_init();
 }
 

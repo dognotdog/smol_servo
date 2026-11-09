@@ -339,6 +339,10 @@ static bool _contract_is_epr = false;
 static uint32_t _requested_pos = 0;
 static bool _requested_is_pps = false;
 static bool _contract_is_pps = false;
+// voltage of the last Request, and the lowest VBUS voltage that the contract guarantees now. 0 = no contract.
+// _contract_mv is read on both cores, see smol_usb_pd_contract_mv().
+static uint32_t _requested_mv = 0;
+static volatile uint32_t _contract_mv = 0;
 // time of the last Request / EPR_Request, for SinkPPSPeriodicTimer
 static uint64_t _last_request_us = 0;
 static bool _src_epr_capable = false;
@@ -399,6 +403,8 @@ static void _pd_reset_contract(void) {
 	_requested_pos = 0;
 	_requested_is_pps = false;
 	_contract_is_pps = false;
+	_requested_mv = 0;
+	_contract_mv = 0;
 	_src_epr_capable = false;
 	_epr_mode = false;
 	_epr_entry_attempts = 0;
@@ -808,6 +814,7 @@ static void _pd_respond_to_src_caps(void) {
 
 	_requested_pos = pdo_index + 1;
 	_requested_is_pps = cap->is_pps;
+	_requested_mv = voltage;
 	_last_request_us = smol_time64(timer0_hw);
 
 	// in EPR Mode, every request is an EPR_Request with a copy of the requested PDO
@@ -960,6 +967,9 @@ static void _parse_pd_command(uint32_t cmd) {
 		case PD_CMD_ACCEPT:
 			if (m_usb_pd_state == SMOL_USB_PD_REQUEST_SENT) {
 				_pd_set_state(SMOL_USB_PD_REQUEST_ACCEPTED);
+				// VBUS changes from the old to the new voltage until PS_RDY: only the lower voltage is guaranteed
+				if (_requested_mv < _contract_mv)
+					_contract_mv = _requested_mv;
 				dbg_println("PD request accepted");
 			}
 			else if (m_usb_pd_state == SMOL_USB_PD_SOFT_RESET_SENT) {
@@ -996,6 +1006,7 @@ static void _parse_pd_command(uint32_t cmd) {
 				_have_contract = true;
 				_contract_is_epr = _requested_pos > MAX_NUM_SPR_CAPS;
 				_contract_is_pps = _requested_is_pps;
+				_contract_mv = _requested_mv;
 				_hard_reset_counter = 0;
 				_pd_set_state(SMOL_USB_PD_READY);
 				dbg_println("PD PS_RDY, %s%s contract established", _contract_is_epr ? "EPR" : "SPR", _contract_is_pps ? " PPS" : "");
@@ -1595,6 +1606,14 @@ void smol_usb_pd_run(void) {
 	_pd_check_attach_detach(now_us);
 
 	_pd_log_print_one();
+}
+
+/**
+ * VBUS voltage in mV that the Explicit Contract guarantees now, 0 = no contract.
+ * During a change of the contract (Accept to PS_RDY), this is the lower of the old and the new voltage.
+ */
+uint32_t smol_usb_pd_contract_mv(void) {
+	return _contract_mv;
 }
 
 /**

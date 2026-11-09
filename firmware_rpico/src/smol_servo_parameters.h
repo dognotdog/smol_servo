@@ -65,6 +65,16 @@
 #define ISENSE_R (5.0e-3f)
 // TMC6200 amplifier settings
 #define ISENSE_AMPLIFICATIONS {5.0f, 10.0f, 10.0f, 20.0f}
+// GCONF.amplification code written at boot, index into ISENSE_AMPLIFICATIONS. 3 = 20x: +-1.65V output swing is +-16.5A with 5mOhm.
+#define ISENSE_AMPLIFICATION_CODE (3)
+
+// TMC6200 DRV_CONF settings written at boot (datasheet 5.1)
+// break-before-make time, 0..15 at 42ns each (typ.). 4 = 168ns is the reset default.
+#define TMC_BBMCLKS (4)
+// gate driver current: 0 weak, 1 weak+TC, 2 medium, 3 strong. 2 is the reset default.
+#define TMC_DRVSTRENGTH (2)
+// bridge overtemperature shutdown: 0 150C, 1 143C, 2 136C, 3 120C. 0 is the reset default.
+#define TMC_OTSELECT (0)
 // THE TMC6200 is using its own 5V regulator, so measured ZERO is expected to vary because the ADC VDD is an independent rail.
 #define VSENSE_NOMINAL_ZERO_V (5.0f/3.0f)
 #define VSENSE_ZERO_V_INIT_VARIANCE (0.1f*0.1f)

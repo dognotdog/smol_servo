@@ -7,8 +7,15 @@
 void smol_usb_pd_init(void);
 void smol_usb_pd_run(void);
 void smol_usb_pd_run_startup(void);
+uint32_t smol_usb_pd_contract_mv(void);
 
 void smol_drv_init(void);
+void smol_drv_log_status(void);
+bool smol_drv_is_ready(void);
+int smol_drv_enable(void);
+void smol_drv_disable(void);
+bool smol_drv_is_enabled(void);
+void smol_drv_run(void);
 void smol_mag_init(void);
 
 void smol_adc_init(void);

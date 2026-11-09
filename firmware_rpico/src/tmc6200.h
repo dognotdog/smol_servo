@@ -107,6 +107,7 @@ typedef struct {
 
 int tmc6200_spi_init(spi_inst_t *spi, int mosi_pin, int nss_pin, int sclk_pin, int miso_pin);
 int tmc6200_read_state(tmc_state_t* state);
+int tmc6200_write_register(uint8_t addr, uint32_t data);
 int tmc6200_enable_driver(bool en);
 int tmc6200_enable_3pwm_mode(bool en);
 
