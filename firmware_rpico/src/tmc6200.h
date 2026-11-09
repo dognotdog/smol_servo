@@ -23,8 +23,9 @@ typedef struct {
 			uint32_t singleline:1;			// 0x00000002
 			uint32_t faultdirect:1;			// 0x00000004
 			uint32_t _reserved3:1;			// 0x00000008
-			uint32_t amplification_x5:1;	// 0x00000010
-			uint32_t amplification_x2:1;	// 0x00000020
+			// Two sense amplifier stages in series (datasheet Figure 6.1). The name gives the stage gain when the bit is 0.
+			uint32_t amplification_x5:1;	// 0x00000010, first stage: 0 = 5x, 1 = 10x
+			uint32_t amplification_x1:1;	// 0x00000020, second stage: 0 = 1x, 1 = 2x
 			uint32_t amplifier_off:1;		// 0x00000040
 			uint32_t test_mode:1;			// 0x00000080
 			uint32_t _reserved8_31:24;		// 0xFFFFFF00
