@@ -26,6 +26,10 @@
 #define FUSB_CONTROL3_AUTO_RETRY_MASK 0x01
 #define FUSB_CONTROL3_N_RETRIES_MASK 0x06
 #define FUSB_CONTROL3_N_RETRIES_LSB (1)
+#define FUSB_CONTROL3_SEND_HARD_RESET_MASK 0x40
+
+#define FUSB_INTERRUPTA_HARDSENT_MASK 0x08
+#define FUSB_STATUS0_BC_LVL_MASK 0x03
 
 #define FUSB_SWITCHES1_TXCC1_MASK 0x01
 #define FUSB_SWITCHES1_TXCC2_MASK 0x02
@@ -85,6 +89,7 @@ int fusb302_tx(const void* tx_data, size_t tx_len);
 int fusb302_set_pd_cc(size_t cc_index);
 int fusb302_software_reset(void);
 int fusb302_hard_reset(void);
+int fusb302_send_hard_reset(void);
 
 
 int fusb302_measure_vbus(float vbus_threshold, bool* input_is_higher);

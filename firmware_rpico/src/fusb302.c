@@ -331,6 +331,15 @@ int fusb302_software_reset(void) {
     return fusb302_write_reg(FUSB_REG_RESET, 0x01);
 }
 
+// Send Hard Reset signaling. INTERRUPTA I_HARDSENT is set when the signaling is complete.
+int fusb302_send_hard_reset(void) {
+    uint8_t control3 = 0;
+    int result = fusb302_read_reg(FUSB_REG_CONTROL3, &control3);
+    if (result != 0)
+        return result;
+    return fusb302_write_reg(FUSB_REG_CONTROL3, control3 | FUSB_CONTROL3_SEND_HARD_RESET_MASK);
+}
+
 int fusb302_hard_reset(void) {
     int result = fusb302_software_reset();
     result = fusb302_chip_init();
