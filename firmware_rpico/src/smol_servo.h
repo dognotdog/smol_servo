@@ -19,6 +19,9 @@ bool smol_drv_is_ready(void);
 int smol_drv_enable(void);
 int smol_drv_set_isense_gain(int32_t gain);
 float smol_drv_isense_gain(void);
+int smol_drv_set_switching(int32_t bbmclks, int32_t drvstrength);
+// break-before-make time of the configuration (BBMCLKS times 42 ns, typ.)
+int32_t smol_drv_bbm_ns(void);
 void smol_drv_disable(void);
 bool smol_drv_is_enabled(void);
 void smol_drv_run(void);

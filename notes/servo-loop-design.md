@@ -164,7 +164,7 @@ VBUS ─────────────────────────
 2. **Angle.** Convert the 14-bit `ANGLEUNC` to radians and unwrap it to a multi-turn position. Use the age of each sample in the estimator.
 3. **Estimator.** Predict the state to the time of each measurement, then update it. The current samples come at 6 different times per loop. `notes/motor-driver-model-analysis.md` section 5.1 to 5.4 describes the model and the defects to correct first.
 4. **Controller.** It calculates the phase voltages from the state estimate and the setpoint. Section 10 lists the open decision about its type.
-5. **PWM.** Duty = U_phase / U_bus, limited to the range that keeps the valid current sample (section 3.1). Predict the rotor angle to the middle of the PWM period that applies the duty (latency 83 µs, section 3.3). Correct for the dead time (`TMC_BBMCLKS`, 42 ns per clock).
+5. **PWM.** Duty = U_phase / U_bus, limited to the range that keeps the valid current sample (section 3.1). Predict the rotor angle to the middle of the PWM period that applies the duty (latency 83 µs, section 3.3). Correct for the dead time (`smol_drv_bbm_ns()`, the config key `bbmclks` times 42 ns).
 
 ## 7. Proposed modes and startup sequence
 
@@ -278,7 +278,10 @@ Communication between the cores:
    - SYNC (GPIO 16) for multi-axis synchronization.
 4. **Motor types first.** 2-phase stepper on the 3-phase bridge (NEMA17, 50 pole pairs), 3-phase BLDC, or both. The model and the discovery steps depend on this.
 5. **Current sense path.** The analog path from the TMC6200 outputs to the ADC pins (divider ratio, zero). This is open question 1 in `notes/motor-driver-model-analysis.md`.
-6. **Dead time.** BBMCLKS after a scope measurement. The reset default 4 (168 ns) is in use now.
+6. **Dead time.** The config keys `bbmclks` (0..15, 42 ns each) and `drvstrength` (0..3) set DRV_CONF (`smol_drv_set_switching()`, only with the TMC6200 disabled). Use `cfg_set` to tune them on the scope without a new flash. The defaults stay at the reset values: BBMCLKS 4 (168 ns) and DRVSTRENGTH 2.
+   - Scope measurement still to do: BMx and the gate signals, with the load current pulling the output up and down, at DRVSTRENGTH 2, 1 and 0. Then set the shortest BBMCLKS that covers the edges, plus 30 % (TMC6200 datasheet, "DRV_CONF Parameters" after Figure 3.5).
+   - The datasheet recommends DRVSTRENGTH 0 or 1 for a Miller charge below 10 nC. The NTTFS5C658NL datasheet (the non-automotive version of the NVTFS5C658NL) gives Qgd 2.4 nC. Confirm it in the NVTFS5C658NL datasheet.
+   - The model must include the dead time. Each switching half bridge has a voltage error of approx. `sign(i) · t_BBM · f_PWM · VS` (1 % of VS at 168 ns and 60 kHz: 0.2 V at 20 V). Across a coil between 2 switching half bridges, the error can be 2 times this value. The motor identification must compensate it, or use 2 current levels for R, so that a constant error cancels.
 
 ## 11. Differences between the owner's diagram and the code
 

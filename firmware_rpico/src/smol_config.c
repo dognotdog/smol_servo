@@ -41,8 +41,18 @@ static bool _check_isense_gain(int32_t value) {
 	return (value == 5) || (value == 10) || (value == 20);
 }
 
+static bool _check_bbmclks(int32_t value) {
+	return (value >= 0) && (value <= 15);
+}
+
+static bool _check_drvstrength(int32_t value) {
+	return (value >= 0) && (value <= 3);
+}
+
 static const config_int_key_t _int_keys[] = {
 	{"isense_gain", offsetof(smol_config_t, isense_gain), _check_isense_gain, "5, 10 or 20"},
+	{"bbmclks", offsetof(smol_config_t, bbmclks), _check_bbmclks, "0..15"},
+	{"drvstrength", offsetof(smol_config_t, drvstrength), _check_drvstrength, "0..3"},
 };
 
 #define NUM_INT_KEYS (sizeof(_int_keys) / sizeof(_int_keys[0]))
@@ -51,6 +61,8 @@ static smol_config_t _defaults(void) {
 	static const float amplifications[] = ISENSE_AMPLIFICATIONS;
 	smol_config_t cfg = {
 		.isense_gain = (int32_t)amplifications[ISENSE_AMPLIFICATION_CODE],
+		.bbmclks = TMC_BBMCLKS,
+		.drvstrength = TMC_DRVSTRENGTH,
 	};
 	return cfg;
 }
@@ -172,11 +184,15 @@ static int _apply(const smol_config_t* cfg) {
 		err_println("config: isense_gain %" PRId32 " not applied", cfg->isense_gain);
 		return -1;
 	}
+	if (smol_drv_set_switching(cfg->bbmclks, cfg->drvstrength) != 0) {
+		err_println("config: bbmclks %" PRId32 ", drvstrength %" PRId32 " not applied", cfg->bbmclks, cfg->drvstrength);
+		return -1;
+	}
 	return 0;
 }
 
 int smol_config_load(void) {
-	// the gain change is not allowed while the driver is enabled. The loaded state does not change.
+	// the gain and DRV_CONF changes are not allowed while the driver is enabled. The loaded state does not change.
 	if (smol_drv_is_enabled()) {
 		err_println("config: load not allowed while the driver is enabled");
 		return -1;
@@ -334,6 +350,10 @@ int smol_config_set(const char* key, const char* value) {
 		return -1;
 	if (0 == strcmp(key, "isense_gain")) {
 		if (smol_drv_set_isense_gain(cfg.isense_gain) != 0)
+			return -1;
+	}
+	else if ((0 == strcmp(key, "bbmclks")) || (0 == strcmp(key, "drvstrength"))) {
+		if (smol_drv_set_switching(cfg.bbmclks, cfg.drvstrength) != 0)
 			return -1;
 	}
 	_config = cfg;

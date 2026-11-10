@@ -70,9 +70,10 @@
 // GCONF.amplification code written at boot, index into ISENSE_AMPLIFICATIONS. 3 = 20x: +-1.65V output swing is +-16.5A with 5mOhm.
 #define ISENSE_AMPLIFICATION_CODE (3)
 
-// TMC6200 DRV_CONF settings written at boot (datasheet 5.1)
+// TMC6200 DRV_CONF settings written at boot (datasheet 5.1). The config keys bbmclks and drvstrength can change BBMCLKS and DRVSTRENGTH (smol_config.h).
 // break-before-make time, 0..15 at 42ns each (typ.). 4 = 168ns is the reset default.
 #define TMC_BBMCLKS (4)
+#define TMC_BBM_NS_PER_CLK (42)
 // gate driver current: 0 weak, 1 weak+TC, 2 medium, 3 strong. 2 is the reset default.
 #define TMC_DRVSTRENGTH (2)
 // bridge overtemperature shutdown: 0 150C, 1 143C, 2 136C, 3 120C. 0 is the reset default.

@@ -9,7 +9,9 @@
  * Example:
  * {
  *   "version": 1,
- *   "isense_gain": 20
+ *   "isense_gain": 20,
+ *   "bbmclks": 4,
+ *   "drvstrength": 2
  * }
  *
  * Rules:
@@ -26,6 +28,10 @@
 typedef struct {
 	// TMC6200 current sense amplifier gain: 5, 10 or 20
 	int32_t isense_gain;
+	// TMC6200 break-before-make time (dead time): 0..15, 42 ns each (typ.)
+	int32_t bbmclks;
+	// TMC6200 gate driver current: 0..3
+	int32_t drvstrength;
 } smol_config_t;
 
 const smol_config_t* smol_config(void);

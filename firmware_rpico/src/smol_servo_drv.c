@@ -153,7 +153,7 @@ void smol_drv_log_status(void) {
 		return;
 	}
 
-	info_println("TMC6200 configured, default gain %.0f, BBMCLKS %d, DRVSTRENGTH %d", smol_drv_isense_gain(), TMC_BBMCLKS, TMC_DRVSTRENGTH);
+	info_println("TMC6200 configured, defaults: gain %.0f, BBMCLKS %d, DRVSTRENGTH %d", smol_drv_isense_gain(), TMC_BBMCLKS, TMC_DRVSTRENGTH);
 }
 
 static int _gain_to_code(int32_t gain) {
@@ -207,6 +207,43 @@ int smol_drv_set_isense_gain(int32_t gain) {
 	info_println("TMC6200 current sense gain %" PRId32 ", GCONF 0x%08" PRIx32, gain, state.GCONF.reg);
 	smol_servo_loop_isense_gain_changed();
 	return 0;
+}
+
+/**
+ * Set the break-before-make time (BBMCLKS 0..15, 42 ns each, typ.) and the gate driver current (DRVSTRENGTH 0..3) in DRV_CONF. Allowed only while the driver is disabled.
+ * The dead time causes a voltage error that depends on the sign of the phase current. The motor model must use the value that is set here.
+ * Returns 0 on success.
+ */
+int smol_drv_set_switching(int32_t bbmclks, int32_t drvstrength) {
+	if ((bbmclks < 0) || (bbmclks > 15) || (drvstrength < 0) || (drvstrength > 3)) {
+		err_println("TMC6200 BBMCLKS %" PRId32 " (0..15) or DRVSTRENGTH %" PRId32 " (0..3) is not valid", bbmclks, drvstrength);
+		return -1;
+	}
+	if (_drv_enabled) {
+		err_println("TMC6200 BBMCLKS and DRVSTRENGTH change not allowed while the driver is enabled");
+		return -1;
+	}
+	if (_init_result != DRV_INIT_OK) {
+		err_println("TMC6200 BBMCLKS and DRVSTRENGTH: init not complete");
+		return -1;
+	}
+
+	_config.DRV_CONF.BBMCLKS = (uint32_t)bbmclks;
+	_config.DRV_CONF.DRVSTRENGTH = (uint32_t)drvstrength;
+	tmc6200_write_register(TMC_REG_DRV_CONF, _config.DRV_CONF.reg);
+
+	tmc_state_t state;
+	if ((tmc6200_read_state(&state) != 0) || !_config_matches(&state)) {
+		err_println("TMC6200 DRV_CONF readback 0x%08" PRIx32 ", expected 0x%08" PRIx32, state.DRV_CONF.reg, _config.DRV_CONF.reg);
+		return -1;
+	}
+	info_println("TMC6200 BBMCLKS %" PRId32 " (%" PRId32 " ns), DRVSTRENGTH %" PRId32 ", DRV_CONF 0x%08" PRIx32,
+		bbmclks, bbmclks * TMC_BBM_NS_PER_CLK, drvstrength, state.DRV_CONF.reg);
+	return 0;
+}
+
+int32_t smol_drv_bbm_ns(void) {
+	return (int32_t)_config.DRV_CONF.BBMCLKS * TMC_BBM_NS_PER_CLK;
 }
 
 bool smol_drv_is_ready(void) {
