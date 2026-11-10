@@ -16,10 +16,8 @@ static size_t _input_cursor = 0;
 
 static void _process_command(char* cmd, size_t cmd_len, char* args, size_t args_len) {
 	dbg_println("process_command: %.*s", cmd_len, cmd);
-	if (0 == strcmp("s", cmd)) {
-		smol_servo_loop_start();
-	}
-	else if (0 == strcmp("stop", cmd)) {
+	// the servo loop starts at boot (main.c). "state zero_cal" does a new zero calibration.
+	if (0 == strcmp("stop", cmd)) {
 		smol_servo_loop_request_state(SMOL_LOOP_OFF);
 	}
 	else if (0 == strcmp("state", cmd)) {

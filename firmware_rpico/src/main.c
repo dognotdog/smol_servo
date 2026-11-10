@@ -100,8 +100,8 @@ static void __not_in_flash_func(_core1_init)(void) {
 	// prio = BUSCTRL_BUS_PRIORITY_PROC1_BITS;
 	// busctrl_hw->priority = prio;
 
+	// core 1 init only. We are not starting the loop until later in main(), once the initialization from code in Flash memory is done, and all code is RAM-only that executes on core 1.
 	smol_servo_loop_init();
-	// smol_servo_loop_start();
 
 
 	// disable FLASH access for CORE 1 so we don't get XIP data stalls
@@ -150,8 +150,15 @@ int main(int argc, char const *argv[])
 	multicore_launch_core1(_core1_init);
 
 	bool led = false;
+	bool loop_started = false;
 	while (1) {
 		picobug_process_core1_queue();
+
+		// servo loop start at boot, after the core 1 init: zero calibration with DRV_EN low, then the idle state OFF (bridge off)
+		if (!loop_started && smol_core1_is_ram_only()) {
+			smol_servo_loop_start();
+			loop_started = true;
+		}
 
 		int ch = getchar_timeout_us(0);
 		if (ch >= 0) {

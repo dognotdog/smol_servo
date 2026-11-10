@@ -352,7 +352,7 @@ smol_loop_state_t __not_in_flash_func(smol_servo_loop_state)(void) {
 int smol_servo_loop_request_state(smol_loop_state_t state) {
 	const char* name = smol_servo_loop_state_name(state);
 	if (!_loop_started) {
-		err_println("loop state %s: the servo loop does not run (command s)", name);
+		err_println("loop state %s: the servo loop has not started yet (it starts at boot)", name);
 		return -1;
 	}
 	if ((state >= SMOL_LOOP_NUM_STATES) || (state == SMOL_LOOP_ZERO_CAL_DONE) || (state == SMOL_LOOP_FAULT)) {
