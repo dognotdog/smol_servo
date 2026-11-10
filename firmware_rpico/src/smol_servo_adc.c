@@ -134,7 +134,6 @@ void __not_in_flash_func(smol_adc_fifo_threshold_irq_handler)(void) {
 	// 1. Gather ADC reads
 	// 2. Refill CS pattern ringbuf
 
-	uint32_t prev_block_index = (block_complete_index + ADC_PATTERN_NUM_BLOCKS - 1) % ADC_PATTERN_NUM_BLOCKS;
 	uint32_t next_block_index = (block_complete_index + 1) % ADC_PATTERN_NUM_BLOCKS;
 	uint32_t next_ringbuf_index = (ringbuf_complete_index + 1) % ADC_RINGBUF_NUM_BLOCKS;
 
@@ -190,23 +189,26 @@ void __not_in_flash_func(smol_adc_fifo_threshold_irq_handler)(void) {
 		// ...then assign samples to correct ADC channels.
 		// samples contain two evenly spaced current reads [0,2] and two aux reads in between [1,3]
 		// 
+		// block_complete_index is the pattern that ran in this block, see the ring refill below
 		assert_fast(block_complete_index < ADC_PATTERN_NUM_BLOCKS);
-		_adc_read_buf[prev_block_index][0] = samples[0];
-		_adc_read_buf[prev_block_index][1] = samples[2];
-		_adc_read_buf[2*prev_block_index + 3][0] = samples[1];
-		_adc_read_buf[2*prev_block_index + 4][0] = samples[3];
+		_adc_read_buf[block_complete_index][0] = samples[0];
+		_adc_read_buf[block_complete_index][1] = samples[2];
+		_adc_read_buf[2*block_complete_index + 3][0] = samples[1];
+		_adc_read_buf[2*block_complete_index + 4][0] = samples[3];
 
 		// TIME: we're executed roughly at the end of the ADC sampling of the 4th block, so at about +1us (150clk) past center of sample.
-		_adc_time_buf[prev_block_index][0] = t_clocks - 3 *SMOL_SERVO_ADC_PERIOD_CLOCKS - 150;
-		_adc_time_buf[prev_block_index][1] = t_clocks - 1 *SMOL_SERVO_ADC_PERIOD_CLOCKS - 150;
-		_adc_time_buf[2*prev_block_index + 3][0] = t_clocks - 2 *SMOL_SERVO_ADC_PERIOD_CLOCKS - 150;
-		_adc_time_buf[2*prev_block_index + 4][0] = t_clocks - 0 *SMOL_SERVO_ADC_PERIOD_CLOCKS - 150;
+		_adc_time_buf[block_complete_index][0] = t_clocks - 3 *SMOL_SERVO_ADC_PERIOD_CLOCKS - 150;
+		_adc_time_buf[block_complete_index][1] = t_clocks - 1 *SMOL_SERVO_ADC_PERIOD_CLOCKS - 150;
+		_adc_time_buf[2*block_complete_index + 3][0] = t_clocks - 2 *SMOL_SERVO_ADC_PERIOD_CLOCKS - 150;
+		_adc_time_buf[2*block_complete_index + 4][0] = t_clocks - 0 *SMOL_SERVO_ADC_PERIOD_CLOCKS - 150;
 	}
 
 	// refill CS pattern. This is a software op because of the power-of-two restriction on DMA ringbuffer sizes, but we have a 3x factor for our 3-phase pattern.
 	// we're refilling the block we just executed, so that this isn't timing critical for the next conversion block.
+	// The DMA runs this ring slot again ADC_RINGBUF_NUM_BLOCKS blocks later, so it gets the pattern for that block. A refill with the pattern that just ran repeats one pattern after the prefill, and the phase order is then one PWM period late at each loop.
+	uint32_t refill_block_index = (block_complete_index + ADC_RINGBUF_NUM_BLOCKS) % ADC_PATTERN_NUM_BLOCKS;
 	for (size_t i = 0; i < ADC_PATTERN_BLOCK_SIZE; ++i) {
-		_adc_cs_ringbuf[ringbuf_complete_index][i] = _adc_cs_buf[block_complete_index][i];
+		_adc_cs_ringbuf[ringbuf_complete_index][i] = _adc_cs_buf[refill_block_index][i];
 	}
 	// memcpy(_adc_cs_ringbuf[ringbuf_complete_index], _adc_cs_buf[block_complete_index], sizeof(uint32_t)*ADC_PATTERN_BLOCK_SIZE);
 
@@ -217,7 +219,7 @@ void __not_in_flash_func(smol_adc_fifo_threshold_irq_handler)(void) {
 
 #ifdef DEBUG_ADC_FIFO_THRES_WITH_GPIO
 	gpio_out_put_fast(DEBUG_ADC_FIFO_THRES_WITH_GPIO, 0);
-	// if (prev_block_index == 2) {
+	// if (block_complete_index == 2) {
 	// 	gpio_out_put_fast(DEBUG_ADC_FIFO_THRES_WITH_GPIO, 0);
 	// 	gpio_out_put_fast(DEBUG_ADC_FIFO_THRES_WITH_GPIO, 1);
 	// 	gpio_out_put_fast(DEBUG_ADC_FIFO_THRES_WITH_GPIO, 1);
