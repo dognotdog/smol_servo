@@ -130,7 +130,11 @@ int main(int argc, char const *argv[])
 	info_println("reset cause: CHIP_RESET 0x%08x, WATCHDOG REASON 0x%x", powman_hw->chip_reset, watchdog_hw->reason);
 	smol_drv_log_status();
 
-    smol_fs_init();
+	// mount only: a format erases flash, and core 0 then cannot answer PD messages. smol_fs_run() does a necessary format later.
+	smol_fs_init();
+	// config file: applies the current sense gain to the TMC6200 (DRV_EN is still low). Without a mounted FS, smol_fs_run() loads the config after the deferred format.
+	if (smol_fs_is_mounted())
+		smol_config_load();
 
 	multicore_reset_core1();
 	multicore_launch_core1(_core1_init);
@@ -146,6 +150,7 @@ int main(int argc, char const *argv[])
 
 		smol_usb_pd_run();
 		smol_drv_run();
+		smol_fs_run();
 
 		smol_servo_loop_idle_core0();
 

@@ -15,6 +15,7 @@
  */
 
 #include "smol_servo.h"
+#include "smol_config.h"
 #include "smol_servo_parameters.h"
 #include "pico_debug.h"
 
@@ -180,6 +181,11 @@ void smol_drv_disable(void) {
 int smol_drv_enable(void) {
 	if (_init_result != DRV_INIT_OK) {
 		err_println("TMC6200 enable: init not complete");
+		return -1;
+	}
+	// the config sets the current sense gain. On the first boot, the config load waits for the deferred FS format.
+	if (!smol_config_is_loaded()) {
+		err_println("TMC6200 enable: config not loaded");
 		return -1;
 	}
 
