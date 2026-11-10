@@ -90,6 +90,8 @@ if (TARGET tinyusb_device)
         src/smol_servo_drv.c
         src/smol_servo_mag.c
         src/smol_servo_loop.c
+        src/smol_motor_id.c
+        src/smol_motor_id_math.c
         src/smol_servo_pwm.c
         src/smol_servo_usb_pd.c
         src/smol_console.c

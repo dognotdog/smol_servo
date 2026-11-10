@@ -4,6 +4,7 @@
 #include "smol_fast.h"
 #include "pico_debug.h"
 #include "smol_servo_loop.h"
+#include "smol_motor_id.h"
 
 #include "hardware/dma.h"
 #include "hardware/irq.h"
@@ -192,10 +193,21 @@ void __not_in_flash_func(smol_servo_loop_irq_handler)(void) {
 				_state = SMOL_LOOP_ZERO_CAL_DONE;
 			}
 			break;
-		case SMOL_LOOP_MOTOR_ID:
-			// TODO: motor identification
-			smol_bridge_out_off(&_bridge_out);
+		case SMOL_LOOP_MOTOR_ID: {
+			float amps[SMOL_SERVO_PHASES][2];
+			for (size_t p = 0; p < SMOL_SERVO_PHASES; ++p)
+				for (size_t j = 0; j < 2; ++j)
+					amps[p][j] = (isense_values[p][j] - _cal_zero_v[p][j]) * _cal_amps_per_volt;
+			smol_motor_id_step_t r = smol_motor_id_step(amps, &_bridge_out);
+			if (r != SMOL_MOTOR_ID_RUN) {
+				// an abort switches the bridge off at once, a normal end in the next loop
+				if (r == SMOL_MOTOR_ID_ABORT)
+					smol_pwm_all_off();
+				__dmb(); // the sums must be in memory before core 0 sees MOTOR_ID_DONE and reads them
+				_state = SMOL_LOOP_MOTOR_ID_DONE;
+			}
 			break;
+		}
 		case SMOL_LOOP_CONTROL:
 			// TODO: closed loop control
 			smol_bridge_out_off(&_bridge_out);
@@ -210,6 +222,7 @@ void __not_in_flash_func(smol_servo_loop_irq_handler)(void) {
 			break;
 		case SMOL_LOOP_OFF:
 		case SMOL_LOOP_ZERO_CAL_DONE:
+		case SMOL_LOOP_MOTOR_ID_DONE:
 		case SMOL_LOOP_FAULT:
 		default:
 			smol_bridge_out_off(&_bridge_out);
@@ -308,6 +321,12 @@ void smol_servo_loop_init(void) {
 
 	_timer1_sample_dma_init();
 
+#ifdef DEBUG_LOOP_IRQ_WITH_GPIO
+	// output for the loop IRQ timing, see smol_servo_loop_irq_handler()
+	gpio_init(DEBUG_LOOP_IRQ_WITH_GPIO);
+	gpio_set_dir(DEBUG_LOOP_IRQ_WITH_GPIO, true);
+#endif
+
 	smol_mag_init();
 	smol_adc_init();
 	smol_pwm_init();
@@ -322,6 +341,7 @@ static const char* const _state_names[SMOL_LOOP_NUM_STATES] = {
 	[SMOL_LOOP_ZERO_CAL] = "zero_cal",
 	[SMOL_LOOP_ZERO_CAL_DONE] = "zero_cal_done",
 	[SMOL_LOOP_MOTOR_ID] = "motor_id",
+	[SMOL_LOOP_MOTOR_ID_DONE] = "motor_id_done",
 	[SMOL_LOOP_CONTROL] = "control",
 	[SMOL_LOOP_PWM_TEST] = "pwm_test",
 	[SMOL_LOOP_FAULT] = "fault",
@@ -355,7 +375,7 @@ int smol_servo_loop_request_state(smol_loop_state_t state) {
 		err_println("loop state %s: the servo loop has not started yet (it starts at boot)", name);
 		return -1;
 	}
-	if ((state >= SMOL_LOOP_NUM_STATES) || (state == SMOL_LOOP_ZERO_CAL_DONE) || (state == SMOL_LOOP_FAULT)) {
+	if ((state >= SMOL_LOOP_NUM_STATES) || (state == SMOL_LOOP_ZERO_CAL_DONE) || (state == SMOL_LOOP_MOTOR_ID_DONE) || (state == SMOL_LOOP_FAULT)) {
 		err_println("loop state %s: not possible, only the loop sets it", name);
 		return -1;
 	}
@@ -428,8 +448,8 @@ static void _zero_cal_evaluate(void) {
 	for (size_t p = 0; p < SMOL_SERVO_PHASES; ++p)
 		for (size_t j = 0; j < 2; ++j)
 			_cal_zero_v[p][j] = zero[p][j];
-	// positive current: into the motor terminal (TMC6200 datasheet 6)
-	_cal_amps_per_volt = 1.0f / (gain * ISENSE_R);
+	// positive current: into the motor terminal. The output falls for a positive current: CUR = VOFS - gain * (R * I + VINOFS) (TMC6200 datasheet 6). The pulse test on the bench agrees.
+	_cal_amps_per_volt = -1.0f / (gain * ISENSE_R);
 	__dmb(); // the non-volatile zeros and scale must be in memory before core 1 sees _cal_valid
 	_cal_valid = true;
 	info_println("isense zero calibration: done");
@@ -448,6 +468,10 @@ static void _core0_run(void) {
 		case SMOL_LOOP_ZERO_CAL_DONE:
 			__dmb(); // the non-volatile sums must be read after the ZERO_CAL_DONE read, not earlier by the compiler or the CPU
 			_zero_cal_evaluate();
+			smol_servo_loop_request_state(SMOL_LOOP_OFF);
+			break;
+		case SMOL_LOOP_MOTOR_ID_DONE:
+			smol_motor_id_evaluate();
 			smol_servo_loop_request_state(SMOL_LOOP_OFF);
 			break;
 		case SMOL_LOOP_FAULT:
@@ -524,6 +548,7 @@ void __not_in_flash_func(smol_servo_loop_idle_core1)(void) {
 
 void smol_servo_loop_idle_core0(void) {
 	_core0_run();
+	smol_motor_id_core0_run();
 
 	uint64_t t_fast = smol_time64(timer0_hw);
 	dbg_time_t tt = {.seconds = t_fast / 1000000u, .microseconds = t_fast % 1000000u};

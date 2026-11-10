@@ -24,8 +24,10 @@ typedef enum {
 	SMOL_LOOP_ZERO_CAL,
 	// the zero calibration sums are complete, bridge off. Core 0 evaluates them and requests OFF.
 	SMOL_LOOP_ZERO_CAL_DONE,
-	// motor identification (not implemented, bridge off)
+	// motor identification: inductance pulse test of one terminal pair (smol_motor_id.c). Next: MOTOR_ID_DONE.
 	SMOL_LOOP_MOTOR_ID,
+	// the pulse test is complete or aborted, bridge off. Core 0 prints the result and requests OFF.
+	SMOL_LOOP_MOTOR_ID_DONE,
 	// closed loop control (not implemented, bridge off)
 	SMOL_LOOP_CONTROL,
 	// bridge PWM test pattern for a scope, until a new request

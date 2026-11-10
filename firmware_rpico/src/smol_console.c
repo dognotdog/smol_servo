@@ -3,8 +3,12 @@
 
 #include "pico_debug.h"
 #include "smol_config.h"
+#include "smol_motor_id.h"
+#include "tmc6200.h"
 
 #include <stdio.h>
+#include <inttypes.h>
+#include <stdlib.h>
 #include <stddef.h>
 #include <string.h>
 #include <stdbool.h>
@@ -18,6 +22,7 @@ static void _process_command(char* cmd, size_t cmd_len, char* args, size_t args_
 	dbg_println("process_command: %.*s", cmd_len, cmd);
 	// the servo loop starts at boot (main.c). "state zero_cal" does a new zero calibration.
 	if (0 == strcmp("stop", cmd)) {
+		smol_motor_id_auto_cancel();
 		smol_servo_loop_request_state(SMOL_LOOP_OFF);
 	}
 	else if (0 == strcmp("state", cmd)) {
@@ -28,10 +33,81 @@ static void _process_command(char* cmd, size_t cmd_len, char* args, size_t args_
 		else {
 			smol_loop_state_t state = smol_servo_loop_state_from_name(args);
 			if (state == SMOL_LOOP_NUM_STATES)
-				warn_println("unknown loop state: %s (off, zero_cal, motor_id, control, pwm_test)", args);
+				warn_println("unknown loop state: %s (off, zero_cal, motor_id (use id_pulse), control, pwm_test)", args);
 			else
 				smol_servo_loop_request_state(state);
 		}
+	}
+	else if ((0 == strcmp("id_pulse", cmd)) || (0 == strcmp("id_dc", cmd))) {
+		// id_pulse [pair 0..2] [w_ns] [cycles], defaults 0 500 64
+		// id_dc [pair 0..2] [duty_permille] [loops], defaults 0 20 2000
+		// pair 0 = A->B, 1 = B->C, 2 = C->A
+		bool pulse = (0 == strcmp("id_pulse", cmd));
+		unsigned long v[3] = {0, pulse ? 500 : 20, pulse ? 64 : 2000};
+		char* p = args;
+		for (size_t i = 0; i < 3 && *p; ++i) {
+			char* end = NULL;
+			v[i] = strtoul(p, &end, 10);
+			if (end == p) {
+				warn_println("usage: id_pulse [pair 0..2] [w_ns] [cycles], id_dc [pair 0..2] [duty_permille] [loops]");
+				return;
+			}
+			p = end;
+			while (*p == ' ')
+				++p;
+		}
+		if (smol_servo_loop_state() == SMOL_LOOP_MOTOR_ID) {
+			warn_println("%s: a motor id test runs", cmd);
+			return;
+		}
+		int r = pulse ? smol_motor_id_prepare_pulse((uint32_t)v[0], (uint32_t)v[1], (uint32_t)v[2])
+			: smol_motor_id_prepare_dc((uint32_t)v[0], (float)v[1] * 1e-3f, (uint32_t)v[2]);
+		if (r == 0)
+			smol_servo_loop_request_state(SMOL_LOOP_MOTOR_ID);
+	}
+	else if (0 == strcmp("id_auto", cmd)) {
+		// id_auto [cycles], default 2048: pulse test of all pairs, fit and 2-phase / 3-phase classification
+		unsigned long cycles = 2048;
+		if (args[0]) {
+			char* end = NULL;
+			cycles = strtoul(args, &end, 10);
+			if (end == args) {
+				warn_println("usage: id_auto [cycles]");
+				return;
+			}
+		}
+		smol_motor_id_auto_start((uint32_t)cycles);
+	}
+	else if (0 == strcmp("id_rec", cmd)) {
+		// id_rec [lo_permille] [hi_permille] [step_permille] [loops], defaults 10 990 10 2000: amplifier recovery sweep, all 3 terminals at the same duty. Disconnect the motor first.
+		unsigned long v[4] = {10, 990, 10, 2000};
+		char* p = args;
+		for (size_t i = 0; i < 4 && *p; ++i) {
+			char* end = NULL;
+			v[i] = strtoul(p, &end, 10);
+			if (end == p) {
+				warn_println("usage: id_rec [lo_permille] [hi_permille] [step_permille] [loops]");
+				return;
+			}
+			p = end;
+			while (*p == ' ')
+				++p;
+		}
+		if (smol_servo_loop_state() == SMOL_LOOP_MOTOR_ID) {
+			warn_println("%s: a motor id test runs", cmd);
+			return;
+		}
+		smol_motor_id_rec_start((uint32_t)v[0], (uint32_t)v[1], (uint32_t)v[2], (uint32_t)v[3]);
+	}
+	else if (0 == strcmp("drv_io", cmd)) {
+		// TMC6200 input pin levels and status, also while a loop state runs
+		tmc_state_t st;
+		if (tmc6200_read_state(&st) != 0) {
+			err_println("drv_io: read failed");
+			return;
+		}
+		info_println("drv_io: UH %u UL %u VH %u VL %u WH %u WL %u DRV_EN %u, GSTAT 0x%08" PRIx32 ", GCONF 0x%08" PRIx32,
+			st.IOIN.UH, st.IOIN.UL, st.IOIN.VH, st.IOIN.VL, st.IOIN.WH, st.IOIN.WL, st.IOIN.DRV_EN, st.GSTAT.reg, st.GCONF.reg);
 	}
 	else if (0 == strcmp("drv_en", cmd)) {
 		smol_drv_enable();
