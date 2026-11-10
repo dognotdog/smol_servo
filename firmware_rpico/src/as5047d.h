@@ -2,13 +2,18 @@
 
 #include "hardware/spi.h"
 
+#include <stdint.h>
+
 // Parity for AS5047D
 #define _XORS(x,s) ((x) ^ ((x) >> s))
 
 #define  _PAR(x) (((_XORS(_XORS(_XORS(_XORS(((x) & 0x7FFF), 8), 4), 2), 1) & 1) << 15) | ((x) & 0x7FFF))
 
 #define MAG_READ_FLAG    (0x4000)
+#define MAG_REG_NOP      (0x0000)
 #define MAG_REG_ERRFL    (0x0001)
+#define MAG_REG_PROG     (0x0003)
+#define MAG_REG_SETTINGS1 (0x0018)
 #define MAG_REG_DIAAGC   (0x3FFC)
 #define MAG_REG_MAG      (0x3FFD)
 #define MAG_REG_ANGLEUNC (0x3FFE)
