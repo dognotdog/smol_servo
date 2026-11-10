@@ -17,6 +17,7 @@
 
 #include "smol_servo.h"
 #include "smol_fs.h"
+#include "smol_config.h"
 #include "smol_console.h"
 #include "pico_debug.h"
 
@@ -85,6 +86,13 @@ void pico_set_led(bool led_on) {
     gpio_put(LED_PIN, led_on);
 }
 
+// set by core 1 after its init: from then on core 1 has no XIP access, and core 0 can write the flash
+static volatile bool _core1_ram_only = false;
+
+bool smol_core1_is_ram_only(void) {
+	return _core1_ram_only;
+}
+
 static void __not_in_flash_func(_core1_init)(void) {
 	// // mess with AHB priorities
 	// uint32_t prio = busctrl_hw->priority;
@@ -98,6 +106,8 @@ static void __not_in_flash_func(_core1_init)(void) {
 
 	// disable FLASH access for CORE 1 so we don't get XIP data stalls
 	hw_clear_bits(&accessctrl_hw->xip_main, 0xACCE0000 | ACCESSCTRL_XIP_MAIN_CORE1_BITS);
+	__dmb();
+	_core1_ram_only = true;
 
 	while (1) {
 		smol_servo_loop_idle_core1();

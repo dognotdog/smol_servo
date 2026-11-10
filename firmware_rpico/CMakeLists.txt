@@ -26,6 +26,17 @@ FetchContent_Declare(littlefs
 # make available
 FetchContent_MakeAvailable(littlefs)
 
+# lwjson: JSON stream parser for the configuration file
+FetchContent_Declare(lwjson
+    GIT_REPOSITORY https://github.com/MaJerle/lwjson.git
+    GIT_TAG        v1.10.1
+    )
+# download only: the sources are added to the firmware target below, like littlefs. The lwjson CMake files create library targets, and these must not come before project().
+FetchContent_GetProperties(lwjson)
+if(NOT lwjson_POPULATED)
+    FetchContent_Populate(lwjson)
+endif()
+
 # Initialise pico_sdk from installed location
 # (note this can come from environment, CMake cache etc)
 
@@ -83,14 +94,19 @@ if (TARGET tinyusb_device)
         src/smol_servo_usb_pd.c
         src/smol_console.c
         src/smol_fs.c
+        src/smol_config.c
         src/smol_trig.c
         src/pico_debug.c
         ${littlefs_SOURCE_DIR}/lfs.c
         ${littlefs_SOURCE_DIR}/lfs_util.c
+        ${lwjson_SOURCE_DIR}/lwjson/src/lwjson/lwjson_stream.c
         )
 
     target_include_directories(smol_servo_rpico PUBLIC
         ${littlefs_SOURCE_DIR}
+        ${lwjson_SOURCE_DIR}/lwjson/src/include
+        # lwjson_opts.h
+        ${CMAKE_CURRENT_LIST_DIR}/src
         )
 
     # pull in common dependencies

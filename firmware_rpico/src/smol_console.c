@@ -2,6 +2,7 @@
 #include "smol_servo.h"
 
 #include "pico_debug.h"
+#include "smol_config.h"
 
 #include <stdio.h>
 #include <stddef.h>
@@ -25,10 +26,35 @@ static void _process_command(char* cmd, size_t cmd_len, char* args, size_t args_
 		smol_drv_disable();
 		info_println("TMC6200 disabled");
 	}
+	else if (0 == strcmp("cfg", cmd)) {
+		smol_config_print();
+	}
+	else if (0 == strcmp("cfg_set", cmd)) {
+		// args: <key> <value>
+		char* value = strchr(args, ' ');
+		if (!value) {
+			warn_println("usage: cfg_set <key> <value>");
+			return;
+		}
+		*value++ = 0;
+		if (smol_config_set(args, value) == 0)
+			info_println("config: %s = %s (not saved)", args, value);
+	}
+	else if (0 == strcmp("cfg_save", cmd)) {
+		smol_config_save();
+	}
+	else if (0 == strcmp("cfg_load", cmd)) {
+		smol_config_load();
+	}
+	else {
+		warn_println("unknown command: %s", cmd);
+	}
 }
 
 static void smol_console_process_input_line(char* line, size_t linelen) {
 	dbg_println("process_line: %.*s", linelen, line);
+	if (linelen == 0)
+		return;
 	char* cmd_end = strpbrk(line, " ");
 	size_t args_len = 0;
 	size_t cmd_len = 0;
@@ -39,9 +65,12 @@ static void smol_console_process_input_line(char* line, size_t linelen) {
  	else {
  		cmd_len = cmd_end - line;
  		args_len = (linelen - cmd_len) - 1;
+ 		// terminate the command, so that it compares as a string. args stays terminated by the line end.
+ 		*cmd_end = 0;
  	}
 
- 	_process_command(line, cmd_len, cmd_end + 1, args_len);
+ 	static char empty_args[] = "";
+ 	_process_command(line, cmd_len, (args_len > 0) ? cmd_end + 1 : empty_args, args_len);
 }
 
 void smol_console_process_char(int ch) {
@@ -64,7 +93,7 @@ void smol_console_process_char(int ch) {
 			printf("\r\n");
 			// terminate line
 			_input_buf[_input_cursor] = 0;
-			smol_console_process_input_line(_input_buf, _input_cursor - 1);
+			smol_console_process_input_line(_input_buf, _input_cursor);
 			// reset input line buffer
 			_input_cursor = 0;
 			_input_buf[0] = 0;

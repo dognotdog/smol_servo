@@ -4,6 +4,8 @@
 #include <stdint.h>
 #include <stddef.h>
 
+bool smol_core1_is_ram_only(void);
+
 void smol_usb_pd_init(void);
 void smol_usb_pd_run(void);
 void smol_usb_pd_run_startup(void);
@@ -13,6 +15,8 @@ void smol_drv_init(void);
 void smol_drv_log_status(void);
 bool smol_drv_is_ready(void);
 int smol_drv_enable(void);
+int smol_drv_set_isense_gain(int32_t gain);
+float smol_drv_isense_gain(void);
 void smol_drv_disable(void);
 bool smol_drv_is_enabled(void);
 void smol_drv_run(void);
@@ -27,6 +31,10 @@ void smol_pwm_start(void);
 void smol_adc_start(void);
 void smol_servo_loop_start(void);
 void smol_servo_signal_loop(void);
+// current sense zero calibration, see smol_servo_loop.c
+bool smol_servo_loop_isense_zero_is_busy(void);
+bool smol_servo_loop_isense_zero(float zero_v[3][2]);
+void smol_servo_loop_isense_gain_changed(void);
 
 void smol_servo_loop_idle_core0(void);
 void smol_servo_loop_idle_core1(void);

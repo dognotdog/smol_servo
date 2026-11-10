@@ -24,6 +24,11 @@ extern char __flash_storage_end;
 
 // variables used by the filesystem
 static lfs_t lfs;
+static bool _mounted = false;
+
+bool smol_fs_is_mounted(void) {
+	return _mounted;
+}
 
 lfs_t* smol_lfs(void) {
 	return &lfs;

@@ -153,7 +153,60 @@ void smol_drv_log_status(void) {
 		return;
 	}
 
-	info_println("TMC6200 configured, amplification code %d, BBMCLKS %d, DRVSTRENGTH %d", ISENSE_AMPLIFICATION_CODE, TMC_BBMCLKS, TMC_DRVSTRENGTH);
+	info_println("TMC6200 configured, default gain %.0f, BBMCLKS %d, DRVSTRENGTH %d", smol_drv_isense_gain(), TMC_BBMCLKS, TMC_DRVSTRENGTH);
+}
+
+static int _gain_to_code(int32_t gain) {
+	switch (gain) {
+		case 5: return 0;
+		case 10: return 1;
+		case 20: return 3;
+		default: return -1;
+	}
+}
+
+/**
+ * Current sense amplifier gain of the configuration (5, 10 or 20).
+ */
+float smol_drv_isense_gain(void) {
+	static const float amplifications[] = ISENSE_AMPLIFICATIONS;
+	uint32_t code = (_config.GCONF.amplification_x1 << 1) | _config.GCONF.amplification_x5;
+	if (_init_result == DRV_INIT_NOT_RUN)
+		code = ISENSE_AMPLIFICATION_CODE;
+	return amplifications[code];
+}
+
+/**
+ * Set the current sense amplifier gain (5, 10 or 20). Allowed only while the driver is disabled. A new current sense zero calibration is necessary after a change, because the offset scales with the gain (datasheet 6.2.1).
+ * Returns 0 on success.
+ */
+int smol_drv_set_isense_gain(int32_t gain) {
+	int code = _gain_to_code(gain);
+	if (code < 0) {
+		err_println("TMC6200 gain %" PRId32 " is not valid (5, 10 or 20)", gain);
+		return -1;
+	}
+	if (_drv_enabled) {
+		err_println("TMC6200 gain change not allowed while the driver is enabled");
+		return -1;
+	}
+	if (_init_result != DRV_INIT_OK) {
+		err_println("TMC6200 gain: init not complete");
+		return -1;
+	}
+
+	_config.GCONF.amplification_x5 = (code >> 0) & 1;
+	_config.GCONF.amplification_x1 = (code >> 1) & 1;
+	tmc6200_write_register(TMC_REG_GCONF, _config.GCONF.reg);
+
+	tmc_state_t state;
+	if ((tmc6200_read_state(&state) != 0) || !_config_matches(&state)) {
+		err_println("TMC6200 gain: GCONF readback 0x%08" PRIx32 ", expected 0x%08" PRIx32, state.GCONF.reg, _config.GCONF.reg);
+		return -1;
+	}
+	info_println("TMC6200 current sense gain %" PRId32 ", GCONF 0x%08" PRIx32, gain, state.GCONF.reg);
+	smol_servo_loop_isense_gain_changed();
+	return 0;
 }
 
 bool smol_drv_is_ready(void) {
@@ -186,6 +239,10 @@ int smol_drv_enable(void) {
 	// the config sets the current sense gain. On the first boot, the config load waits for the deferred FS format.
 	if (!smol_config_is_loaded()) {
 		err_println("TMC6200 enable: config not loaded");
+		return -1;
+	}
+	if (smol_servo_loop_isense_zero_is_busy()) {
+		err_println("TMC6200 enable: current sense zero calibration is busy");
 		return -1;
 	}
 
