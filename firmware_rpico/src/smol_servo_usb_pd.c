@@ -1,4 +1,5 @@
 #include "smol_servo.h"
+#include "smol_servo_usb_pd.h"
 #include "smol_fast.h"
 
 #include "fusb302.h"
@@ -16,6 +17,7 @@
  * We have the FUSB302 connected through a TPD4S480, which means it is getting a reduced voltage by a factor of 0.42 to account for ESR 48V supplies. This means that likely VBUSOK will never trigger, but that's ok because we can measure it.
  *
  * The default negotiation is requesting at least 9V at the highest power envelope.
+ * smol_usb_pd_request_mv() sets a target voltage at run time (console command pd_req). The sink then sends a new Request in the Explicit Contract (Accept, PS_RDY). The target stays in effect for all later (EPR_)Source_Capabilities.
  *
  * If we already have a VBUS we will not request higher voltage over USB.
  *
@@ -346,6 +348,12 @@ static volatile uint32_t _contract_mv = 0;
 // time of the last Request / EPR_Request, for SinkPPSPeriodicTimer
 static uint64_t _last_request_us = 0;
 static bool _src_epr_capable = false;
+// target voltage of smol_usb_pd_request_mv(), 0 = boot default. Not reset by attach, detach or Hard Reset.
+static uint32_t _target_mv = 0;
+// _target_mv of the last PS_RDY: a Reject restores it
+static uint32_t _contract_target_mv = 0;
+// smol_usb_pd_request_mv() was called: send a Request in SMOL_USB_PD_READY. Each Request clears it.
+static bool _target_request_pending = false;
 static bool _epr_mode = false;
 // EPR Mode entry attempts since attach. PD_EPR_ENTRY_ATTEMPTS = no more attempts.
 static uint32_t _epr_entry_attempts = 0;
@@ -711,12 +719,49 @@ static bool _pdo_is_epr(uint32_t pdo) {
 	return (((pdo >> 30) & 0x3) == PDO_FIXED) && (cap.max_voltage > 20000);
 }
 
+/**
+ * (A)PDO for a target voltage in the present source capabilities. Returns the array index, -1 = no (A)PDO fits.
+ * 1. A Fixed PDO with exactly this voltage.
+ * 2. A PPS or AVS APDO with this voltage in its range. EPR AVS only in EPR Mode.
+ * Variable and Battery PDOs are not used: the Source sets the voltage in their range.
+ */
+static int _pd_select_target(uint32_t target_mv) {
+	if ((target_mv < SMOL_USB_PD_REQUEST_MIN_MV) || (target_mv > PD_MAX_VOLTAGE_MV))
+		return -1;
+	for (size_t i = 0; i < MAX_NUM_SRC_CAPS; ++i) {
+		const src_cap_t* c = &_src_capabilities[i];
+		if (c->is_apdo || c->is_variable || (c->max_voltage == 0))
+			continue;
+		if (c->max_voltage == target_mv)
+			return (int)i;
+	}
+	for (size_t i = 0; i < MAX_NUM_SRC_CAPS; ++i) {
+		const src_cap_t* c = &_src_capabilities[i];
+		if (!c->is_apdo || (c->max_voltage == 0))
+			continue;
+		if (c->is_epr_avs && !_epr_mode)
+			continue;
+		if ((target_mv >= c->min_voltage) && (target_mv <= c->max_voltage))
+			return (int)i;
+	}
+	return -1;
+}
+
 static void _pd_respond_to_src_caps(void) {
 	// we have to go through the source capabilities and pick one.
 	// Since the TMC6200 needs at least 8V, we should try to go for 9V or more
 
 	// bool already_have_vbus = _pd_check_vbus();
 	bool already_have_vbus = false;
+
+	// each Request uses the present target
+	_target_request_pending = false;
+	int target_index = -1;
+	if (_target_mv != 0) {
+		target_index = _pd_select_target(_target_mv);
+		if (target_index < 0)
+			warn_println("PD no (A)PDO for the target %u mV, request the default", _target_mv);
+	}
 
 	int best_current_cap = 0;
 	int best_voltage_cap = 0;
@@ -767,6 +812,8 @@ static void _pd_respond_to_src_caps(void) {
 			pdo_index = best_voltage_cap;
 			break;
 	}
+	if (target_index >= 0)
+		pdo_index = target_index;
 	if (already_have_vbus)
 		pdo_index = 0;
 
@@ -774,7 +821,12 @@ static void _pd_respond_to_src_caps(void) {
 	uint32_t voltage = cap->is_variable ? cap->min_voltage : cap->max_voltage;
 	if (cap->is_apdo && (voltage > PD_MAX_VOLTAGE_MV))
 		voltage = PD_MAX_VOLTAGE_MV;
+	if (cap->is_apdo && (pdo_index == target_index))
+		voltage = _target_mv;
 	uint32_t current = cap->max_current;
+	// SPR AVS: the 9..15V range has its own current. _parse_pdo() gives the 15..20V current when the PDO has one.
+	if (cap->is_spr_avs && (voltage <= 15000))
+		current = 10 * ((_src_pdos[pdo_index] >> 10) & 0x3FF);
 
 	uint32_t request_obj = 0;
 	request_obj |= (pdo_index + 1) << 28;  // PD object positions are 1-based; array index 0 = PDO position 1
@@ -829,8 +881,8 @@ static void _pd_respond_to_src_caps(void) {
 
 	_pd_set_state(SMOL_USB_PD_REQUEST_SENT);
 
-	dbg_println("PD %sRequest 0x%08x: PDO %u%s, %umV, %umA", _epr_mode ? "EPR_" : "", request_obj, pdo_index + 1,
-		cap->is_pps ? " PPS" : (cap->is_apdo ? " AVS" : ""), voltage, current);
+	dbg_println("PD %sRequest 0x%08x: PDO %u%s, %umV, %umA, target %umV", _epr_mode ? "EPR_" : "", request_obj, pdo_index + 1,
+		cap->is_pps ? " PPS" : (cap->is_apdo ? " AVS" : ""), voltage, current, _target_mv);
 }
 
 /**
@@ -981,6 +1033,11 @@ static void _parse_pd_command(uint32_t cmd) {
 		case PD_CMD_REJECT:
 			if (m_usb_pd_state == SMOL_USB_PD_REQUEST_SENT) {
 				warn_println("PD request rejected");
+				// keep the target of the present contract, so that later Source_Capabilities do not request the rejected voltage again
+				if (_target_mv != _contract_target_mv) {
+					warn_println("PD target %u mV rejected, keep the target %u mV", _target_mv, _contract_target_mv);
+					_target_mv = _contract_target_mv;
+				}
 				// keep the existing Explicit Contract, else wait for new capabilities
 				if (_have_contract)
 					_pd_set_state(SMOL_USB_PD_READY);
@@ -1008,10 +1065,11 @@ static void _parse_pd_command(uint32_t cmd) {
 				_contract_is_epr = _requested_pos > MAX_NUM_SPR_CAPS;
 				_contract_is_pps = _requested_is_pps;
 				_contract_mv = _requested_mv;
+				_contract_target_mv = _target_mv;
 				_hard_reset_counter = 0;
 				_startup_soft_reset = false;
 				_pd_set_state(SMOL_USB_PD_READY);
-				dbg_println("PD PS_RDY, %s%s contract established", _contract_is_epr ? "EPR" : "SPR", _contract_is_pps ? " PPS" : "");
+				info_println("PD PS_RDY, %s%s contract established, PDO %u, %u mV", _contract_is_epr ? "EPR" : "SPR", _contract_is_pps ? " PPS" : "", _requested_pos, _contract_mv);
 			}
 			break;
 		case PD_CMD_SOFT_RESET:
@@ -1437,6 +1495,12 @@ static void _pd_run_timers(uint64_t now_us) {
 				_pd_epr_entry_failed("no Enter Succeeded");
 			break;
 		case SMOL_USB_PD_READY:
+			// smol_usb_pd_request_mv(): new Request in the Explicit Contract
+			// collision avoidance with SinkTxOk exists only in PD Rev 3.x
+			if (_target_request_pending && (_ext_tx.size == 0) && ((_spec_rev < PD_SPEC_REV_30) || _pd_sink_tx_ok())) {
+				_pd_respond_to_src_caps();
+				break;
+			}
 			// SinkPPSPeriodicTimer: re-send the Request while the contract is PPS
 			if (_contract_is_pps && (now_us > _last_request_us + PD_PPS_REQUEST_US) && (_ext_tx.size == 0) && _pd_sink_tx_ok()) {
 				_pd_respond_to_src_caps();
@@ -1644,5 +1708,60 @@ void smol_usb_pd_run_startup(void) {
 			info_println("PD startup: contract complete after %u ms", (uint32_t)((now_us - start_us) / 1000));
 			break;
 		}
+	}
+}
+
+smol_usb_pd_req_result_t smol_usb_pd_request_mv(uint32_t target_mv) {
+	if ((target_mv != 0) && ((target_mv < SMOL_USB_PD_REQUEST_MIN_MV) || (target_mv > PD_MAX_VOLTAGE_MV))) {
+		warn_println("PD request %u mV refused: the range is %u..%u mV", target_mv, SMOL_USB_PD_REQUEST_MIN_MV, PD_MAX_VOLTAGE_MV);
+		return SMOL_USB_PD_REQ_BAD_VOLTAGE;
+	}
+	if (!_have_contract || (m_usb_pd_state != SMOL_USB_PD_READY && m_usb_pd_state != SMOL_USB_PD_EPR_KEEPALIVE_SENT)) {
+		warn_println("PD request %u mV refused: no contract or negotiation busy (state %u)", target_mv, m_usb_pd_state);
+		return SMOL_USB_PD_REQ_NO_CONTRACT;
+	}
+	if ((target_mv != 0) && (_pd_select_target(target_mv) < 0)) {
+		warn_println("PD request %u mV refused: no Fixed PDO or PPS/AVS APDO fits, contract stays %u mV", target_mv, _contract_mv);
+		return SMOL_USB_PD_REQ_NO_PDO;
+	}
+	_target_mv = target_mv;
+	_target_request_pending = true;
+	if (target_mv == 0)
+		info_println("PD request: boot default (highest voltage), present contract %u mV", _contract_mv);
+	else
+		info_println("PD request: %u mV, present contract %u mV", target_mv, _contract_mv);
+	return SMOL_USB_PD_REQ_OK;
+}
+
+uint32_t smol_usb_pd_target_mv(void) {
+	return _target_mv;
+}
+
+void smol_usb_pd_print_status(void) {
+	info_println("PD state %u, %s Mode, contract %s%s PDO %u, %u mV, target %u mV%s", m_usb_pd_state, _epr_mode ? "EPR" : "SPR",
+		_have_contract ? (_contract_is_epr ? "EPR" : "SPR") : "none", _contract_is_pps ? " PPS" : "", _have_contract ? _requested_pos : 0,
+		_contract_mv, _target_mv, _target_mv == 0 ? " (boot default)" : "");
+	for (size_t i = 0; i < MAX_NUM_SRC_CAPS; ++i) {
+		const src_cap_t* c = &_src_capabilities[i];
+		if (c->max_voltage == 0)
+			continue;
+		const char* type = "Fixed";
+		if (c->is_pps)
+			type = "PPS";
+		else if (c->is_spr_avs)
+			type = "SPR AVS";
+		else if (c->is_epr_avs)
+			type = "EPR AVS";
+		else if (c->is_battery)
+			type = "Battery";
+		else if (c->is_variable)
+			type = "Variable";
+		bool active = _have_contract && (_requested_pos == i + 1);
+		if (c->is_epr_avs || c->is_battery)
+			info_println("PD PDO %u: %s %u..%u mV, %u mW%s", i + 1, type, c->min_voltage, c->max_voltage, c->max_power, active ? " <- contract" : "");
+		else if (c->min_voltage != c->max_voltage)
+			info_println("PD PDO %u: %s %u..%u mV, %u mA%s", i + 1, type, c->min_voltage, c->max_voltage, c->max_current, active ? " <- contract" : "");
+		else
+			info_println("PD PDO %u: %s %u mV, %u mA%s", i + 1, type, c->max_voltage, c->max_current, active ? " <- contract" : "");
 	}
 }

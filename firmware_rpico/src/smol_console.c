@@ -4,6 +4,7 @@
 #include "pico_debug.h"
 #include "smol_config.h"
 #include "smol_motor_id.h"
+#include "smol_servo_usb_pd.h"
 #include "tmc6200.h"
 
 #include <stdio.h>
@@ -115,6 +116,28 @@ static void _process_command(char* cmd, size_t cmd_len, char* args, size_t args_
 	else if (0 == strcmp("drv_dis", cmd)) {
 		smol_drv_disable();
 		info_println("TMC6200 disabled");
+	}
+	else if (0 == strcmp("pd_req", cmd)) {
+		// pd_req: print the source capabilities and the contract. pd_req <mV>: new contract at this voltage (9000 mV or more). pd_req max: boot default (highest voltage).
+		if (args[0] == 0) {
+			smol_usb_pd_print_status();
+			return;
+		}
+		uint32_t mv = 0;
+		if (0 != strcmp("max", args)) {
+			char* end = NULL;
+			unsigned long v = strtoul(args, &end, 10);
+			while (end && (*end == ' '))
+				++end;
+			if ((end == args) || (end && (*end != 0)) || (v == 0)) {
+				warn_println("usage: pd_req [<mV> | max]");
+				return;
+			}
+			mv = (uint32_t)v;
+		}
+		if (smol_drv_is_enabled())
+			warn_println("pd_req: the TMC6200 is enabled. Use drv_dis before a voltage change");
+		smol_usb_pd_request_mv(mv);
 	}
 	else if (0 == strcmp("cfg", cmd)) {
 		smol_config_print();
