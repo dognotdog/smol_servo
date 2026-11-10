@@ -3,6 +3,7 @@
 #include "smol_servo_parameters.h"
 #include "smol_fast.h"
 #include "pico_debug.h"
+#include "smol_servo_loop.h"
 
 #include "hardware/dma.h"
 #include "hardware/irq.h"
@@ -15,6 +16,7 @@
 #include <assert.h>
 #include <inttypes.h>
 #include <math.h>
+#include <string.h>
 
 static uint32_t _loop_irq_number = -1;
 
@@ -35,79 +37,99 @@ void __not_in_flash_func(smol_servo_signal_loop)(void) {
 	irq_set_pending_fast(_loop_irq_number);
 }
 
-static uint32_t _bridge_pwm_values[3][3];
+/**
+ * Loop state, see smol_servo_loop.h.
+ * - core 0 writes _req_state (smol_servo_loop_request_state).
+ * - core 1 writes _state. It takes _req_state when _req_state changes. It also advances _state itself: ZERO_CAL to ZERO_CAL_DONE, and a bridge state to FAULT.
+ * A request of the same state again has no effect. Core 0 requests OFF after each ZERO_CAL_DONE and FAULT.
+ */
+static volatile smol_loop_state_t _req_state = SMOL_LOOP_OFF;
+static volatile smol_loop_state_t _state = SMOL_LOOP_OFF;
+// core 1 only: the last request that core 1 took
+static smol_loop_state_t _req_taken = SMOL_LOOP_OFF;
+// overcurrent values for the log, core 1 writes them before FAULT
+static volatile uint32_t _fault_phase = 0;
+static volatile float _fault_a = 0.0f;
+
+// states that switch the bridge
+static __force_inline bool _switches_bridge(smol_loop_state_t state) {
+	return (state == SMOL_LOOP_MOTOR_ID) || (state == SMOL_LOOP_CONTROL) || (state == SMOL_LOOP_PWM_TEST);
+}
+
+// outputs for the next loop. Zero: all half bridges off.
+static smol_bridge_out_t _bridge_out;
+
+// current sense calibration. Core 0 writes it only while no bridge state runs (a bridge state needs a valid calibration).
+static float _cal_zero_v[SMOL_SERVO_PHASES][2];
+static float _cal_amps_per_volt = 0.0f;
+static volatile bool _cal_valid = false;
+
+static bool _loop_started = false;
 
 /**
- * Current sense zero calibration, the first phase of the servo loop start.
+ * Current sense zero calibration (state ZERO_CAL).
  *
  * The TMC6200 amplifier offset scales with the gain, so a new calibration is necessary at each power-up and after each gain change (datasheet 6.2). DRV_EN must be low: then no current flows, and each ADC sample is the zero of its channel.
- *
- * Core 1 (loop IRQ) owns the sums. It adds the difference to VSENSE_NOMINAL_ZERO_V, so that the float sums keep their resolution. Core 0 sets a request flag, and reads the sums only after the done flag.
- * There are 6 zeros: 3 phases, each with the counter 0 sample (high-side on time) and the TOP sample (low-side on time).
+ * Core 0 clears the sums and the loop count, then requests ZERO_CAL. Core 1 skips some loops for the ADC and the amplifier to settle, then adds up the 6 samples (3 phases, counter 0 and TOP). It adds the difference to VSENSE_NOMINAL_ZERO_V, so that the float sums keep their resolution. After ZERO_CAL_LOOPS, core 1 goes to ZERO_CAL_DONE. Core 0 then evaluates the sums (_zero_cal_evaluate) and requests OFF.
  */
-// loops to skip after the request, for the ADC and amplifier to settle (10 ms)
+// loops to skip at the start (10 ms)
 #define ZERO_CAL_SKIP_LOOPS (200u)
-// loops to average (approx. 205 ms at 20 kHz)
+// loops to average (approx. 205 ms)
 #define ZERO_CAL_SAMPLE_LOOPS (4096u)
-// permitted amplifier input offset. The datasheet (6, 6.2.1) gives "a few to a few 10mV" for VINOFS. The output offset is VINOFS times the gain, so the permitted difference of a zero to VSENSE_NOMINAL_ZERO_V is this value times the gain.
+#define ZERO_CAL_LOOPS (ZERO_CAL_SKIP_LOOPS + ZERO_CAL_SAMPLE_LOOPS)
+// permitted amplifier input offset. The datasheet (6, 6.2.1) gives "a few to a few 10mV" for VINOFS. The output offset is VINOFS times the gain.
 #define ZERO_CAL_MAX_INPUT_OFFSET_V (0.05f)
 // permitted standard deviation of the samples of one zero
 #define ZERO_CAL_MAX_SIGMA_V (0.02f)
 
-typedef enum {
-	ZERO_CAL_IDLE = 0,
-	ZERO_CAL_BUSY,
-	ZERO_CAL_OK,
-	ZERO_CAL_FAILED,
-} zero_cal_state_t;
-
-static bool _loop_started = false;
-// core 0 writes true, core 1 writes false
-static volatile bool _zero_cal_request = false;
-// core 1 writes true, core 0 writes false
-static volatile bool _zero_cal_done = false;
-// core 1 only
-static bool _zero_cal_active = false;
+// core 0 clears them in OFF, core 1 writes them in ZERO_CAL
+static float _zero_sum[SMOL_SERVO_PHASES][2];
+static float _zero_sum_sq[SMOL_SERVO_PHASES][2];
 static uint32_t _zero_cal_loops = 0;
-static float _zero_cal_sum[3][2];
-static float _zero_cal_sum_sq[3][2];
-// core 0 only
-static zero_cal_state_t _zero_cal_state = ZERO_CAL_IDLE;
-static float _isense_zero_v[3][2];
 
-static inline void __not_in_flash_func(_zero_cal_accumulate)(const float values[3][2]) {
-	if (_zero_cal_request) {
-		for (size_t i = 0; i < 3; ++i) {
+/**
+ * One loop of ZERO_CAL, core 1. Returns true when the sums are complete.
+ */
+static bool __not_in_flash_func(_zero_cal_step)(const float isense_values[SMOL_SERVO_PHASES][2]) {
+	uint32_t n = _zero_cal_loops;
+	if (n >= ZERO_CAL_SKIP_LOOPS) {
+		for (size_t p = 0; p < SMOL_SERVO_PHASES; ++p) {
 			for (size_t j = 0; j < 2; ++j) {
-				_zero_cal_sum[i][j] = 0.0f;
-				_zero_cal_sum_sq[i][j] = 0.0f;
+				float d = isense_values[p][j] - VSENSE_NOMINAL_ZERO_V;
+				_zero_sum[p][j] += d;
+				_zero_sum_sq[p][j] += d * d;
 			}
 		}
-		_zero_cal_loops = 0;
-		_zero_cal_active = true;
-		_zero_cal_request = false;
-		return;
 	}
-	if (!_zero_cal_active)
-		return;
+	_zero_cal_loops = n + 1;
+	return n + 1 >= ZERO_CAL_LOOPS;
+}
 
-	uint32_t n = _zero_cal_loops++;
-	if (n < ZERO_CAL_SKIP_LOOPS)
-		return;
+/**
+ * Bridge PWM test pattern (state PWM_TEST), for a scope on the PWM and EN pins. All 3 half bridges switch with the same duty (no differential voltage), 94/88/82 % in the 3 PWM periods of a loop. It does not need the TMC6200 enabled. With DRV_EN high, the bridge outputs switch, too.
+ */
+static const float __not_in_flash("loop") _pwm_test_duty[SMOL_SERVO_PWM_PER_LOOP] = {0.94f, 0.88f, 0.82f};
 
-	for (size_t i = 0; i < 3; ++i) {
-		for (size_t j = 0; j < 2; ++j) {
-			float d = values[i][j] - VSENSE_NOMINAL_ZERO_V;
-			_zero_cal_sum[i][j] += d;
-			_zero_cal_sum_sq[i][j] += d * d;
+/**
+ * Overcurrent check with the calibration from core 0. Positive current flows into the motor terminal.
+ * A switching spike can affect one of the 2 samples of a phase, so the check uses the smaller of the 2 magnitudes.
+ */
+static __force_inline bool _overcurrent(const float isense_values[SMOL_SERVO_PHASES][2]) {
+	if (!_cal_valid)
+		return false;
+	for (size_t p = 0; p < SMOL_SERVO_PHASES; ++p) {
+		float a0 = (isense_values[p][0] - _cal_zero_v[p][0]) * _cal_amps_per_volt;
+		float a1 = (isense_values[p][1] - _cal_zero_v[p][1]) * _cal_amps_per_volt;
+		a0 = (a0 < 0.0f) ? -a0 : a0;
+		a1 = (a1 < 0.0f) ? -a1 : a1;
+		float a = (a0 < a1) ? a0 : a1;
+		if (a > SMOL_ISENSE_FAULT_A) {
+			_fault_phase = p;
+			_fault_a = a;
+			return true;
 		}
 	}
-
-	if (n + 1 == ZERO_CAL_SKIP_LOOPS + ZERO_CAL_SAMPLE_LOOPS) {
-		_zero_cal_active = false;
-		__dmb();
-		_zero_cal_done = true;
-	}
+	return false;
 }
 
 void __not_in_flash_func(smol_servo_loop_irq_handler)(void) {
@@ -130,7 +152,7 @@ void __not_in_flash_func(smol_servo_loop_irq_handler)(void) {
 	 * Thus, we have a 5 PWM cycle latency from sampling sensor inputs to applying PWM signals.
 	 */
 
-	smol_pwm_fill(_bridge_pwm_values, 2);
+	smol_pwm_fill(&_bridge_out, 2);
 
 	/**
 	 * There are a few things to sample at the beginning of the loop to have available.
@@ -140,28 +162,70 @@ void __not_in_flash_func(smol_servo_loop_irq_handler)(void) {
 	 */
 
 	// ADC values are at highest sample rate, so do that first
-	float isense_values[3][2];
-	uint32_t isense_times_clocks[3][2];
+	float isense_values[SMOL_SERVO_PHASES][2];
+	uint32_t isense_times_clocks[SMOL_SERVO_PHASES][2];
 	smol_adc_get_isense_values(isense_values, isense_times_clocks);
 
 	uint32_t now_clocks = _timer1_sample_dma_buf[0];
-
-
 
 	uint32_t mag_reading_values[2];
 	int32_t mag_reading_ages_ns[2];
 	smol_mag_get_reading_values(mag_reading_values);
 	smol_mag_get_reading_ages_ns(mag_reading_ages_ns);
 
-
-
 	/**
 	 * This is our core servo loop. We need to figure out what the next set of 3 PWM cycles should look like.
+	 * The state (calibration, identification, control) calculates _bridge_out. The next loop writes it to the PWM with smol_pwm_fill().
 	 */
+	smol_loop_state_t req = _req_state;
+	if (req != _req_taken) {
+		_req_taken = req;
+		_state = req;
+	}
 
-	_zero_cal_accumulate(isense_values);
+	smol_loop_state_t state = _state;
+	switch (state) {
+		case SMOL_LOOP_ZERO_CAL:
+			smol_bridge_out_off(&_bridge_out);
+			if (_zero_cal_step(isense_values)) {
+				__dmb(); // the non-volatile sums must be in memory before core 0 sees ZERO_CAL_DONE and reads them
+				_state = SMOL_LOOP_ZERO_CAL_DONE;
+			}
+			break;
+		case SMOL_LOOP_MOTOR_ID:
+			// TODO: motor identification
+			smol_bridge_out_off(&_bridge_out);
+			break;
+		case SMOL_LOOP_CONTROL:
+			// TODO: closed loop control
+			smol_bridge_out_off(&_bridge_out);
+			break;
+		case SMOL_LOOP_PWM_TEST:
+			for (size_t k = 0; k < SMOL_SERVO_PWM_PER_LOOP; ++k) {
+				for (size_t p = 0; p < SMOL_SERVO_PHASES; ++p) {
+					_bridge_out.duty[k][p] = _pwm_test_duty[k];
+					_bridge_out.enable[k][p] = true;
+				}
+			}
+			break;
+		case SMOL_LOOP_OFF:
+		case SMOL_LOOP_ZERO_CAL_DONE:
+		case SMOL_LOOP_FAULT:
+		default:
+			smol_bridge_out_off(&_bridge_out);
+			break;
+	}
 
-
+	/**
+	 * Overcurrent in the states that switch the bridge: bridge off, state FAULT.
+	 * Not in ZERO_CAL: the bridge is off, and core 0 writes the calibration at the end of ZERO_CAL. Thus core 1 never reads the calibration while core 0 writes it, and the read needs no barrier.
+	 */
+	if (_switches_bridge(state) && _overcurrent(isense_values)) {
+		smol_pwm_all_off();
+		smol_bridge_out_off(&_bridge_out);
+		// the fault values and _state are volatile, thus the compiler keeps their order. Core 0 uses the values only for the log.
+		_state = SMOL_LOOP_FAULT;
+	}
 
 	// for sanity checking, we could check if the IRQ is pending again by the end of the function. If it is, we've taken too long and cannot keep up with the hardware trigger rate.
 	assert_fast(0 == irq_get_pending_fast(_loop_irq_number));
@@ -251,106 +315,202 @@ void smol_servo_loop_init(void) {
 }
 
 /**
- * Request a new current sense zero calibration from core 1. DRV_EN must be low.
- * Returns 0 when the request is sent.
+ * Core 0 part
  */
-static int _zero_cal_start(void) {
-	if (smol_drv_is_enabled()) {
-		err_println("isense zero calibration: the TMC6200 is enabled, set DRV_EN low first");
-		_zero_cal_state = ZERO_CAL_FAILED;
+static const char* const _state_names[SMOL_LOOP_NUM_STATES] = {
+	[SMOL_LOOP_OFF] = "off",
+	[SMOL_LOOP_ZERO_CAL] = "zero_cal",
+	[SMOL_LOOP_ZERO_CAL_DONE] = "zero_cal_done",
+	[SMOL_LOOP_MOTOR_ID] = "motor_id",
+	[SMOL_LOOP_CONTROL] = "control",
+	[SMOL_LOOP_PWM_TEST] = "pwm_test",
+	[SMOL_LOOP_FAULT] = "fault",
+};
+
+// states that need the TMC6200 enabled and a valid zero calibration
+static bool _drives_bridge(smol_loop_state_t state) {
+	return (state == SMOL_LOOP_MOTOR_ID) || (state == SMOL_LOOP_CONTROL);
+}
+
+const char* smol_servo_loop_state_name(smol_loop_state_t state) {
+	return (state < SMOL_LOOP_NUM_STATES) ? _state_names[state] : "?";
+}
+
+smol_loop_state_t smol_servo_loop_state_from_name(const char* name) {
+	for (size_t i = 0; i < SMOL_LOOP_NUM_STATES; ++i) {
+		if (0 == strcmp(_state_names[i], name))
+			return (smol_loop_state_t)i;
+	}
+	return SMOL_LOOP_NUM_STATES;
+}
+
+// in RAM: core 1 code can call it, too
+smol_loop_state_t __not_in_flash_func(smol_servo_loop_state)(void) {
+	return _state;
+}
+
+int smol_servo_loop_request_state(smol_loop_state_t state) {
+	const char* name = smol_servo_loop_state_name(state);
+	if (!_loop_started) {
+		err_println("loop state %s: the servo loop does not run (command s)", name);
 		return -1;
 	}
-	_zero_cal_state = ZERO_CAL_BUSY;
-	_zero_cal_done = false;
-	__dmb();
-	_zero_cal_request = true;
-	info_println("isense zero calibration: start, gain %.0f, %u samples", smol_drv_isense_gain(), ZERO_CAL_SAMPLE_LOOPS);
+	if ((state >= SMOL_LOOP_NUM_STATES) || (state == SMOL_LOOP_ZERO_CAL_DONE) || (state == SMOL_LOOP_FAULT)) {
+		err_println("loop state %s: not possible, only the loop sets it", name);
+		return -1;
+	}
+	if ((_state == SMOL_LOOP_FAULT) && (state != SMOL_LOOP_OFF)) {
+		err_println("loop state %s: fault, request off first (stop)", name);
+		return -1;
+	}
+	if ((state == SMOL_LOOP_ZERO_CAL) && smol_drv_is_enabled()) {
+		err_println("loop state %s: the TMC6200 is enabled, set DRV_EN low first", name);
+		return -1;
+	}
+	if (_drives_bridge(state)) {
+		if (!smol_drv_is_enabled()) {
+			err_println("loop state %s: the TMC6200 is not enabled (drv_en)", name);
+			return -1;
+		}
+		if (!_cal_valid) {
+			err_println("loop state %s: no valid current sense zero calibration", name);
+			return -1;
+		}
+	}
+	if (state == SMOL_LOOP_ZERO_CAL) {
+		// OFF for 2 loops, then clear the calibration data. No bridge state runs: the TMC6200 is disabled.
+		_req_state = SMOL_LOOP_OFF;
+		busy_wait_us_32(2 * 1000000 / SMOL_SERVO_LOOP_FREQ_HZ);
+		_cal_valid = false;
+		for (size_t p = 0; p < SMOL_SERVO_PHASES; ++p) {
+			for (size_t j = 0; j < 2; ++j) {
+				_zero_sum[p][j] = 0.0f;
+				_zero_sum_sq[p][j] = 0.0f;
+			}
+		}
+		_zero_cal_loops = 0;
+		__dmb(); // the cleared non-volatile sums and count must be in memory before core 1 sees the ZERO_CAL request
+		info_println("isense zero calibration: start, gain %.0f, %u samples", smol_drv_isense_gain(), ZERO_CAL_SAMPLE_LOOPS);
+	}
+	_req_state = state;
+	dbg_println("loop state request %s", name);
 	return 0;
 }
 
 /**
- * Core 0: evaluate the sums from core 1 when the calibration is complete.
+ * Zero calibration, core 0 part: mean and standard deviation of the sums, limit check, then the calibration for the loop.
  */
-static void _zero_cal_run(void) {
-	if ((_zero_cal_state != ZERO_CAL_BUSY) || !_zero_cal_done)
-		return;
-	__dmb();
-	_zero_cal_done = false;
-
+static void _zero_cal_evaluate(void) {
 	const float n = (float)ZERO_CAL_SAMPLE_LOOPS;
 	const float gain = smol_drv_isense_gain();
 	const float max_offset_v = ZERO_CAL_MAX_INPUT_OFFSET_V * gain;
 	bool ok = true;
-	float zero[3][2];
-	for (size_t i = 0; i < 3; ++i) {
+	float zero[SMOL_SERVO_PHASES][2];
+	for (size_t p = 0; p < SMOL_SERVO_PHASES; ++p) {
 		float sigma[2];
 		for (size_t j = 0; j < 2; ++j) {
-			float mean_d = _zero_cal_sum[i][j] / n;
-			float var = _zero_cal_sum_sq[i][j] / n - mean_d * mean_d;
+			float mean_d = _zero_sum[p][j] / n;
+			float var = _zero_sum_sq[p][j] / n - mean_d * mean_d;
 			sigma[j] = sqrtf(fmaxf(var, 0.0f));
-			zero[i][j] = VSENSE_NOMINAL_ZERO_V + mean_d;
+			zero[p][j] = VSENSE_NOMINAL_ZERO_V + mean_d;
 			if ((fabsf(mean_d) > max_offset_v) || (sigma[j] > ZERO_CAL_MAX_SIGMA_V))
 				ok = false;
 		}
 		// input offset: the output offset divided by the gain
 		info_println("isense zero phase %u: counter 0 %.4f V (sigma %.4f V), TOP %.4f V (sigma %.4f V), input offset %.1f mV",
-			(unsigned)i, zero[i][0], sigma[0], zero[i][1], sigma[1], 1000.0f * (0.5f * (zero[i][0] + zero[i][1]) - VSENSE_NOMINAL_ZERO_V) / gain);
+			(unsigned)p, zero[p][0], sigma[0], zero[p][1], sigma[1], 1000.0f * (0.5f * (zero[p][0] + zero[p][1]) - VSENSE_NOMINAL_ZERO_V) / gain);
 	}
-
 	if (!ok) {
-		_zero_cal_state = ZERO_CAL_FAILED;
 		err_println("isense zero calibration: failed, permitted %.4f V +- %.3f V (input offset %.0f mV x gain %.0f), sigma max %.3f V",
 			VSENSE_NOMINAL_ZERO_V, max_offset_v, 1000.0f * ZERO_CAL_MAX_INPUT_OFFSET_V, gain, ZERO_CAL_MAX_SIGMA_V);
 		return;
 	}
-	for (size_t i = 0; i < 3; ++i)
+	for (size_t p = 0; p < SMOL_SERVO_PHASES; ++p)
 		for (size_t j = 0; j < 2; ++j)
-			_isense_zero_v[i][j] = zero[i][j];
-	_zero_cal_state = ZERO_CAL_OK;
+			_cal_zero_v[p][j] = zero[p][j];
+	// positive current: into the motor terminal (TMC6200 datasheet 6)
+	_cal_amps_per_volt = 1.0f / (gain * ISENSE_R);
+	__dmb(); // the non-volatile zeros and scale must be in memory before core 1 sees _cal_valid
+	_cal_valid = true;
 	info_println("isense zero calibration: done");
 }
 
+/**
+ * Core 0 main loop: act on the states that the loop advanced to.
+ */
+static void _core0_run(void) {
+	// nothing to do before the start, or when OFF is requested
+	if (!_loop_started || (_req_state == SMOL_LOOP_OFF))
+		return;
+
+	smol_loop_state_t state = _state;
+	switch (state) {
+		case SMOL_LOOP_ZERO_CAL_DONE:
+			__dmb(); // the non-volatile sums must be read after the ZERO_CAL_DONE read, not earlier by the compiler or the CPU
+			_zero_cal_evaluate();
+			smol_servo_loop_request_state(SMOL_LOOP_OFF);
+			break;
+		case SMOL_LOOP_FAULT:
+			// the loop switched the bridge off. Switch the power stage off, too.
+			smol_drv_disable();
+			err_println("loop fault in state %s: overcurrent phase %u, %.2f A (limit %.1f A), TMC6200 disabled",
+				smol_servo_loop_state_name(_req_state), (unsigned)_fault_phase, _fault_a, SMOL_ISENSE_FAULT_A);
+			smol_servo_loop_request_state(SMOL_LOOP_OFF);
+			break;
+		case SMOL_LOOP_MOTOR_ID:
+		case SMOL_LOOP_CONTROL:
+			if (!smol_drv_is_enabled()) {
+				// for example smol_drv_run() after a FAULT pin
+				err_println("loop state %s: the TMC6200 was disabled", smol_servo_loop_state_name(state));
+				smol_servo_loop_request_state(SMOL_LOOP_OFF);
+			}
+			break;
+		default:
+			break;
+	}
+}
+
+void smol_servo_loop_print_state(void) {
+	info_println("loop state %s, zero calibration %s, TMC6200 %s",
+		smol_servo_loop_state_name(_state), _cal_valid ? "valid" : "not valid", smol_drv_is_enabled() ? "enabled" : "disabled");
+}
+
 bool smol_servo_loop_isense_zero_is_busy(void) {
-	return _zero_cal_state == ZERO_CAL_BUSY;
+	// core 0 requests OFF after the evaluation
+	return _req_state == SMOL_LOOP_ZERO_CAL;
 }
 
 bool smol_servo_loop_isense_zero(float zero_v[3][2]) {
-	if (_zero_cal_state != ZERO_CAL_OK)
+	if (!_cal_valid)
 		return false;
-	for (size_t i = 0; i < 3; ++i)
+	for (size_t p = 0; p < SMOL_SERVO_PHASES; ++p)
 		for (size_t j = 0; j < 2; ++j)
-			zero_v[i][j] = _isense_zero_v[i][j];
+			zero_v[p][j] = _cal_zero_v[p][j];
 	return true;
 }
 
 void smol_servo_loop_isense_gain_changed(void) {
-	if (_zero_cal_state == ZERO_CAL_IDLE)
-		return;
-	// the zeros are not valid for the new gain
-	_zero_cal_state = ZERO_CAL_IDLE;
+	// the zeros are not valid for the new gain. The gain change needs the TMC6200 disabled, so no bridge state runs.
+	_cal_valid = false;
 	if (_loop_started)
-		_zero_cal_start();
+		smol_servo_loop_request_state(SMOL_LOOP_ZERO_CAL);
 }
 
 /**
- * Start the servo loop. The first phase is the current sense zero calibration, with DRV_EN low. A second call does only a new zero calibration.
+ * Start the servo loop peripherals (MAG, PWM, ADC), then the zero calibration with DRV_EN low. A second call does only a new zero calibration.
  */
 void smol_servo_loop_start(void) {
 	if (smol_drv_is_enabled()) {
 		err_println("servo loop start: the TMC6200 is enabled, set DRV_EN low first");
 		return;
 	}
-	if (_loop_started) {
-		_zero_cal_start();
-		return;
+	if (!_loop_started) {
+		smol_mag_start();
+		smol_pwm_start();
+		smol_adc_start();
+		_loop_started = true;
 	}
-	// the request is set before the start, so that the first loop IRQ starts the calibration
-	if (_zero_cal_start() != 0)
-		return;
-	smol_mag_start();
-	smol_pwm_start();
-	smol_adc_start();
-	_loop_started = true;
+	smol_servo_loop_request_state(SMOL_LOOP_ZERO_CAL);
 }
 
 static uint64_t t_idle = 0;
@@ -363,7 +523,7 @@ void __not_in_flash_func(smol_servo_loop_idle_core1)(void) {
 }
 
 void smol_servo_loop_idle_core0(void) {
-	_zero_cal_run();
+	_core0_run();
 
 	uint64_t t_fast = smol_time64(timer0_hw);
 	dbg_time_t tt = {.seconds = t_fast / 1000000u, .microseconds = t_fast % 1000000u};

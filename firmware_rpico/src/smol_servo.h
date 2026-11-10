@@ -4,6 +4,8 @@
 #include <stdint.h>
 #include <stddef.h>
 
+#include "smol_servo_loop.h"
+
 bool smol_core1_is_ram_only(void);
 
 void smol_usb_pd_init(void);
@@ -40,7 +42,8 @@ void smol_servo_loop_idle_core0(void);
 void smol_servo_loop_idle_core1(void);
 
 bool smol_pwm_was_started(void);
-void smol_pwm_fill(uint32_t pwm_values[3][3], size_t starting_phase);
+void smol_pwm_fill(const smol_bridge_out_t* out, size_t starting_phase);
+void smol_pwm_all_off(void);
 
 float smol_chip_temperature_celsius(void);
 float smol_adc_vbus(void);

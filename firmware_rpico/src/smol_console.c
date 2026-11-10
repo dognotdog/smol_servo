@@ -19,6 +19,22 @@ static void _process_command(char* cmd, size_t cmd_len, char* args, size_t args_
 	if (0 == strcmp("s", cmd)) {
 		smol_servo_loop_start();
 	}
+	else if (0 == strcmp("stop", cmd)) {
+		smol_servo_loop_request_state(SMOL_LOOP_OFF);
+	}
+	else if (0 == strcmp("state", cmd)) {
+		// state: print, state <name>: request a loop state
+		if (args[0] == 0) {
+			smol_servo_loop_print_state();
+		}
+		else {
+			smol_loop_state_t state = smol_servo_loop_state_from_name(args);
+			if (state == SMOL_LOOP_NUM_STATES)
+				warn_println("unknown loop state: %s (off, zero_cal, motor_id, control, pwm_test)", args);
+			else
+				smol_servo_loop_request_state(state);
+		}
+	}
 	else if (0 == strcmp("drv_en", cmd)) {
 		smol_drv_enable();
 	}

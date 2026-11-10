@@ -26,6 +26,7 @@
 #include "hardware/gpio.h"
 
 #include <assert.h>
+#include <stddef.h>
 
 
 _Static_assert((SMOL_SERVO_BRIDGE_PWM_PERIOD_CLOCKS % 2) == 0);
@@ -56,6 +57,8 @@ typedef struct {
 } _smol_servo_pwm_ram_vars_t;
 
 static _smol_servo_pwm_ram_vars_t __not_in_flash("smol_pwm") _ram;
+// smol_pwm_fill() writes the 2 CC values of one buffer entry with one 32-bit store
+_Static_assert((offsetof(_smol_servo_pwm_ram_vars_t, pwm_cc_loop_bufs) % 4) == 0, "pwm_cc_loop_bufs alignment");
 
 static _smol_servo_pwm_ram_vars_t _ram = {
 	.pwm_per_servo_loop = SMOL_SERVO_PWM_PER_LOOP,
@@ -68,9 +71,10 @@ static _smol_servo_pwm_ram_vars_t _ram = {
 		// {{150, 150}, {150, 150}, {150, 150}},
 		// {{150, 150}, {150, 150}, {150, 150}},
 		// {{150, 150}, {150, 150}, {150, 150}},
-		{{1250-75, 1250-75}, {1250-150, 1250-150}, {1250-225, 1250-225}},
-		{{1250-75, 1250-75}, {1250-150, 1250-150}, {1250-225, 1250-225}},
-		{{1250-75, 1250-75}, {1250-150, 1250-150}, {1250-225, 1250-225}},
+		// A, B, C: off until the servo loop fills them (smol_pwm_fill). CC A is the PWM (TMC6200 H input), CC B the enable (L input, singleline mode).
+		{{0, 0}, {0, 0}, {0, 0}},
+		{{0, 0}, {0, 0}, {0, 0}},
+		{{0, 0}, {0, 0}, {0, 0}},
 		// R: the brake resistor switch (PWMR -> UCC27516 -> Q1 -> J5 "OR"). DRV_EN does not stop it, so it stays off until a brake controller exists.
 		{{0, 0}, {0, 0}, {0, 0}},
 		// {{BRIDGE_PWM_MID, BRIDGE_PWM_MID}, {BRIDGE_PWM_MID, BRIDGE_PWM_MID}, {BRIDGE_PWM_MID, BRIDGE_PWM_MID}},
@@ -85,9 +89,49 @@ static _smol_servo_pwm_ram_vars_t _ram = {
 };
 
 
-void __not_in_flash_func(smol_pwm_fill)(uint32_t pwm_values[3][3], size_t starting_phase);
-void smol_pwm_fill(uint32_t pwm_values[3][3], size_t starting_phase) {
+// CC value for "always high": the output is high while COUNT < CC, and COUNT goes up to TOP
+#define BRIDGE_PWM_CC_FULL (BRIDGE_PWM_TOP + 1)
 
+static inline uint16_t __not_in_flash_func(_duty_to_cc)(float duty) {
+	// no libm: fminf/fmaxf are in flash
+	float cc = duty * (float)BRIDGE_PWM_CC_FULL + 0.5f;
+	if (!(cc > 0.0f))	// also NaN
+		return 0;
+	if (cc >= (float)BRIDGE_PWM_CC_FULL)
+		return BRIDGE_PWM_CC_FULL;
+	return (uint16_t)cc;
+}
+
+/**
+ * Write the half bridge outputs of one loop into the CC buffers of the PWM wrap IRQ.
+ * out->duty[k] and out->enable[k] go to buffer index (starting_phase + k) % 3. The servo loop calls this at its start with starting_phase 2, see smol_servo_loop_irq_handler().
+ * The R slice (brake resistor) is not changed.
+ */
+void __not_in_flash_func(smol_pwm_fill)(const smol_bridge_out_t* out, size_t starting_phase);
+void smol_pwm_fill(const smol_bridge_out_t* out, size_t starting_phase) {
+	for (size_t k = 0; k < SMOL_SERVO_PWM_PER_LOOP; ++k) {
+		size_t index = (starting_phase + k) % SMOL_SERVO_PWM_PER_LOOP;
+		for (size_t p = 0; p < SMOL_SERVO_PHASES; ++p) {
+			bool en = out->enable[k][p];
+			uint16_t cc_pwm = en ? _duty_to_cc(out->duty[k][p]) : 0;
+			uint16_t cc_en = en ? BRIDGE_PWM_CC_FULL : 0;
+			// one 32-bit store, so that the PWM IRQ cannot read a new PWM value with an old enable value
+			uint32_t both = ((uint32_t)cc_en << 16) | cc_pwm;
+			*(volatile uint32_t*)&_ram.pwm_cc_loop_bufs[p][index][0] = both;
+		}
+	}
+}
+
+/**
+ * All half bridges off at once: the CC buffers and the CC registers. The CC registers take the new values at the next wrap (max. one PWM period, 16.7 us).
+ */
+void __not_in_flash_func(smol_pwm_all_off)(void);
+void smol_pwm_all_off(void) {
+	for (size_t p = 0; p < SMOL_SERVO_PHASES; ++p) {
+		for (size_t k = 0; k < SMOL_SERVO_PWM_PER_LOOP; ++k)
+			*(volatile uint32_t*)&_ram.pwm_cc_loop_bufs[p][k][0] = 0;
+		pwm_set_both_levels_fast(_ram.bridge_pwm_slices[p], 0, 0);
+	}
 }
 
 // void  __not_in_flash_func(smol_bridge_pwm_wrap_irq_handler)(void) __attribute__ ((optimize(0)));
@@ -150,7 +194,8 @@ void smol_servo_bridge_pwm_slice_init(int slice) {
 	pwm_config_set_clkdiv_int(&config, 1);
 	pwm_config_set_clkdiv_mode(&config, PWM_DIV_FREE_RUNNING);
 	pwm_init(slice, &config, false);
-	pwm_set_both_levels(slice, BRIDGE_PWM_TOP*2/3,  BRIDGE_PWM_TOP*1/3);
+	// off until the servo loop fills the CC buffers
+	pwm_set_both_levels(slice, 0, 0);
 }
 
 void smol_servo_bridge_doubletime_slice_init(int slice) {
@@ -184,9 +229,8 @@ void smol_servo_bridge_pwm_init(void) {
 	smol_servo_bridge_pwm_slice_init(PWMA_SLICE);
 	smol_servo_bridge_pwm_slice_init(PWMB_SLICE);
 	smol_servo_bridge_pwm_slice_init(PWMC_SLICE);
+	// brake resistor switch: off, see _ram.pwm_cc_loop_bufs
 	smol_servo_bridge_pwm_slice_init(PWMR_SLICE);
-	// brake resistor switch off, see _ram.pwm_cc_loop_bufs
-	pwm_set_both_levels(PWMR_SLICE, 0, 0);
 	smol_servo_bridge_doubletime_slice_init(PWM_DOUBLETIME_SLICE);
 	smol_servo_bridge_mag_slice_init(PWM_MAG_SLICE);
 

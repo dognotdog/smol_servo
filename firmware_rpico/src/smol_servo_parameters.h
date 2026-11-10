@@ -63,6 +63,8 @@
 
 // current sense resistors
 #define ISENSE_R (5.0e-3f)
+// the servo loop goes to the state SMOL_LOOP_FAULT at a phase current above this value (smaller magnitude of the 2 samples of a phase). The range at gain 20 is approx. +-12.7 A (zero offset included).
+#define SMOL_ISENSE_FAULT_A (8.0f)
 // TMC6200 amplifier settings
 #define ISENSE_AMPLIFICATIONS {5.0f, 10.0f, 10.0f, 20.0f}
 // GCONF.amplification code written at boot, index into ISENSE_AMPLIFICATIONS. 3 = 20x: +-1.65V output swing is +-16.5A with 5mOhm.

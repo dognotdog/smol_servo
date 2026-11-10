@@ -16,12 +16,13 @@ Related notes:
 |---|---|---|
 | Peripheral timing (PWM, ADC, MAG, loop IRQ) | Implemented and tuned with a scope | `smol_servo_pwm.c`, `smol_servo_adc.c`, `smol_servo_mag.c`, `smol_servo_parameters.h` |
 | Loop IRQ and sensor reads | Implemented | `smol_servo_loop.c` |
-| PWM output from the loop | Not implemented. `smol_pwm_fill()` has no body. The bridge PWM uses fixed values from `_ram.pwm_cc_loop_bufs`. | `smol_servo_pwm.c:88` |
+| PWM output from the loop | Implemented. `smol_pwm_fill()` writes duty and enable per half bridge and PWM period. All half bridges are off in the states that do not drive the bridge. | `smol_servo_pwm.c` |
 | Current conversion (ADC volts to amperes) | Draft, does not compile, not in the build | `smol_servo_isense.c` |
 | Estimator (model, filter) | Draft, not in the build | `smol_servo_model.c` |
 | Controller | Not started | — |
-| Modes, startup sequence | Not started | — |
-| Current sense zero calibration | Implemented and tested at 20 V. It is the first phase of `smol_servo_loop_start()`. See section 7.1. | `smol_servo_loop.c` |
+| Loop states | Implemented and tested at 20 V. See section 7.2. | `smol_servo_loop.h`, `smol_servo_loop.c` |
+| Current sense zero calibration | Implemented and tested at 20 V. It is the first state after `smol_servo_loop_start()`. See section 7.1. | `smol_servo_loop.c` |
+| Motor identification | Not implemented. The state `motor_id` is a placeholder. See section 7.2. | `smol_servo_loop.c` |
 | Setpoint input | Not started | — |
 | Power stage enable and fault handling | Implemented, not connected to the loop | `smol_servo_drv.c` |
 | Loop start | `smol_servo_loop_start()` is commented out in `_core1_init`. The console command `s` calls it. | `main.c`, `smol_console.c` |
@@ -138,7 +139,9 @@ Inputs at the start of `smol_servo_loop_irq_handler()`:
 
 Output:
 
-- `smol_pwm_fill(pwm_values[3][3], starting_phase)` must write the PWM values for the next 3 PWM periods into `_ram.pwm_cc_loop_bufs`. The loop calls it with `starting_phase = 2`. The function has no body now.
+- `smol_pwm_fill(const smol_bridge_out_t*, starting_phase)` writes duty and enable of each half bridge for the next 3 PWM periods into `_ram.pwm_cc_loop_bufs`. The loop calls it at its start with `starting_phase = 2` and the outputs that the state calculated in the previous loop. One 32-bit store writes both CC values of an entry.
+- `smol_pwm_all_off()` sets all bridge CC buffers and registers to 0 at once (fault path).
+- `smol_servo_loop.h` defines `smol_bridge_out_t`, see section 7.2.
 - Each bridge slice has 2 CC values: A is the PWM (TMC6200 H input) and B is the enable (L input, `singleline = 1`). An EN value of 0 switches the half bridge off (output floating).
 
 ## 5. Power stage interface (now)
@@ -178,9 +181,9 @@ VBUS ─────────────────────────
 
 ### 7.1 Current sense zero calibration (implemented)
 
-- `smol_servo_loop_start()` (core 0) refuses the start while the TMC6200 is enabled. It sends a request to core 1, then starts MAG, PWM and ADC. A second call does only a new calibration.
-- The loop IRQ (core 1) skips 200 loops (10 ms), then adds 4096 loops (205 ms) of the 6 samples. It adds the difference to `VSENSE_NOMINAL_ZERO_V`, so that the float sums keep their resolution. Core 1 writes all sums. Core 0 reads them only after the done flag.
-- Core 0 (`smol_servo_loop_idle_core0()`) calculates the mean and the standard deviation, checks the limits and logs the result. Core 1 cannot log here, because `printf` is in flash.
+- `smol_servo_loop_start()` (core 0) refuses the start while the TMC6200 is enabled. It starts MAG, PWM and ADC, then requests the state `zero_cal`. A second call does only a new calibration.
+- In the state `zero_cal`, core 1 skips 200 loops (10 ms), then adds 4096 loops (205 ms) of the 6 samples. It adds the difference to `VSENSE_NOMINAL_ZERO_V`, so that the float sums keep their resolution.
+- After the state, core 0 (`_zero_cal_evaluate()`) calculates the mean and the standard deviation, checks the limits and logs the result. Then it gives the zeros and the scale `1 / (gain × ISENSE_R)` to the loop. The overcurrent check then converts the samples to amperes. Positive current flows into the motor terminal (TMC6200 datasheet 6).
 - `smol_drv_enable()` refuses the enable while the calibration is busy.
 - `smol_drv_set_isense_gain()` makes the zeros invalid. If the loop runs, a new calibration starts.
 - `smol_servo_loop_isense_zero()` gives the zeros to the current conversion. It returns false when they are not valid.
@@ -199,6 +202,46 @@ Measured on the board (2026-11-09, 20 V, DRV_EN low):
 - Phase 0 has approx. 3 times more noise than phases 1 and 2. The cause is not known.
 - Not done: thermal drift compensation (datasheet 6.2.2).
 
+### 7.2 Loop states (implemented)
+
+The loop has a fixed set of states (`smol_loop_state_t` in `smol_servo_loop.h`). Core 0 requests a state with `smol_servo_loop_request_state()`. Core 1 executes the state in each loop IRQ, in one `switch` in `smol_servo_loop_irq_handler()`. A bounded state advances itself: `zero_cal` goes to `zero_cal_done`, and an overcurrent goes to `fault`. Code on both cores can check the state with `smol_servo_loop_state()` (in RAM). A state has no entry function: core 0 prepares the data of a state before it requests the state.
+
+| State | Bridge | Set by | Precondition (core 0) | Next |
+|---|---|---|---|---|
+| `off` | off | core 0 | — | — |
+| `zero_cal` | off | core 0 | TMC6200 disabled | `zero_cal_done` (core 1) |
+| `zero_cal_done` | off | core 1 | — | `off` (core 0, after the evaluation) |
+| `motor_id` | (not implemented, off) | core 0 | TMC6200 enabled, zero calibration valid | — |
+| `control` | (not implemented, off) | core 0 | TMC6200 enabled, zero calibration valid | — |
+| `pwm_test` | test pattern | core 0 | — | — |
+| `fault` | off | core 1 | — | `off` (core 0) |
+
+- **Variables.** Core 0 writes `_req_state`. Core 1 writes `_state`. Core 1 takes `_req_state` into `_state` when `_req_state` changes (it compares with `_req_taken`, which only core 1 uses). Thus a request of the same state again has no effect. Core 0 requests `off` after each `zero_cal_done` and `fault`. A new `zero_cal` request always goes through `off` first (see below), so it restarts a running calibration.
+- **Core 0 jobs** (`_core0_run()`, nothing to do while `off` is requested): in `zero_cal_done`, evaluate the sums (`_zero_cal_evaluate()`, which needs `sqrtf` and `printf`) and request `off`. In `fault`, disable the TMC6200, log the fault and request `off`. In `motor_id` or `control`, request `off` if the TMC6200 is disabled (for example by `smol_drv_run()` after a FAULT pin).
+- **Zero calibration.** Core 0 requests `off`, waits 2 loops (100 µs), clears the sums and the loop count `_zero_cal_loops`, then requests `zero_cal`. Core 1 adds up the samples and increments the count. At `ZERO_CAL_LOOPS`, core 1 sets `zero_cal_done`.
+- **Overcurrent.** In `motor_id`, `control` and `pwm_test`, if a phase current is above `SMOL_ISENSE_FAULT_A` (8 A), core 1 calls `smol_pwm_all_off()` and sets `fault`. The check uses the smaller magnitude of the 2 samples of a phase, because a switching spike can affect one sample. The check does not run in `zero_cal`: the bridge is off there, and core 0 writes the calibration in `zero_cal_done`. Thus core 1 never reads the calibration while core 0 writes it. In `fault`, core 0 accepts only a request of `off`.
+- **Barriers.** `__dmb()` (a `dmb` instruction and a compiler barrier) is necessary where non-volatile data goes from one core to the other with a volatile variable: the zero calibration sums before `zero_cal_done` (core 1) and after it (core 0), the cleared sums before the `zero_cal` request, and the calibration before `_cal_valid`. The fault values are volatile, so they need no barrier.
+- **Calibration.** Core 0 writes the zeros and the scale `1 / (gain × ISENSE_R)` in `zero_cal_done`. No bridge state runs at that time. A gain change makes the zeros invalid and requests `zero_cal`.
+- **Inputs and outputs.** The loop IRQ reads its inputs into local variables: the current sense voltages with their times (`isense_values`, `isense_times_clocks`), the loop time (`now_clocks`), and the raw ANGLEUNC words with their ages (`mag_reading_values`, `mag_reading_ages_ns`). The states use them directly. `smol_bridge_out_t`: duty (high-side on time) and enable for each half bridge and each of the 3 PWM periods. The next loop writes the outputs with `smol_pwm_fill()`.
+- **To add a state:** add it to the enum, to `_state_names[]` and to the `switch`, and add its preconditions to `smol_servo_loop_request_state()`. A bounded state sets its own DONE state in the `switch`, and `_core0_run()` acts on the DONE state.
+
+Rules for core 1 code (core 1 has no XIP access):
+
+- Mark functions `__not_in_flash_func` and const tables `__not_in_flash`. Header helpers must be `__force_inline`, because an out-of-line copy goes to flash.
+- Do not call `printf`, libm, `memset` or `memcpy`. `smol_sin()` is in RAM.
+- After a change, run `firmware_rpico/tools/check_core1_ram.py firmware_rpico/build/smol_servo_rpico.elf`. It follows all direct calls from the core 1 IRQ handlers in the disassembly and reports calls to flash and flash literals.
+
+Console commands: `s` (start, zero calibration), `stop` (request `off`), `state` (print), `state <name>` (request a state).
+
+Test (2026-11-10, 20 V):
+- Before `s`, `state pwm_test` was refused. `s` did the zero calibration (approx. 250 ms): `zero_cal`, `zero_cal_done`, then `off`.
+- `state zero_cal_done` and `state fault` were refused.
+- A second `s` 50 ms after the first one restarted the calibration. Only one result came, 254 ms after the second start.
+- `cfg_set isense_gain 10` started a new zero calibration.
+- `pwm_test` ran with the TMC6200 disabled and enabled (no false fault), and stopped with `stop`.
+- With `drv_en`: `motor_id`, `pwm_test`, then `control`. `drv_dis` in `control` requested `off`.
+- Not tested: a real overcurrent.
+
 Communication between the cores:
 
 - Core 1 owns the mode. Core 0 sends requests (enable, disable, setpoint, mode change) through a queue or the SIO FIFO.
@@ -216,12 +259,13 @@ Communication between the cores:
 
 ## 9. Gaps in the current code
 
-1. `smol_pwm_fill()` has no body. The loop cannot change the PWM.
+1. (Done) `smol_pwm_fill()` has a body, see section 4.
 2. `smol_servo_isense.c` and `smol_servo_model.c` do not compile and are not in the build.
 3. `smol_servo_loop_start()` is commented out in `_core1_init`. The console command `s` starts the peripherals from core 0. The interrupts still run on core 1, but the start is outside the mode control of core 1.
 4. `smol_adc_vbus()` reads 0.000 because the ADC does not run.
-5. No mode state machine and no connection between the loop (core 1) and the driver enable (core 0).
+5. (Done) The loop states (section 7.2) connect the loop with the driver enable. The closed loop (`control`) has no implementation yet.
 6. The documentation in `doc/n17-servo-design/n17-servo-design.tex` describes the STM32G4 and DRV8323 hardware (TIM2, 50 kHz, low-side shunts). `doc/smol-servo-modeling/smol-servo-modeling.tex` has only an introduction.
+7. `as5047d_detect()` fails in approx. 1 of 7 boots: the first SPI frame after the boot returns 0xC000, and ERRFL reads 0x4004 (PARERR). The detection requires a clean NOP answer. When it fails, the MAG DMA does not start.
 
 ## 10. Decisions for the owner
 
