@@ -163,6 +163,11 @@ static void _pd_log_print_one(void) {
 #define PD_ATTACH_DEBOUNCE_US (100000)
 #define PD_ATTACH_POLL_US (20000)
 
+// RX FIFO messages for each smol_usb_pd_run() call. The FIFO has 80 bytes, the shortest message (control message) has 7 bytes.
+#define PD_RX_MAX_PER_RUN (12)
+// log the RX of more than one message for each call when the time since the last call is longer than this (tReceiverResponse)
+#define PD_RX_LATE_LOG_US (15000)
+
 // MaxExtendedMsgChunkLen
 #define PD_CHUNK_LEN (26)
 
@@ -334,6 +339,8 @@ static uint32_t _wait_caps_timeout_us = 0;
 static uint32_t _hard_reset_counter = 0;
 // the Soft_Reset in SMOL_USB_PD_SOFT_RESET_SENT is the startup Soft_Reset of smol_usb_pd_init()
 static bool _startup_soft_reset = false;
+// response timeout of the Soft_Reset in SMOL_USB_PD_SOFT_RESET_SENT
+static uint32_t _soft_reset_timeout_us = 0;
 
 // contract and EPR state
 static bool _have_contract = false;
@@ -360,6 +367,9 @@ static uint32_t _epr_entry_attempts = 0;
 static uint64_t _epr_enter_sent_us = 0;
 // last SOP message sent or received, for EPR_KeepAlive
 static uint64_t _last_traffic_us = 0;
+
+// time of the last smol_usb_pd_run() timer check, for the RX log
+static uint64_t _last_run_us = 0;
 
 // detach / attach detection
 static uint64_t _cc_poll_us = 0;
@@ -616,6 +626,7 @@ static void _pd_send_hard_reset(const char* reason) {
 
 static void _pd_soft_reset(void) {
 	_startup_soft_reset = false;
+	_soft_reset_timeout_us = PD_SENDER_RESPONSE_US;
 	// a Soft_Reset message always uses MessageID 0
 	_msg_counter = 0;
 	// the reply (Accept) also starts at MessageID 0
@@ -1459,8 +1470,22 @@ static void _pd_run_timers(uint64_t now_us) {
 			break;
 		case SMOL_USB_PD_REQUEST_SENT:
 			// SenderResponseTimer
-			if (in_state_us > PD_SENDER_RESPONSE_US)
-				_pd_send_hard_reset("no response to Request");
+			if (in_state_us > PD_SENDER_RESPONSE_US) {
+				/**
+				 * PD 3.2 PE_SNK_Select_Capability specifies Hard Reset. A Hard Reset removes VBUS, and VBUS is the only power of this board.
+				 * Deviation: with an Explicit Contract (new Request, PPS re-request), send Soft_Reset first. The contract and VBUS stay. The Source then sends Source_Capabilities, and the sink requests the target again.
+				 * No response to the Soft_Reset: Hard Reset (SMOL_USB_PD_SOFT_RESET_SENT).
+				 */
+				if (_have_contract) {
+					warn_println("PD no response to Request after %u us, send Soft_Reset", (uint32_t)in_state_us);
+					_pd_soft_reset();
+					// the Source can be in its power transition (Accept sent, PS_RDY not yet sent). Give it the time of tPSTransition for the reply.
+					_soft_reset_timeout_us = _epr_mode ? PD_PS_TRANSITION_EPR_US : PD_PS_TRANSITION_US;
+				}
+				else {
+					_pd_send_hard_reset("no response to Request");
+				}
+			}
 			break;
 		case SMOL_USB_PD_REQUEST_WAIT:
 			if (now_us > _wait_until_us) {
@@ -1474,7 +1499,7 @@ static void _pd_run_timers(uint64_t now_us) {
 				_pd_send_hard_reset("no PS_RDY");
 			break;
 		case SMOL_USB_PD_SOFT_RESET_SENT:
-			if (in_state_us > PD_SENDER_RESPONSE_US) {
+			if (in_state_us > _soft_reset_timeout_us) {
 				if (_startup_soft_reset) {
 					// the Source can be busy with the power-on. Wait for Source_Capabilities, then continue as after attach.
 					warn_println("PD no response to startup Soft_Reset");
@@ -1603,16 +1628,27 @@ void smol_usb_pd_run(void) {
 			PD_IRQ_DBG("USB PD I_GCRCSENT");
 	}
 
-    uint8_t status1 = 0;
-    assert(0 == fusb302_read_reg(FUSB_REG_STATUS1, &status1));
+	/**
+	 * Read all messages in the RX FIFO before the timers run. The FIFO also holds the GoodCRC of each message that the sink sent.
+	 * When the main loop is late (for example blocking log output on core 0), the FIFO can hold GoodCRC and the response (for example Accept) together. With one message for each call, the timer then expired after the GoodCRC, with the response still in the FIFO.
+	 */
+	size_t rx_count = 0;
+	uint64_t rx_first_us = 0;
+	while (rx_count < PD_RX_MAX_PER_RUN) {
+		uint8_t status1 = 0;
+		if (0 != fusb302_read_reg(FUSB_REG_STATUS1, &status1))
+			break;
+		if (0 != (status1 & FUSB_STATUS1_RX_EMPTY_MASK))
+			break;
+		++rx_count;
 
-    bool have_rx = (0 == (status1 & FUSB_STATUS1_RX_EMPTY_MASK));
-
-	if (have_rx) {
 		// start reading token
 		uint64_t rx_start_us = smol_time64(timer0_hw);
+		if (rx_count == 1)
+			rx_first_us = rx_start_us;
 		uint8_t rx_token = 0;
-		assert(0 == fusb302_rx(&rx_token, 1));
+		if (0 != fusb302_rx(&rx_token, 1))
+			break;
 		uint32_t token = rx_token >> 5;
 		bool is_sop = token == PD_TOKEN_SOP;
 
@@ -1670,6 +1706,9 @@ void smol_usb_pd_run(void) {
 		if (!is_good_crc)
 			dbg_println("PD RX token 0x%x header 0x%04x cmd %u n %u ext %u (0x%04x) id %d%s, handled in %u us", token, header, command, num_data_objects, is_extended_message, ext_header, msgid, is_duplicate ? " (duplicate)" : "", rx_handling_us);
 	}
+	// more than one message and a long gap: the main loop was late, for example because of blocking log output
+	if ((rx_count > 1) && (rx_first_us - _last_run_us > PD_RX_LATE_LOG_US))
+		dbg_println("PD RX %u messages in one run, %u us since the last run", rx_count, (uint32_t)(rx_first_us - _last_run_us));
 
 	/**
 	 * NOTE: Do not call fusb302_measure_vbus() here. It disconnects the CC measure switch for each call, and the BMC receiver then misses messages.
@@ -1679,6 +1718,7 @@ void smol_usb_pd_run(void) {
 	uint64_t now_us = smol_time64(timer0_hw);
 	_pd_run_timers(now_us);
 	_pd_check_attach_detach(now_us);
+	_last_run_us = now_us;
 
 	_pd_log_print_one();
 }
