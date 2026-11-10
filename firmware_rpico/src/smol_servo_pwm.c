@@ -71,7 +71,8 @@ static _smol_servo_pwm_ram_vars_t _ram = {
 		{{1250-75, 1250-75}, {1250-150, 1250-150}, {1250-225, 1250-225}},
 		{{1250-75, 1250-75}, {1250-150, 1250-150}, {1250-225, 1250-225}},
 		{{1250-75, 1250-75}, {1250-150, 1250-150}, {1250-225, 1250-225}},
-		{{1250-75, 1250-75}, {1250-150, 1250-150}, {1250-225, 1250-225}},
+		// R: the brake resistor switch (PWMR -> UCC27516 -> Q1 -> J5 "OR"). DRV_EN does not stop it, so it stays off until a brake controller exists.
+		{{0, 0}, {0, 0}, {0, 0}},
 		// {{BRIDGE_PWM_MID, BRIDGE_PWM_MID}, {BRIDGE_PWM_MID, BRIDGE_PWM_MID}, {BRIDGE_PWM_MID, BRIDGE_PWM_MID}},
 		// {{BRIDGE_PWM_MID, BRIDGE_PWM_MID}, {BRIDGE_PWM_MID, BRIDGE_PWM_MID}, {BRIDGE_PWM_MID, BRIDGE_PWM_MID}},
 		// {{BRIDGE_PWM_MID, BRIDGE_PWM_MID}, {BRIDGE_PWM_MID, BRIDGE_PWM_MID}, {BRIDGE_PWM_MID, BRIDGE_PWM_MID}},
@@ -184,6 +185,8 @@ void smol_servo_bridge_pwm_init(void) {
 	smol_servo_bridge_pwm_slice_init(PWMB_SLICE);
 	smol_servo_bridge_pwm_slice_init(PWMC_SLICE);
 	smol_servo_bridge_pwm_slice_init(PWMR_SLICE);
+	// brake resistor switch off, see _ram.pwm_cc_loop_bufs
+	pwm_set_both_levels(PWMR_SLICE, 0, 0);
 	smol_servo_bridge_doubletime_slice_init(PWM_DOUBLETIME_SLICE);
 	smol_servo_bridge_mag_slice_init(PWM_MAG_SLICE);
 
