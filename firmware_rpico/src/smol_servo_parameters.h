@@ -49,7 +49,14 @@
 #define SMOL_SERVO_ADC_FREQ_HZ              (240000)
 #define SMOL_SERVO_ADC_PERIOD_CLOCKS        (625)
 
-#define SMOL_SERVO_ADC_ADVANCE_COUNT        (150)
+/*
+ * ADC trigger advance, in clk_sys counts. The ADC trigger slice counter is preset by this value, so the trigger comes this many counts before counter 0 and TOP of the bridge PWM.
+ * - SMOL_SERVO_ADC_CENTER_COUNT: half of the 2 us (300 counts) conversion. With this advance, the conversion is centered on counter 0 and TOP.
+ * - SMOL_SERVO_ADC_HOLD_ADJUST_COUNT: the ADC is a point sampler. Its hold is about 0.35-0.45 us after the trigger, not at the center of the conversion (measured with id_rec and the scope, see notes/amplifier-recovery.md). This adjustment moves the hold from 0.6 us before to counter 0 and TOP.
+ */
+#define SMOL_SERVO_ADC_CENTER_COUNT         (150)
+#define SMOL_SERVO_ADC_HOLD_ADJUST_COUNT    (90)
+#define SMOL_SERVO_ADC_ADVANCE_COUNT        (SMOL_SERVO_ADC_CENTER_COUNT - SMOL_SERVO_ADC_HOLD_ADJUST_COUNT)
 
 #define SMOL_SERVO_MAG_PWM_PER_LOOP         (4)
 #define SMOL_SERVO_MAG_FREQ_HZ              (80000)

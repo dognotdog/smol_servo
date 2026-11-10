@@ -103,6 +103,38 @@ A full dynamic model is not necessary if each sample stays out of the fast part 
 4. **Limit the duty** to 0 or 0.02–0.98, until the behavior at 1 % and 99 % is known.
 5. **Limits of the table:** it does not include the slow terms or the tail sum after a fast change of the duty. The error of the table after a duty step is about the size of the tail, 0.3 A, for about 20 µs. If this is too large, add the tail as one exponential state per edge type and channel.
 
+### Trigger change, done
+
+- `SMOL_SERVO_ADC_ADVANCE_COUNT` is now `SMOL_SERVO_ADC_CENTER_COUNT` (150) − `SMOL_SERVO_ADC_HOLD_ADJUST_COUNT` (90) = 60 counts (0.4 µs).
+- The sweep `id_rec 0 1000 10 2000` with no motor (log: `rec2`) agrees with the old sweep moved by 0.6 µs. The fitted move is +0.58 to +0.60 µs on all 6 samples. The rms difference is 29–82 mA. Without the move, it is 0.9–2.8 A.
+- Figure: `notes/scope/rec-sweep-advance60.png`. The dashed curve is the old sweep moved by 0.6 µs. Near 92 %, the dashed curve has a step because of the interpolation to the 99 % point. The step is not in the data.
+- The hold is now at about counter 0 − 0.05 µs and TOP − 0.05 µs. With the τ limits above, the usable ranges are:
+  - Sample 0 for D_prev ≥ 0.35.
+  - Sample 1 for D ≤ 0.64 (B, C) and D ≤ 0.37 (A).
+  - So each channel has a usable sample for all duties from 0.02 to 0.98. For A, the overlap is small (0.35–0.37).
+
+### Supply voltage
+
+Sweeps `id_rec 0 1000 10 2000` with no motor and advance 60, at 5 contract voltages (`pd_req`). Figure: `notes/scope/rec-sweep-vbus.png`. VDD is the console value.
+
+| VBUS | VDD | B0 high level (D 0.5) | B1 low level (D 0.3) | B1 falling dip | A1 noise (sigma, terminal low) |
+|---|---|---|---|---|---|
+| 9 V (fixed) | 7.8 V | +3.42 A | +0.03 A | −7.01 A at D 0.78 | 27 mA |
+| 10 V (PPS) | 8.6 V | +3.38 A | +0.05 A | −7.00 A at D 0.78 | 28 mA |
+| 12 V (PPS) | 9.9 V | +3.14 A | +0.23 A | −6.94 A at D 0.78 | 61 mA |
+| 15 V (fixed) | 10.2 V | +2.99 A | +0.33 A | −6.78 A at D 0.79 | 62 mA |
+| 20 V (fixed) | 10.2 V | +2.96 A | +0.32 A | −6.78 A at D 0.79 | 60 mA |
+
+- The error does not scale with VBUS. 15 V and 20 V give the same curves (rms difference 17–61 mA, except A1). The change occurs between 10 V and 15 V.
+- VDD comes from the LT3990 buck (U5, L4 33 µH) on the driver board. VDD also supplies the TMC6200 analog supply (VSA). At 9 V and 10 V, the buck is in dropout (VDD 7.8 and 8.6 V). At 12 V and above, it regulates. VBUS and VDD change together in these tests, so the data cannot separate them.
+- With VDD in dropout:
+  - The terminal-high offset is about 0.4–0.5 A larger, on all channels.
+  - The low level after the falling edge is about 0, not +0.3 A.
+  - The falling-edge response is about 0.1–0.15 µs later.
+  - **The 230 kHz noise on A (terminal low) is not present.** The noise is present only when the buck switches. This makes the LT3990 the likely source of the ripple (possibly Burst Mode at light load). This is not confirmed with the scope.
+- For the correction table: one table is sufficient for VBUS ≥ 15 V. Below that, the table must depend on the supply voltage.
+- The 12 V run stopped at D 0.98. Then the board reset: a PPS re-request got no response, and the firmware sent a Hard Reset (log `rec_12000`).
+
 ## 5. Open items
 
 - The time constant of the slow term (switching high level against DC high level). Run `id_rec 1000 1000 10 20000` after a run at 50 % and look at the 9 bins.

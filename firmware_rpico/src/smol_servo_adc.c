@@ -6,6 +6,8 @@
  * However, the PWM module only allows DMA requests on counter wrap, so we have to setup a spare PWM or other timer mechanism.
  * 
  * An ADC samples takes 2us, so we should trigger 1us before counter wrap (150 cycles).
+ *
+ * Measured: the ADC is a point sampler. It holds the input about 0.4 us after the trigger, not at the center of the 2 us conversion. So the trigger advance is SMOL_SERVO_ADC_CENTER_COUNT (150) minus SMOL_SERVO_ADC_HOLD_ADJUST_COUNT (90) = 60 cycles, and the hold is at counter 0 and TOP. See smol_servo_parameters.h and notes/amplifier-recovery.md.
  * 
  * NOTE: it may be possible to use a "negative" counter value instead of retarding the PWM counter by 150 cycles from software to get the correct phase alignment.
  * 
@@ -67,6 +69,8 @@
 // 4 ADC reads for every interrupt 
 #define ADC_PATTERN_BLOCK_SIZE 4
 #define ADC_PATTERN_NUM_BLOCKS 3
+// time from the hold of the last sample in a block to the FIFO threshold IRQ (the end of its conversion)
+#define ADC_IRQ_HOLD_OFFSET_CLOCKS (2*SMOL_SERVO_ADC_CENTER_COUNT - SMOL_SERVO_ADC_ADVANCE_COUNT)
 
 #define ADC_RINGBUF_NUM_BLOCKS (4)
 #define ADC_RINGBUF_WORDS (ADC_PATTERN_BLOCK_SIZE*ADC_RINGBUF_NUM_BLOCKS)
@@ -196,11 +200,11 @@ void __not_in_flash_func(smol_adc_fifo_threshold_irq_handler)(void) {
 		_adc_read_buf[2*block_complete_index + 3][0] = samples[1];
 		_adc_read_buf[2*block_complete_index + 4][0] = samples[3];
 
-		// TIME: we're executed roughly at the end of the ADC sampling of the 4th block, so at about +1us (150clk) past center of sample.
-		_adc_time_buf[block_complete_index][0] = t_clocks - 3 *SMOL_SERVO_ADC_PERIOD_CLOCKS - 150;
-		_adc_time_buf[block_complete_index][1] = t_clocks - 1 *SMOL_SERVO_ADC_PERIOD_CLOCKS - 150;
-		_adc_time_buf[2*block_complete_index + 3][0] = t_clocks - 2 *SMOL_SERVO_ADC_PERIOD_CLOCKS - 150;
-		_adc_time_buf[2*block_complete_index + 4][0] = t_clocks - 0 *SMOL_SERVO_ADC_PERIOD_CLOCKS - 150;
+		// TIME: we're executed roughly at the end of the conversion of the 4th sample. The conversion ends 2us (2 * SMOL_SERVO_ADC_CENTER_COUNT) after the trigger, and the trigger is SMOL_SERVO_ADC_ADVANCE_COUNT before the hold. So the hold of the 4th sample is ADC_IRQ_HOLD_OFFSET_CLOCKS before now.
+		_adc_time_buf[block_complete_index][0] = t_clocks - 3 *SMOL_SERVO_ADC_PERIOD_CLOCKS - ADC_IRQ_HOLD_OFFSET_CLOCKS;
+		_adc_time_buf[block_complete_index][1] = t_clocks - 1 *SMOL_SERVO_ADC_PERIOD_CLOCKS - ADC_IRQ_HOLD_OFFSET_CLOCKS;
+		_adc_time_buf[2*block_complete_index + 3][0] = t_clocks - 2 *SMOL_SERVO_ADC_PERIOD_CLOCKS - ADC_IRQ_HOLD_OFFSET_CLOCKS;
+		_adc_time_buf[2*block_complete_index + 4][0] = t_clocks - 0 *SMOL_SERVO_ADC_PERIOD_CLOCKS - ADC_IRQ_HOLD_OFFSET_CLOCKS;
 	}
 
 	// refill CS pattern. This is a software op because of the power-of-two restriction on DMA ringbuffer sizes, but we have a 3x factor for our 3-phase pattern.
