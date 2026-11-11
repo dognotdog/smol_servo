@@ -32,7 +32,9 @@
  *
  * DC test (smol_motor_id_prepare_dc): X duty d, Y duty 0, for a number of loops. The mean voltage d * U_bus drives a DC current X->Y of d * U_bus / R_pair. Core 1 adds the samples of the second half into segment 0. This test does not depend on the pulse timing, and it checks the output path.
  *
- * Recovery test (smol_motor_id_prepare_rec, id_rec): all 3 terminals get the same duty in all PWM periods, after the settle phase at duty 0 (all 3 low side on). The terminal voltages are equal, so no current flows, also with a motor. Each sample then shows only the amplifier error for this duty: the response to the own switching edges (ringing and recovery tail) and the common mode error of the terminal voltage. Core 1 adds the samples in 9 time bins of equal length, so that a slow drift is visible. The test is for a disconnected motor: then also small timing differences between the phases cannot drive a current.
+ * Recovery test (smol_motor_id_prepare_rec, id_rec): all 3 terminals get the same duty in all PWM periods, after the settle phase at duty 0 (all 3 low side on). The terminal voltages are equal, so no current flows, also with a motor. Each sample then shows only the amplifier error for this duty: the response to the own switching edges (ringing and recovery tail) and the common mode error of the terminal voltage. Core 1 adds the samples in 9 time bins of equal length, so that a slow drift is visible. The rotor must not turn. A connected, stationary motor gives the same result as a disconnected motor on the bench, because the timing differences between the phases are too small to drive a current.
+ *
+ * Calibration sweep (smol_motor_id_cal_start, id_cal): one run with all 3 terminals at the same duty, without a stop. The bridge switches at warm_cc for the warmup. Then MOTOR_ID_SETTLE_LOOPS at duty 0 give the start baseline (second half). Then the duty goes up from lo to hi, and then down from hi to lo, with loops_per_cc loops at each cc. Then MOTOR_ID_SETTLE_LOOPS at duty 0 give the end baseline. After each cc change, core 1 does not add the first MOTOR_ID_CAL_SKIP_LOOPS loops (output delay). The values are relative to ZERO_CAL, not to a baseline. Core 1 also adds the squares, so that core 0 can print the standard deviation of one loop. The mean of the up and the down value of a cc cancels a drift that is linear in time.
  *
  * Abort: after the baseline, if the smaller magnitude of the 2 samples of a phase minus the baseline is above MOTOR_ID_ABORT_A, the test stops, and core 0 disables the TMC6200.
  */
@@ -52,12 +54,41 @@
 // recovery test: 18..20000 loops (1 s), 9 time bins
 #define MOTOR_ID_REC_LOOPS_MIN (18u)
 #define MOTOR_ID_REC_LOOPS_MAX (20000u)
+// PWM compare value for duty 1 (phase-correct, the same as BRIDGE_PWM_CC_FULL in smol_servo_pwm.c). The recovery sweep steps in these counts.
+#define MOTOR_ID_REC_CC_FULL (SMOL_SERVO_BRIDGE_PWM_PERIOD_CLOCKS / 2u)
 
 typedef enum {
 	MOTOR_ID_MODE_PULSE = 0,
 	MOTOR_ID_MODE_DC,
 	MOTOR_ID_MODE_REC,
+	MOTOR_ID_MODE_CAL,
 } motor_id_mode_t;
+
+// calibration sweep: loops after each cc change that core 1 does not add, the limits of the parameters
+#define MOTOR_ID_CAL_SKIP_LOOPS (3u)
+#define MOTOR_ID_CAL_LOOPS_MIN (MOTOR_ID_CAL_SKIP_LOOPS + 1u)
+#define MOTOR_ID_CAL_LOOPS_MAX (2000u)
+#define MOTOR_ID_CAL_WARM_S_MAX (120u)
+#define MOTOR_ID_CAL_N_MAX (MOTOR_ID_REC_CC_FULL + 1u)
+// result lines that core 0 prints in one call of smol_motor_id_core0_run()
+#define MOTOR_ID_CAL_PRINT_LINES (16u)
+
+// calibration sweep. Core 0 writes the parameters and clears the sums before the MOTOR_ID request. Core 1 writes the sums in MOTOR_ID. Core 0 reads them after MOTOR_ID_DONE.
+static struct {
+	uint32_t lo;
+	uint32_t n;
+	uint32_t loops;
+	uint32_t warm_loops;
+	uint32_t warm_cc;
+	// [0] up, [1] down: sum and sum of squares of the samples
+	float sum[2][MOTOR_ID_CAL_N_MAX][SMOL_SERVO_PHASES][2];
+	float sum_sq[2][MOTOR_ID_CAL_N_MAX][SMOL_SERVO_PHASES][2];
+	// [0] start, [1] end
+	float base_sum[2][SMOL_SERVO_PHASES][2];
+	// core 0: result output
+	bool printing;
+	uint32_t print_i;
+} _cal;
 
 // terminal pairs X->Y, Z is the third terminal. In RAM: core 1 has no flash access.
 static const uint8_t __not_in_flash("loop") _pair_x[3] = {0, 1, 2};
@@ -199,7 +230,81 @@ static __force_inline void _add(uint32_t seg, const float amps[SMOL_SERVO_PHASES
 	}
 }
 
+static __force_inline void _cal_add(float sum[SMOL_SERVO_PHASES][2], const float amps[SMOL_SERVO_PHASES][2]) {
+	for (size_t p = 0; p < SMOL_SERVO_PHASES; ++p)
+		for (size_t j = 0; j < 2; ++j)
+			sum[p][j] += amps[p][j];
+}
+
+// calibration sweep: the cc of loop number n in the up or down part, t_up is the first loop of the up part
+static __force_inline uint32_t _cal_cc(uint32_t n, uint32_t t_up, uint32_t sweep, uint32_t* dir, uint32_t* phase) {
+	uint32_t q = n - t_up;
+	*dir = q / sweep;
+	q -= *dir * sweep;
+	uint32_t i = q / _cal.loops;
+	*phase = q - i * _cal.loops;
+	return (*dir == 0) ? i : (_cal.n - 1u - i);
+}
+
+static smol_motor_id_step_t __not_in_flash_func(_cal_step)(const float amps[SMOL_SERVO_PHASES][2], smol_bridge_out_t* out) {
+	uint32_t n = _loops;
+	_loops = n + 1;
+
+	const uint32_t t_base0 = _cal.warm_loops;
+	const uint32_t t_up = t_base0 + MOTOR_ID_SETTLE_LOOPS;
+	const uint32_t sweep = _cal.n * _cal.loops;
+	const uint32_t t_base1 = t_up + 2u * sweep;
+	const uint32_t t_end = t_base1 + MOTOR_ID_SETTLE_LOOPS;
+
+	// the samples of this loop
+	if ((n >= t_base0 + MOTOR_ID_SETTLE_LOOPS / 2) && (n < t_up)) {
+		_cal_add(_cal.base_sum[0], amps);
+	}
+	else if ((n >= t_up) && (n < t_base1)) {
+		uint32_t dir = 0;
+		uint32_t phase = 0;
+		uint32_t i = _cal_cc(n, t_up, sweep, &dir, &phase);
+		if (phase >= MOTOR_ID_CAL_SKIP_LOOPS) {
+			_cal_add(_cal.sum[dir][i], amps);
+			for (size_t p = 0; p < SMOL_SERVO_PHASES; ++p)
+				for (size_t j = 0; j < 2; ++j)
+					_cal.sum_sq[dir][i][p][j] += amps[p][j] * amps[p][j];
+			_added += 1;
+		}
+	}
+	else if (n >= t_base1 + MOTOR_ID_SETTLE_LOOPS / 2) {
+		_cal_add(_cal.base_sum[1], amps);
+	}
+	if (n + 1u >= t_end) {
+		smol_bridge_out_off(out);
+		return SMOL_MOTOR_ID_DONE;
+	}
+
+	// output for the next loop: warmup, duty 0, sweep, duty 0
+	uint32_t nn = n + 1u;
+	uint32_t cc = 0;
+	if (nn < t_base0) {
+		cc = _cal.warm_cc;
+	}
+	else if ((nn >= t_up) && (nn < t_base1)) {
+		uint32_t dir = 0;
+		uint32_t phase = 0;
+		cc = _cal.lo + _cal_cc(nn, t_up, sweep, &dir, &phase);
+	}
+	float d = (float)cc / (float)MOTOR_ID_REC_CC_FULL;
+	for (size_t k = 0; k < SMOL_SERVO_PWM_PER_LOOP; ++k) {
+		for (size_t p = 0; p < SMOL_SERVO_PHASES; ++p) {
+			out->duty[k][p] = d;
+			out->enable[k][p] = true;
+		}
+	}
+	return SMOL_MOTOR_ID_RUN;
+}
+
 smol_motor_id_step_t __not_in_flash_func(smol_motor_id_step)(const float amps[SMOL_SERVO_PHASES][2], smol_bridge_out_t* out) {
+	if (_mode == MOTOR_ID_MODE_CAL)
+		return _cal_step(amps, out);
+
 	uint32_t n = _loops;
 	_loops = n + 1;
 
@@ -386,13 +491,13 @@ int smol_motor_id_auto_start(uint32_t cycles) {
 }
 
 /**
- * Recovery sweep (id_rec), core 0: the recovery test at the duties lo, lo + step, .. hi (permille), in the same way as the automatic sequence.
+ * Recovery sweep (id_rec), core 0: the recovery test at the PWM compare values lo, lo + step, .. hi (0..MOTOR_ID_REC_CC_FULL, duty = cc / MOTOR_ID_REC_CC_FULL), in the same way as the automatic sequence. With step 1, the sweep uses each PWM value.
  */
 static struct {
 	bool active;
 	bool seen_running;
 	bool have_result;
-	uint32_t permille;
+	uint32_t cc;
 	uint32_t hi;
 	uint32_t step;
 	uint32_t loops;
@@ -405,35 +510,36 @@ void smol_motor_id_auto_cancel(void) {
 	}
 	if (_rec.active) {
 		_rec.active = false;
-		warn_println("motor id: recovery sweep cancelled at duty %" PRIu32 " permille", _rec.permille);
+		warn_println("motor id: recovery sweep cancelled at cc %" PRIu32, _rec.cc);
 	}
 }
 
 static int _rec_start_run(void) {
 	_rec.seen_running = false;
 	_rec.have_result = false;
-	if (smol_motor_id_prepare_rec((float)_rec.permille * 1e-3f, _rec.loops) != 0)
+	// _duty_to_cc() gives this cc again: cc / FULL * FULL + 0.5, truncated
+	if (smol_motor_id_prepare_rec((float)_rec.cc / (float)MOTOR_ID_REC_CC_FULL, _rec.loops) != 0)
 		return -1;
 	return smol_servo_loop_request_state(SMOL_LOOP_MOTOR_ID);
 }
 
-int smol_motor_id_rec_start(uint32_t lo_permille, uint32_t hi_permille, uint32_t step_permille, uint32_t loops) {
+int smol_motor_id_rec_start(uint32_t lo_cc, uint32_t hi_cc, uint32_t step_cc, uint32_t loops) {
 	if (_auto.active || _rec.active) {
 		warn_println("motor id: a sequence runs");
 		return -1;
 	}
-	if ((lo_permille > hi_permille) || (hi_permille > 1000u) || (step_permille == 0u)) {
-		err_println("motor id: recovery sweep %" PRIu32 "..%" PRIu32 " step %" PRIu32 " permille not possible", lo_permille, hi_permille, step_permille);
+	if ((lo_cc > hi_cc) || (hi_cc > MOTOR_ID_REC_CC_FULL) || (step_cc == 0u)) {
+		err_println("motor id: recovery sweep cc %" PRIu32 "..%" PRIu32 " step %" PRIu32 " not possible (0..%u)", lo_cc, hi_cc, step_cc, (unsigned)MOTOR_ID_REC_CC_FULL);
 		return -1;
 	}
-	_rec.permille = lo_permille;
-	_rec.hi = hi_permille;
-	_rec.step = step_permille;
+	_rec.cc = lo_cc;
+	_rec.hi = hi_cc;
+	_rec.step = step_cc;
 	_rec.loops = loops;
-	uint32_t runs = (hi_permille - lo_permille) / step_permille + 1u;
-	info_println("motor id: recovery sweep for a DISCONNECTED motor, duty %" PRIu32 "..%" PRIu32 " step %" PRIu32 " permille, %" PRIu32 " runs (approx. %.1f s)",
-		lo_permille, hi_permille, step_permille, runs, (float)runs * (float)(loops + MOTOR_ID_SETTLE_LOOPS) / (float)SMOL_SERVO_LOOP_FREQ_HZ);
-	info_println("motor id: rec lines: A0 A1 B0 B1 C0 C1 in mA minus baseline: mean and sigma of the last time bin, drift = bin 1 - bin 8");
+	uint32_t runs = (hi_cc - lo_cc) / step_cc + 1u;
+	info_println("motor id: recovery sweep, all 3 terminals at the same duty, cc %" PRIu32 "..%" PRIu32 " step %" PRIu32 " of %u, %" PRIu32 " runs (approx. %.1f s)",
+		lo_cc, hi_cc, step_cc, (unsigned)MOTOR_ID_REC_CC_FULL, runs, (float)runs * (float)(loops + MOTOR_ID_SETTLE_LOOPS) / (float)SMOL_SERVO_LOOP_FREQ_HZ);
+	info_println("motor id: rec lines: duty, cc, then A0 A1 B0 B1 C0 C1 in mA minus baseline: mean and sigma of the last time bin, drift = bin 1 - bin 8");
 	_rec.active = true;
 	if (_rec_start_run() != 0) {
 		_rec.active = false;
@@ -454,13 +560,16 @@ static void _evaluate_rec(void) {
 	float sd1[SMOL_SERVO_PHASES][2];
 	_segment_stats(last, (float)_bin_n[last], m, sd);
 	_segment_stats(1, (float)_bin_n[1], m1, sd1);
-	info_println("motor id: rec %.3f mean %.2f %.2f %.2f %.2f %.2f %.2f mA", _duty_rec,
+	uint32_t cc = (uint32_t)(_duty_rec * (float)MOTOR_ID_REC_CC_FULL + 0.5f);
+	info_println("motor id: rec %.4f cc %" PRIu32 " mean %.2f %.2f %.2f %.2f %.2f %.2f mA", _duty_rec, cc,
 		1e3f * m[0][0], 1e3f * m[0][1], 1e3f * m[1][0], 1e3f * m[1][1], 1e3f * m[2][0], 1e3f * m[2][1]);
-	info_println("motor id: rec %.3f sigma %.2f %.2f %.2f %.2f %.2f %.2f mA", _duty_rec,
+	info_println("motor id: rec %.4f cc %" PRIu32 " sigma %.2f %.2f %.2f %.2f %.2f %.2f mA", _duty_rec, cc,
 		1e3f * sd[0][0], 1e3f * sd[0][1], 1e3f * sd[1][0], 1e3f * sd[1][1], 1e3f * sd[2][0], 1e3f * sd[2][1]);
-	info_println("motor id: rec %.3f drift %.2f %.2f %.2f %.2f %.2f %.2f mA", _duty_rec,
+	info_println("motor id: rec %.4f cc %" PRIu32 " drift %.2f %.2f %.2f %.2f %.2f %.2f mA", _duty_rec, cc,
 		1e3f * (m1[0][0] - m[0][0]), 1e3f * (m1[0][1] - m[0][1]), 1e3f * (m1[1][0] - m[1][0]),
 		1e3f * (m1[1][1] - m[1][1]), 1e3f * (m1[2][0] - m[2][0]), 1e3f * (m1[2][1] - m[2][1]));
+	info_println("motor id: rec %.4f cc %" PRIu32 " base %.2f %.2f %.2f %.2f %.2f %.2f mA", _duty_rec, cc,
+		1e3f * _base[0][0], 1e3f * _base[0][1], 1e3f * _base[1][0], 1e3f * _base[1][1], 1e3f * _base[2][0], 1e3f * _base[2][1]);
 	if (_rec.active) {
 		_rec.have_result = true;
 		return;
@@ -473,6 +582,89 @@ static void _evaluate_rec(void) {
 		_segment_stats(b, (float)_bin_n[b], m, sd);
 		info_println("motor id: rec bin %u (%" PRIu32 " loops) %.2f %.2f %.2f %.2f %.2f %.2f mA", (unsigned)b, _bin_n[b],
 			1e3f * m[0][0], 1e3f * m[0][1], 1e3f * m[1][0], 1e3f * m[1][1], 1e3f * m[2][0], 1e3f * m[2][1]);
+	}
+}
+
+int smol_motor_id_cal_start(uint32_t lo_cc, uint32_t hi_cc, uint32_t loops, uint32_t warm_s, uint32_t warm_cc) {
+	if (_auto.active || _rec.active || _cal.printing) {
+		warn_println("motor id: a sequence runs");
+		return -1;
+	}
+	if ((lo_cc > hi_cc) || (hi_cc > MOTOR_ID_REC_CC_FULL) || (warm_cc > MOTOR_ID_REC_CC_FULL)) {
+		err_println("motor id: calibration sweep cc %" PRIu32 "..%" PRIu32 ", warmup cc %" PRIu32 " not possible (0..%u)", lo_cc, hi_cc, warm_cc, (unsigned)MOTOR_ID_REC_CC_FULL);
+		return -1;
+	}
+	if ((loops < MOTOR_ID_CAL_LOOPS_MIN) || (loops > MOTOR_ID_CAL_LOOPS_MAX) || (warm_s > MOTOR_ID_CAL_WARM_S_MAX)) {
+		err_println("motor id: calibration sweep %" PRIu32 " loops per cc (%u..%u), warmup %" PRIu32 " s (0..%u) not possible",
+			loops, MOTOR_ID_CAL_LOOPS_MIN, MOTOR_ID_CAL_LOOPS_MAX, warm_s, MOTOR_ID_CAL_WARM_S_MAX);
+		return -1;
+	}
+	_mode = MOTOR_ID_MODE_CAL;
+	_pair = 0;
+	_cal.lo = lo_cc;
+	_cal.n = hi_cc - lo_cc + 1u;
+	_cal.loops = loops;
+	_cal.warm_loops = warm_s * SMOL_SERVO_LOOP_FREQ_HZ;
+	_cal.warm_cc = warm_cc;
+	for (size_t dir = 0; dir < 2; ++dir) {
+		for (size_t i = 0; i < _cal.n; ++i) {
+			for (size_t p = 0; p < SMOL_SERVO_PHASES; ++p) {
+				for (size_t j = 0; j < 2; ++j) {
+					_cal.sum[dir][i][p][j] = 0.0f;
+					_cal.sum_sq[dir][i][p][j] = 0.0f;
+				}
+			}
+		}
+		for (size_t p = 0; p < SMOL_SERVO_PHASES; ++p)
+			for (size_t j = 0; j < 2; ++j)
+				_cal.base_sum[dir][p][j] = 0.0f;
+	}
+	_clear();
+	float secs = ((float)_cal.warm_loops + 2.0f * (float)MOTOR_ID_SETTLE_LOOPS + 2.0f * (float)_cal.n * (float)loops) / (float)SMOL_SERVO_LOOP_FREQ_HZ;
+	info_println("motor id: calibration sweep, all 3 terminals at the same duty: warmup %" PRIu32 " s at cc %" PRIu32 ", baseline, cc %" PRIu32 "..%" PRIu32 " up and down, %" PRIu32 " loops per cc (first %u not used), baseline (approx. %.1f s)",
+		warm_s, warm_cc, lo_cc, hi_cc, loops, MOTOR_ID_CAL_SKIP_LOOPS, secs);
+	return smol_servo_loop_request_state(SMOL_LOOP_MOTOR_ID);
+}
+
+static void _evaluate_cal(void) {
+	const float kb = 1e3f / (float)(MOTOR_ID_SETTLE_LOOPS - MOTOR_ID_SETTLE_LOOPS / 2);
+	for (size_t b = 0; b < 2; ++b) {
+		float (*s)[2] = _cal.base_sum[b];
+		info_println("motor id: cal base %s %.1f %.1f %.1f %.1f %.1f %.1f mA", b ? "end" : "start",
+			kb * s[0][0], kb * s[0][1], kb * s[1][0], kb * s[1][1], kb * s[2][0], kb * s[2][1]);
+	}
+	info_println("motor id: cal lines: cc, then A0 A1 B0 B1 C0 C1 in mA relative to ZERO_CAL, mean of %" PRIu32 " loops: up, down, then the standard deviation of one loop (up and down pooled)",
+		_cal.loops - MOTOR_ID_CAL_SKIP_LOOPS);
+	_cal.print_i = 0;
+	_cal.printing = true;
+}
+
+static void _cal_print_lines(void) {
+	const float n = (float)(_cal.loops - MOTOR_ID_CAL_SKIP_LOOPS);
+	const float k = 1e3f / n;
+	for (uint32_t l = 0; (l < MOTOR_ID_CAL_PRINT_LINES) && (_cal.print_i < _cal.n); ++l) {
+		uint32_t i = _cal.print_i;
+		float (*u)[2] = _cal.sum[0][i];
+		float (*d)[2] = _cal.sum[1][i];
+		// standard deviation of one loop: the variance of up and of down, each about its own mean, pooled
+		float sd[SMOL_SERVO_PHASES][2];
+		for (size_t p = 0; p < SMOL_SERVO_PHASES; ++p) {
+			for (size_t j = 0; j < 2; ++j) {
+				float mu = u[p][j] / n;
+				float md = d[p][j] / n;
+				float var = 0.5f * (_cal.sum_sq[0][i][p][j] / n - mu * mu + _cal.sum_sq[1][i][p][j] / n - md * md);
+				sd[p][j] = 1e3f * sqrtf(fmaxf(var, 0.0f));
+			}
+		}
+		info_println("motor id: cal cc %" PRIu32 " up %.1f %.1f %.1f %.1f %.1f %.1f dn %.1f %.1f %.1f %.1f %.1f %.1f sd %.1f %.1f %.1f %.1f %.1f %.1f mA", _cal.lo + i,
+			k * u[0][0], k * u[0][1], k * u[1][0], k * u[1][1], k * u[2][0], k * u[2][1],
+			k * d[0][0], k * d[0][1], k * d[1][0], k * d[1][1], k * d[2][0], k * d[2][1],
+			sd[0][0], sd[0][1], sd[1][0], sd[1][1], sd[2][0], sd[2][1]);
+		_cal.print_i = i + 1u;
+	}
+	if (_cal.print_i >= _cal.n) {
+		_cal.printing = false;
+		info_println("motor id: calibration sweep done");
 	}
 }
 
@@ -541,6 +733,8 @@ static seq_poll_t _seq_poll(bool* seen_running, bool have_result) {
 }
 
 void smol_motor_id_core0_run(void) {
+	if (_cal.printing)
+		_cal_print_lines();
 	if (_auto.active) {
 		seq_poll_t r = _seq_poll(&_auto.seen_running, _auto.have_result);
 		if (r == SEQ_CANCEL) {
@@ -563,12 +757,12 @@ void smol_motor_id_core0_run(void) {
 			smol_motor_id_auto_cancel();
 		}
 		else if (r == SEQ_NEXT) {
-			if (_rec.permille + _rec.step > _rec.hi) {
+			if (_rec.cc + _rec.step > _rec.hi) {
 				_rec.active = false;
 				info_println("motor id: recovery sweep done");
 			}
 			else {
-				_rec.permille += _rec.step;
+				_rec.cc += _rec.step;
 				if (_rec_start_run() != 0)
 					smol_motor_id_auto_cancel();
 			}
@@ -588,6 +782,10 @@ void smol_motor_id_evaluate(void) {
 	}
 	if (_added == 0) {
 		err_println("motor id: no samples");
+		return;
+	}
+	if (_mode == MOTOR_ID_MODE_CAL) {
+		_evaluate_cal();
 		return;
 	}
 	if (_mode == MOTOR_ID_MODE_REC) {

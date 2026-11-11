@@ -80,14 +80,14 @@ static void _process_command(char* cmd, size_t cmd_len, char* args, size_t args_
 		smol_motor_id_auto_start((uint32_t)cycles);
 	}
 	else if (0 == strcmp("id_rec", cmd)) {
-		// id_rec [lo_permille] [hi_permille] [step_permille] [loops], defaults 10 990 10 2000: amplifier recovery sweep, all 3 terminals at the same duty. Disconnect the motor first.
-		unsigned long v[4] = {10, 990, 10, 2000};
+		// id_rec [lo_cc] [hi_cc] [step_cc] [loops], defaults 0 1250 1 1000: amplifier recovery sweep over the PWM compare values (duty = cc / 1250), all 3 terminals at the same duty. The rotor must not turn.
+		unsigned long v[4] = {0, 1250, 1, 1000};
 		char* p = args;
 		for (size_t i = 0; i < 4 && *p; ++i) {
 			char* end = NULL;
 			v[i] = strtoul(p, &end, 10);
 			if (end == p) {
-				warn_println("usage: id_rec [lo_permille] [hi_permille] [step_permille] [loops]");
+				warn_println("usage: id_rec [lo_cc 0..1250] [hi_cc] [step_cc] [loops]");
 				return;
 			}
 			p = end;
@@ -99,6 +99,27 @@ static void _process_command(char* cmd, size_t cmd_len, char* args, size_t args_
 			return;
 		}
 		smol_motor_id_rec_start((uint32_t)v[0], (uint32_t)v[1], (uint32_t)v[2], (uint32_t)v[3]);
+	}
+	else if (0 == strcmp("id_cal", cmd)) {
+		// id_cal [lo_cc] [hi_cc] [loops_per_cc] [warm_s] [warm_cc], defaults 25 1225 100 10 625: calibration sweep up and down in one run, all 3 terminals at the same duty. The rotor must not turn.
+		unsigned long v[5] = {25, 1225, 100, 10, 625};
+		char* p = args;
+		for (size_t i = 0; i < 5 && *p; ++i) {
+			char* end = NULL;
+			v[i] = strtoul(p, &end, 10);
+			if (end == p) {
+				warn_println("usage: id_cal [lo_cc 0..1250] [hi_cc] [loops_per_cc] [warm_s] [warm_cc]");
+				return;
+			}
+			p = end;
+			while (*p == ' ')
+				++p;
+		}
+		if (smol_servo_loop_state() == SMOL_LOOP_MOTOR_ID) {
+			warn_println("%s: a motor id test runs", cmd);
+			return;
+		}
+		smol_motor_id_cal_start((uint32_t)v[0], (uint32_t)v[1], (uint32_t)v[2], (uint32_t)v[3], (uint32_t)v[4]);
 	}
 	else if (0 == strcmp("drv_io", cmd)) {
 		// TMC6200 input pin levels and status, also while a loop state runs

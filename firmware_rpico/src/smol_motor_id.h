@@ -43,9 +43,13 @@ void smol_motor_id_evaluate(void);
  */
 int smol_motor_id_auto_start(uint32_t cycles);
 /**
- * Core 0: recovery sweep over the duties lo..hi in steps (permille), loops per duty. Not automatic: the motor must be disconnected.
+ * Core 0: recovery sweep over the PWM compare values lo..hi in steps (0..1250, duty = cc / 1250), loops per value. Not automatic. The rotor must not turn (a connected, stationary motor gives the same result).
  */
-int smol_motor_id_rec_start(uint32_t lo_permille, uint32_t hi_permille, uint32_t step_permille, uint32_t loops);
+int smol_motor_id_rec_start(uint32_t lo_cc, uint32_t hi_cc, uint32_t step_cc, uint32_t loops);
+/**
+ * Core 0: calibration sweep in one run without a stop: warm_s seconds at warm_cc, baseline, cc lo..hi up and hi..lo down with loops per cc, baseline. The values are relative to ZERO_CAL. Core 0 prints them after the run. The rotor must not turn.
+ */
+int smol_motor_id_cal_start(uint32_t lo_cc, uint32_t hi_cc, uint32_t loops, uint32_t warm_s, uint32_t warm_cc);
 // cancels the automatic sequence and the recovery sweep
 void smol_motor_id_auto_cancel(void);
 // call it in the core 0 main loop
