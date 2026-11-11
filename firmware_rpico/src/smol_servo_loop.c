@@ -5,6 +5,7 @@
 #include "pico_debug.h"
 #include "smol_servo_loop.h"
 #include "smol_motor_id.h"
+#include "smol_isense_cal.h"
 
 #include "hardware/dma.h"
 #include "hardware/irq.h"
@@ -549,6 +550,7 @@ void __not_in_flash_func(smol_servo_loop_idle_core1)(void) {
 void smol_servo_loop_idle_core0(void) {
 	_core0_run();
 	smol_motor_id_core0_run();
+	smol_isense_cal_core0_run();
 
 	uint64_t t_fast = smol_time64(timer0_hw);
 	dbg_time_t tt = {.seconds = t_fast / 1000000u, .microseconds = t_fast % 1000000u};

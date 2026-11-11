@@ -97,6 +97,7 @@ if (TARGET tinyusb_device)
         src/smol_console.c
         src/smol_fs.c
         src/smol_config.c
+        src/smol_isense_cal.c
         src/smol_trig.c
         src/pico_debug.c
         ${littlefs_SOURCE_DIR}/lfs.c

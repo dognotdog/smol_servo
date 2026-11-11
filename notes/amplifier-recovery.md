@@ -198,6 +198,15 @@ E = E[i] + (((E[i+1] − E[i]) * f) >> 4);     // i + 1 ≤ 75 for cc ≤ 1225
 
 Data: `int16_t E[3][2][76]` in mA, 912 bytes.
 
+**Firmware (`smol_isense_cal.c/.h`).** At the end of each `id_cal`, core 0 fits the table on the board (least squares with hat functions, the same method as the host script) and writes it to `/isense_cal.bin` on littlefs:
+
+- File: a 52-byte header (cc range, gain, VBUS, the `id_cal` parameters, the start and end baselines), E, err and sd per interval, then a CRC. For 76 knots it has 2768 bytes.
+- `main()` loads it at boot after the config. `cfg_load` loads it again. If the gain in the file is not the gain in the config, no table is in use.
+- RAM: the file image is 2908 bytes (80 knots maximum), and the fit uses 1280 bytes. The loop needs only E.
+- Console: `cal_show` prints the header and the knots, and `cal_load` reads the file again.
+- Check: on the same `id_cal` data (`cal5.log`), the board table and the host fit agree within 1 mA (E) and 2 mA (err, sd).
+- The loop does not apply the table yet. The inline function `smol_isense_cal_e_ma(p, j, cc)` gives the value.
+
 **Sample selection.** Use one contiguous range for each sample. The ranges come from the timing sensitivity: under load, the terminal edge comes up to one BBM (25 counts) earlier than at zero current. The sensitivity is the largest change of E in that window. The ranges are from the `id_rec` sweep in steps of 1 cc (figure `cal-table.png`):
 
 | | Sample 1 (TOP) | Sample 0 (counter 0) | Both: weight of sample 0 | Sensitivity > 50 mA |

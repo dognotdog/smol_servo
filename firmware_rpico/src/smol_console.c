@@ -4,6 +4,7 @@
 #include "pico_debug.h"
 #include "smol_config.h"
 #include "smol_motor_id.h"
+#include "smol_isense_cal.h"
 #include "smol_servo_usb_pd.h"
 #include "tmc6200.h"
 
@@ -178,7 +179,16 @@ static void _process_command(char* cmd, size_t cmd_len, char* args, size_t args_
 		smol_config_save();
 	}
 	else if (0 == strcmp("cfg_load", cmd)) {
+		// a gain change can make the current sense table invalid
 		smol_config_load();
+		smol_isense_cal_load();
+	}
+	else if (0 == strcmp("cal_show", cmd)) {
+		// current sense offset table (/isense_cal.bin, written by id_cal): header and knots
+		smol_isense_cal_show();
+	}
+	else if (0 == strcmp("cal_load", cmd)) {
+		smol_isense_cal_load();
 	}
 	else {
 		warn_println("unknown command: %s", cmd);

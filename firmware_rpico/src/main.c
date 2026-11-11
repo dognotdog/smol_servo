@@ -17,6 +17,7 @@
 
 #include "smol_servo.h"
 #include "smol_fs.h"
+#include "smol_isense_cal.h"
 #include "smol_config.h"
 #include "smol_console.h"
 #include "pico_debug.h"
@@ -143,8 +144,11 @@ int main(int argc, char const *argv[])
 	// mount only: a format erases flash, and core 0 then cannot answer PD messages. smol_fs_run() does a necessary format later.
 	smol_fs_init();
 	// config file: applies the current sense gain to the TMC6200 (DRV_EN is still low). Without a mounted FS, smol_fs_run() loads the config after the deferred format.
-	if (smol_fs_is_mounted())
+	// current sense offset table (needs the gain from the config)
+	if (smol_fs_is_mounted()) {
 		smol_config_load();
+		smol_isense_cal_load();
+	}
 
 	multicore_reset_core1();
 	multicore_launch_core1(_core1_init);

@@ -18,7 +18,7 @@ typedef enum {
 /**
  * Core 0: set the parameters and clear the sums. Call them only when the loop is not in MOTOR_ID. Return 0 on success.
  * pair: 0 = A->B, 1 = B->C, 2 = C->A.
- * Pulse test: w_ns is the width of the first pulse, cycles is the number of 9-loop cycles to average.
+ * Pulse test: w_ns is the pulse width, cycles is the number of 12-loop cycles to average.
  * DC test: duty is the duty of X (Y has duty 0), loops is the test duration.
  */
 int smol_motor_id_prepare_pulse(uint32_t pair, uint32_t w_ns, uint32_t cycles);
@@ -47,7 +47,7 @@ int smol_motor_id_auto_start(uint32_t cycles);
  */
 int smol_motor_id_rec_start(uint32_t lo_cc, uint32_t hi_cc, uint32_t step_cc, uint32_t loops);
 /**
- * Core 0: calibration sweep in one run without a stop: warm_s seconds at warm_cc, baseline, cc lo..hi up and hi..lo down with loops per cc, baseline. The values are relative to ZERO_CAL. Core 0 prints them after the run. The rotor must not turn.
+ * Core 0: calibration sweep in one run without a stop: warm_s seconds at warm_cc, baseline, cc lo..hi up and hi..lo down with loops per cc, baseline. The values are relative to ZERO_CAL. After the run, core 0 writes the current sense offset table (/isense_cal.bin, see smol_isense_cal.h) and prints the values. The rotor must not turn.
  */
 int smol_motor_id_cal_start(uint32_t lo_cc, uint32_t hi_cc, uint32_t loops, uint32_t warm_s, uint32_t warm_cc);
 // cancels the automatic sequence and the recovery sweep
