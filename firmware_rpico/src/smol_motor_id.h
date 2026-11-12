@@ -33,6 +33,9 @@ int smol_motor_id_prepare_rec(float duty, uint32_t loops);
  */
 smol_motor_id_step_t smol_motor_id_step(const float amps[SMOL_SERVO_PHASES][2], smol_bridge_out_t* out);
 
+// Core 1: true if the loop subtracts the current sense offset table (smol_isense_cal.h) from the currents of this test. Not in the calibration sweep: it measures the table.
+bool smol_motor_id_uses_isense_cal(void);
+
 /**
  * Core 0: print the result after the loop state MOTOR_ID_DONE.
  */

@@ -43,6 +43,8 @@
  * Calibration sweep (smol_motor_id_cal_start, id_cal): one run with all 3 terminals at the same duty, without a stop. The bridge switches at warm_cc for the warmup. Then MOTOR_ID_SETTLE_LOOPS at duty 0 give the start baseline (second half). Then the duty goes up from lo to hi, and then down from hi to lo, with loops_per_cc loops at each cc. Then MOTOR_ID_SETTLE_LOOPS at duty 0 give the end baseline. After each cc change, core 1 does not add the first MOTOR_ID_CAL_SKIP_LOOPS loops (output delay). The values are relative to ZERO_CAL, not to a baseline. Core 1 also adds the squares, so that core 0 can print the standard deviation of one loop. The mean of the up and the down value of a cc cancels a drift that is linear in time.
  * After the run, core 0 fits the current sense offset table to the mean values, writes /isense_cal.bin and uses the new table (smol_isense_cal.h). Then it prints the values of each cc.
  *
+ * Current sense table: in all tests except the calibration sweep, the loop subtracts the table value at the cc of each sample (smol_isense_cal.h, smol_servo_loop.c). Without a table, the values are relative to ZERO_CAL. The baseline subtraction stays: the table does not include the low-state drift.
+ *
  * Abort: after the baseline, if the smaller magnitude of the 2 samples of a phase minus the baseline is above MOTOR_ID_ABORT_A, the test stops, and core 0 disables the TMC6200.
  */
 
@@ -241,7 +243,11 @@ int smol_motor_id_prepare_rec(float duty, uint32_t loops) {
 	return 0;
 }
 
-static __force_inline void _add(uint32_t seg, const float amps[SMOL_SERVO_PHASES][2]) {
+bool __not_in_flash_func(smol_motor_id_uses_isense_cal)(void) {
+	return _mode != MOTOR_ID_MODE_CAL;
+}
+
+static void __not_in_flash_func(_add)(uint32_t seg, const float amps[SMOL_SERVO_PHASES][2]) {
 	for (size_t p = 0; p < SMOL_SERVO_PHASES; ++p) {
 		for (size_t j = 0; j < 2; ++j) {
 			float a = amps[p][j] - _base[p][j];
@@ -251,14 +257,14 @@ static __force_inline void _add(uint32_t seg, const float amps[SMOL_SERVO_PHASES
 	}
 }
 
-static __force_inline void _cal_add(float sum[SMOL_SERVO_PHASES][2], const float amps[SMOL_SERVO_PHASES][2]) {
+static void __not_in_flash_func(_cal_add)(float sum[SMOL_SERVO_PHASES][2], const float amps[SMOL_SERVO_PHASES][2]) {
 	for (size_t p = 0; p < SMOL_SERVO_PHASES; ++p)
 		for (size_t j = 0; j < 2; ++j)
 			sum[p][j] += amps[p][j];
 }
 
 // calibration sweep: the cc of loop number n in the up or down part, t_up is the first loop of the up part
-static __force_inline uint32_t _cal_cc(uint32_t n, uint32_t t_up, uint32_t sweep, uint32_t* dir, uint32_t* phase) {
+static uint32_t __not_in_flash_func(_cal_cc)(uint32_t n, uint32_t t_up, uint32_t sweep, uint32_t* dir, uint32_t* phase) {
 	uint32_t q = n - t_up;
 	*dir = q / sweep;
 	q -= *dir * sweep;
@@ -509,8 +515,9 @@ int smol_motor_id_auto_start(uint32_t cycles) {
 	_auto.cycles = cycles;
 	_auto.vbus_sum = 0.0f;
 	_auto.active = true;
-	info_println("motor id: automatic sequence, %u runs of %" PRIu32 " cycles (approx. %.1f s)",
-		AUTO_RUNS, cycles, (float)AUTO_RUNS * ((float)cycles * MOTOR_ID_PULSE_SEGMENTS + MOTOR_ID_SETTLE_LOOPS) / (float)SMOL_SERVO_LOOP_FREQ_HZ);
+	info_println("motor id: automatic sequence, %u runs of %" PRIu32 " cycles (approx. %.1f s), current sense table %s",
+		AUTO_RUNS, cycles, (float)AUTO_RUNS * ((float)cycles * MOTOR_ID_PULSE_SEGMENTS + MOTOR_ID_SETTLE_LOOPS) / (float)SMOL_SERVO_LOOP_FREQ_HZ,
+		smol_isense_cal_valid() ? "in use" : "not in use");
 	if (_auto_start_run() != 0) {
 		_auto.active = false;
 		return -1;
@@ -860,6 +867,8 @@ void smol_motor_id_evaluate(void) {
 	}
 	const float n = (float)_added;
 	float vbus = smol_adc_vbus();
+	if (!_auto.active)
+		info_println("motor id: current sense table %s", smol_isense_cal_valid() ? "in use" : "not in use (no /isense_cal.bin)");
 	if (!_auto.active)
 		info_println("motor id: baseline (bridge on, no current) A %.3f %.3f B %.3f %.3f C %.3f %.3f A",
 			_base[0][0], _base[0][1], _base[1][0], _base[1][1], _base[2][0], _base[2][1]);

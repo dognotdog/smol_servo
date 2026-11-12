@@ -42,6 +42,15 @@
 
 #define SMOL_SERVO_LOOP_FREQ_HZ             (20000)
 #define SMOL_SERVO_LOOP_PERIOD_CLOCKS       (7500)
+/**
+ * Maximum of the test delay at the loop end (smol_servo_loop_set_end_delay, console loop_end_delay): the loop must end before the next loop IRQ (50 us).
+ * Loop timing limits (measured 2026-11-10, notes/servo-loop-design.md, section 3.3):
+ * - The end of the loop must not be near the ADC FIFO IRQ (approx. 14.1 and 30.8 us after counter 0 of the loop period): then the next counter 0 sample (B0, C0) is wrong. It must also not be near an ADC trigger (0.4 us before each hold at 0, 8.3, 16.7, 25, 33.3, 41.7 us).
+ * - The ADC read (smol_adc_get_isense_values) must be before the ADC IRQ of the next phase A block (approx. 14.1 us after counter 0). A later read gets a new A block in some loops.
+ */
+#define SMOL_SERVO_LOOP_END_DELAY_MAX_CLOCKS (3600)
+// maximum of the test delay at the end of the ADC FIFO IRQ (smol_adc_set_irq_tail_delay): 2 us. The ADC IRQ has a higher priority than the PWM IRQ.
+#define SMOL_ADC_IRQ_TAIL_DELAY_MAX_CLOCKS (300)
 
 #define SMOL_SERVO_BRIDGE_PWM_FREQ_HZ       (60000)
 #define SMOL_SERVO_BRIDGE_PWM_PERIOD_CLOCKS (2500)

@@ -16,7 +16,7 @@ Related notes:
 |---|---|---|
 | Peripheral timing (PWM, ADC, MAG, loop IRQ) | Implemented and tuned with a scope | `smol_servo_pwm.c`, `smol_servo_adc.c`, `smol_servo_mag.c`, `smol_servo_parameters.h` |
 | Loop IRQ and sensor reads | Implemented | `smol_servo_loop.c` |
-| PWM output from the loop | Implemented. `smol_pwm_fill()` writes duty and enable per half bridge and PWM period. All half bridges are off in the states that do not drive the bridge. | `smol_servo_pwm.c` |
+| PWM output from the loop | Implemented. `smol_pwm_prepare()` (loop end) and `smol_pwm_fill()` (next loop start) write duty and enable per half bridge and PWM period. All half bridges are off in the states that do not drive the bridge. | `smol_servo_pwm.c` |
 | Current conversion (ADC volts to amperes) | Draft, does not compile, not in the build | `smol_servo_isense.c` |
 | Estimator (model, filter) | Draft, not in the build | `smol_servo_model.c` |
 | Controller | Not started | — |
@@ -98,7 +98,7 @@ ADC-IRQ                x               x               x
 
 - In bridge PWM period k (k = 0, 1, 2), the ADC samples the current of phase k two times. The samples are at counter 0 and at counter TOP. The two other ADC samples in that period read auxiliary channels.
 - ADC order in block k: `I_k(0)`, `aux(2k+3)`, `I_k(TOP)`, `aux(2k+4)`. The auxiliary channels are 3 VBUS, 4 VDD, 5 to 7 ADCA to ADCC, 8 chip temperature.
-- The ADC trigger is 150 clocks (1 µs) early, because a conversion takes 2 µs. The sample center is then on the PWM counter 0 or TOP.
+- The ADC is a point sampler: it holds the input approx. 0.4 µs after the trigger (CS write with START_ONCE). The trigger is 60 clocks (0.4 µs) early (`SMOL_SERVO_ADC_ADVANCE_COUNT`), so that the hold is at the PWM counter 0 or TOP. The conversion then takes 2 µs.
 - The PWM output is high while COUNT < CC (owner's diagram). Thus the sample at counter 0 is in the middle of the high-side on time. The sample at TOP is in the middle of the low-side on time. The two samples can have different offsets (`n17-servo-design.tex:517`).
 - The ADC FIFO IRQ comes after each block of 4 samples, about half an ADC period before the next bridge PWM wrap. The ADC data is thus ready before the PWM IRQ and the loop start. The owner's diagram marks this as a latency reduction.
 - Thus each phase current has 2 samples per loop, and the 3 phases are sampled at different times. They are not a simultaneous set.
@@ -118,12 +118,36 @@ ADC-IRQ                x               x               x
 - The PWM wrap IRQ writes the CC values for the period after the next one. After the period that samples phase 2, it sets the loop IRQ pending (`smol_servo_signal_loop()`).
 - The loop then has the current samples of all 3 phases from the last 3 PWM periods.
 - Latency from sensor sample to PWM output: 5 bridge PWM periods (83 µs). See the comment in `smol_servo_loop_irq_handler`.
+- **Measured loop timing** (2026-11-10, motor id pulse test at 625 cc; t = 0 at the bridge PWM wrap (counter 0) of the loop signal; figures `scope/loop-fill-timing.png`, `scope/loop-end-sweep.png`, `scope/adc-irq-end-sweep.png`):
+
+  | Event | Time |
+  |---|---|
+  | PWM wrap IRQ (sets the loop IRQ pending) | +0.17 µs, 0.8–1.0 µs long, again at 16.84 µs and 33.5 µs |
+  | Loop entry | 1.15 µs after the PWM IRQ entry |
+  | `smol_pwm_fill()` done (only copies 9 words) | approx. 0.7 µs after the entry |
+  | ADC read (`smol_adc_get_isense_values()`) | just after the fill |
+  | Loop end, MOTOR_ID, no test delay | 13.3 µs mean, 13.5 µs max (some segments 9.5 µs) |
+  | ADC FIFO IRQ (end of the 4th conversion of a block) | start 14.4 µs, end 16.3 µs (16.2–16.6 µs); again at +16.67 µs |
+  | ADC triggers / holds | trigger 0.4 µs before each hold. Holds: A0 0, A1 8.3, B0 16.7, B1 25, C0 33.3, C1 41.7 µs |
+
+  The ADC IRQ has priority over the PWM IRQ and the loop. Thus no loop end is possible from approx. 14.1 to 17.6 µs and from 30.8 to 34.3 µs.
+- **The loop converts the duty to cc at its end.** `smol_pwm_prepare()` converts `_bridge_out` to the CC buffer words (`smol_bridge_cc_t`, approx. 2 µs for 9 float conversions). `smol_pwm_fill()` at the start of the next loop only copies them, and `_cc_hist_push()` takes the cc for the current sense table from them. The margin from the fill to the PWM IRQ that loads k 0 is more than 13 µs. Thus the fill is not time critical.
+- **Rule 1: the ADC read must come before the ADC FIFO IRQ of the next phase A block (approx. 14.1 µs).** A later read gets the new A block in some loops. A test with a 10 µs delay before the read gave A1 a sigma of up to 226 mA and a false d of +140 / −50 mA. With the read at the loop start, this cannot occur. The read is not protected (the IRQ can write the buffer during the read). Only the timing prevents the race.
+- **Rule 2: the loop end must not meet the arrival of the ADC FIFO IRQ.** Sweep of a test delay at the loop end (`loop_end_delay`, 0..3600 clocks in steps of 30, pulse test B->C, 1024 cycles per point):
+  - Loop end 13.9 µs (mean, max 14.1 µs): B0 sigma 75 mA (normally 18 mA), d −37 mA. 0.2 µs earlier or later: normal. The same for C0 at a loop end of 30.4–30.7 µs (C0 sigma 73 mA, d +22 mA). The window is approx. 0.3 µs wide. Then the IRQ tail-chains after the loop instead of a preemption.
+  - A test build with out-of-line calls in the fill ended its loop just after the ADC IRQ arrival. B0 then had a sigma of 80–130 mA and a false d. This was the first observation.
+  - The end of the ADC IRQ is not the cause: a test delay at the end of the ADC IRQ (`adc_irq_delay`, 0..300 clocks) moved the IRQ end from 16.3 to 18.5 µs, through the B0 / C0 acquisition window. B0 and C0 did not change (sigma 16–18 mA, d ±2 mA).
+  - The mechanism is not known. A next test: put the ADC IRQ debug GPIO (12) on a scope line and compare a good and a bad loop end.
+  - Without a test delay, the loop end (13.5 µs max) is only approx. 0.4 µs before this window. A longer loop (for example the control state) must end well before 13.9 µs or after the PWM IRQ (17.6 µs).
+- **Rule 3: the loop end should not be at an ADC trigger.** In the sweep, B1 changed at a loop end of 24.5 µs (sigma 55 mA, d −3.5 instead of +15 mA), and C1 at 41.0–41.3 µs (sigma 54 mA). At all other loop end times, no sample changed.
+- **The noise of a sample also depends on the code that core 1 executes in the loop.** With the loop still running at the ADC IRQ arrival, B0 sigma was 16.5–26.7 mA in different builds (±0.5 mA in one build). A probable cause: the IRQ entry latency depends on the instruction that it interrupts (rule 2). Not confirmed.
+- **Compare pulse tests only at the same VBUS.** The current steps scale with VBUS. Between two runs, the USB PD contract changed from 15 V to 20 V (probably a run-time `pd_req` that stayed over the SWD resets until a new negotiation), and B1 d changed by ×1.39. The automatic sequence (`id_auto`) divides by the measured VBUS. The single `id_pulse` prints only d.
 - At the end of the handler, `assert_fast` checks that the loop IRQ is not pending again. If it is pending, the loop took more than one period.
 
 ### 3.4 Time budget
 
 - 7500 clocks per loop at 150 MHz.
-- The ADC IRQ (every 4 samples, 60 kHz) and the PWM IRQ (60 kHz) use part of this time. Their cost is not measured yet. GPIO 8, 9, 12 and 13 can show the IRQ times on a scope (`DEBUG_*_WITH_GPIO`).
+- The ADC IRQ (every 4 samples, 60 kHz) and the PWM IRQ (60 kHz) use part of this time. Measured 2026-11-10: the ADC IRQ takes approx. 1.9 µs (from its timer read to its end, 1.85 µs mean, 2.17 µs max) and the PWM IRQ 0.8–1.0 µs, each 3 times per loop. Together approx. 8.5 µs of the 50 µs. The ADC IRQ is long for its work (4 FIFO reads, some buffer writes). The cause is not known. GPIO 8, 9, 12 and 13 can show the IRQ times on a scope (`DEBUG_*_WITH_GPIO`). The console commands `loop_end_delay` and `adc_irq_delay` print the measured times.
 - The Cortex-M33 has a single-precision FPU. Double precision is software emulation and must not be used in the loop.
 
 ## 4. Loop interface (now)
@@ -139,7 +163,7 @@ Inputs at the start of `smol_servo_loop_irq_handler()`:
 
 Output:
 
-- `smol_pwm_fill(const smol_bridge_out_t*, starting_phase)` writes duty and enable of each half bridge for the next 3 PWM periods into `_ram.pwm_cc_loop_bufs`. The loop calls it at its start with `starting_phase = 2` and the outputs that the state calculated in the previous loop. One 32-bit store writes both CC values of an entry.
+- `smol_pwm_prepare(const smol_bridge_out_t*, smol_bridge_cc_t*)` converts the duty and enable of each half bridge for the next 3 PWM periods to CC buffer words. The loop calls it at its end. `smol_pwm_fill(const smol_bridge_cc_t*, starting_phase)` copies the words into `_ram.pwm_cc_loop_bufs`. The loop calls it at its start with `starting_phase = 2`. One 32-bit store writes both CC values of an entry.
 - `smol_pwm_all_off()` sets all bridge CC buffers and registers to 0 at once (fault path).
 - `smol_servo_loop.h` defines `smol_bridge_out_t`, see section 7.2.
 - Each bridge slice has 2 CC values: A is the PWM (TMC6200 H input) and B is the enable (L input, `singleline = 1`). An EN value of 0 switches the half bridge off (output floating).
@@ -222,12 +246,12 @@ The loop has a fixed set of states (`smol_loop_state_t` in `smol_servo_loop.h`).
 - **Overcurrent.** In `motor_id`, `control` and `pwm_test`, if a phase current is above `SMOL_ISENSE_FAULT_A` (8 A), core 1 calls `smol_pwm_all_off()` and sets `fault`. The check uses the smaller magnitude of the 2 samples of a phase, because a switching spike can affect one sample. The check does not run in `zero_cal`: the bridge is off there, and core 0 writes the calibration in `zero_cal_done`. Thus core 1 never reads the calibration while core 0 writes it. In `fault`, core 0 accepts only a request of `off`.
 - **Barriers.** `__dmb()` (a `dmb` instruction and a compiler barrier) is necessary where non-volatile data goes from one core to the other with a volatile variable: the zero calibration sums before `zero_cal_done` (core 1) and after it (core 0), the cleared sums before the `zero_cal` request, and the calibration before `_cal_valid`. The fault values are volatile, so they need no barrier.
 - **Calibration.** Core 0 writes the zeros and the scale `1 / (gain × ISENSE_R)` in `zero_cal_done`. No bridge state runs at that time. A gain change makes the zeros invalid and requests `zero_cal`.
-- **Inputs and outputs.** The loop IRQ reads its inputs into local variables: the current sense voltages with their times (`isense_values`, `isense_times_clocks`), the loop time (`now_clocks`), and the raw ANGLEUNC words with their ages (`mag_reading_values`, `mag_reading_ages_ns`). The states use them directly. `smol_bridge_out_t`: duty (high-side on time) and enable for each half bridge and each of the 3 PWM periods. The next loop writes the outputs with `smol_pwm_fill()`.
+- **Inputs and outputs.** The loop IRQ reads its inputs into local variables: the current sense voltages with their times (`isense_values`, `isense_times_clocks`), the loop time (`now_clocks`), and the raw ANGLEUNC words with their ages (`mag_reading_values`, `mag_reading_ages_ns`). The states use them directly. `smol_bridge_out_t`: duty (high-side on time) and enable for each half bridge and each of the 3 PWM periods. The loop end converts the outputs (`smol_pwm_prepare()`), and the next loop writes them with `smol_pwm_fill()`.
 - **To add a state:** add it to the enum, to `_state_names[]` and to the `switch`, and add its preconditions to `smol_servo_loop_request_state()`. A bounded state sets its own DONE state in the `switch`, and `_core0_run()` acts on the DONE state.
 
 Rules for core 1 code (core 1 has no XIP access):
 
-- Mark functions `__not_in_flash_func` and const tables `__not_in_flash`. Header helpers must be `__force_inline`, because an out-of-line copy goes to flash.
+- Mark functions `__not_in_flash_func` and const tables `__not_in_flash`. Also mark static and header helpers with `__not_in_flash_func` (`static inline` in a header), so that an out-of-line copy goes to RAM. Do not use `__force_inline` for this. `tools/check_core1_ram.py` checks the build.
 - Do not call `printf`, libm, `memset` or `memcpy`. `smol_sin()` is in RAM.
 - After a change, run `firmware_rpico/tools/check_core1_ram.py firmware_rpico/build/smol_servo_rpico.elf`. It follows all direct calls from the core 1 IRQ handlers in the disassembly and reports calls to flash and flash literals.
 

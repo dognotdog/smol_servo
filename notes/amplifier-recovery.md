@@ -205,7 +205,8 @@ Data: `int16_t E[3][2][76]` in mA, 912 bytes.
 - RAM: the file image is 2908 bytes (80 knots maximum), and the fit uses 1280 bytes. The loop needs only E.
 - Console: `cal_show` prints the header and the knots, and `cal_load` reads the file again.
 - Check: on the same `id_cal` data (`cal5.log`), the board table and the host fit agree within 1 mA (E) and 2 mA (err, sd).
-- The loop does not apply the table yet. The inline function `smol_isense_cal_e_ma(p, j, cc)` gives the value.
+- The loop subtracts the table in the motor id tests (`id_pulse`, `id_dc`, `id_rec`, `id_auto`), not in `id_cal`. It keeps the cc of the last 3 outputs. In loop m, phase 0 is sampled in the period of output (m − 3, k 1), phase 1 in (m − 3, k 2), phase 2 in (m − 2, k 0). Sample 0 uses the cc of the period before, (m − 3, k p). A half bridge that is off, or a cc outside the knots, gets no table value.
+- Check (pulse test B->C at 625 cc, 15.2 V): the baseline with the table is B 0.108 / 0.003 A, C 0.069 / −0.024 A (without the table, about 2.9–3.4 A for sample 0). A (off, floating) has −0.949 / 0.130 A.
 
 **Sample selection.** Use one contiguous range for each sample. The ranges come from the timing sensitivity: under load, the terminal edge comes up to one BBM (25 counts) earlier than at zero current. The sensitivity is the largest change of E in that window. The ranges are from the `id_rec` sweep in steps of 1 cc (figure `cal-table.png`):
 

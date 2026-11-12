@@ -45,7 +45,8 @@ void smol_servo_loop_idle_core0(void);
 void smol_servo_loop_idle_core1(void);
 
 bool smol_pwm_was_started(void);
-void smol_pwm_fill(const smol_bridge_out_t* out, size_t starting_phase);
+void smol_pwm_prepare(const smol_bridge_out_t* out, smol_bridge_cc_t* cc);
+void smol_pwm_fill(const smol_bridge_cc_t* cc, size_t starting_phase);
 void smol_pwm_all_off(void);
 
 float smol_chip_temperature_celsius(void);
@@ -62,3 +63,11 @@ float smol_sin(float x);
 
 // debugging / watchdog
 uint32_t smol_adc_block_index(void);
+/**
+ * Diagnostic of the ADC FIFO threshold IRQ: start and end time after the bridge PWM wrap, since the last reset.
+ * Test: busy wait at the end of the IRQ (0..SMOL_ADC_IRQ_TAIL_DELAY_MAX_CLOCKS), so that the IRQ end moves later. Core 0. Returns 0 on success.
+ */
+void smol_adc_irq_time_reset(void);
+void smol_adc_print_irq_timing(void);
+int smol_adc_set_irq_tail_delay(uint32_t clocks);
+uint32_t smol_adc_irq_tail_delay(void);

@@ -21,14 +21,32 @@
 smol_isense_cal_t smol_isense_cal_image;
 static volatile bool _valid = false;
 
+bool __not_in_flash_func(smol_isense_cal_valid)(void) {
+	return _valid;
+}
+
+bool __not_in_flash_func(smol_isense_cal_in_range)(uint32_t cc) {
+	const smol_isense_cal_header_t* h = &smol_isense_cal_image.h;
+	return (cc >= h->lo_cc) && (cc <= (uint32_t)h->lo_cc + ((uint32_t)h->n_knots - 1u) * h->step_cc);
+}
+
+int32_t __not_in_flash_func(smol_isense_cal_e_ma)(uint32_t p, uint32_t j, uint32_t cc) {
+	const smol_isense_cal_t* c = &smol_isense_cal_image;
+	const int16_t* e = c->e_ma[p][j];
+	int32_t d = (int32_t)cc - (int32_t)c->h.lo_cc;
+	if (d <= 0)
+		return e[0];
+	uint32_t i = (uint32_t)d >> SMOL_ISENSE_CAL_STEP_SHIFT;
+	if (i >= (uint32_t)c->h.n_knots - 1u)
+		return e[c->h.n_knots - 1u];
+	int32_t f = d & (int32_t)(SMOL_ISENSE_CAL_STEP_CC - 1u);
+	return e[i] + (((e[i + 1u] - e[i]) * f) >> SMOL_ISENSE_CAL_STEP_SHIFT);
+}
+
 static struct {
 	bool printing;
 	uint32_t i;
 } _show;
-
-bool smol_isense_cal_valid(void) {
-	return _valid;
-}
 
 static bool _bridge_runs(void) {
 	smol_loop_state_t s = smol_servo_loop_state();
@@ -188,7 +206,7 @@ int smol_isense_cal_load(void) {
 		err_println("isense cal: the table is for gain %u, the config has gain %" PRId32 ". No table in use (run id_cal)", h->isense_gain, gain);
 		return -1;
 	}
-	__dmb(); // the table must be in memory before core 1 sees _valid
+	__dmb(); // the table must be in memory before core 1 sees the valid flag
 	_valid = true;
 	info_println("isense cal: %s read, cc %u..%u, %u knots, gain %u, VBUS %.2f V", ISENSE_CAL_PATH,
 		h->lo_cc, h->lo_cc + (h->n_knots - 1u) * h->step_cc, h->n_knots, h->isense_gain, 1e-3f * (float)h->vbus_mv);
@@ -296,7 +314,7 @@ int smol_isense_cal_build(const smol_isense_cal_header_t* hin, uint32_t lo_cc, u
 	info_println("isense cal: table cc %" PRIu32 "..%" PRIu32 ", %" PRIu32 " knots, gain %u, VBUS %.2f V", lo_cc, lo_cc + (nk - 1u) * SMOL_ISENSE_CAL_STEP_CC, nk,
 		c->h.isense_gain, 1e-3f * (float)c->h.vbus_mv);
 	int r = _save();
-	__dmb(); // the table must be in memory before core 1 sees _valid
+	__dmb(); // the table must be in memory before core 1 sees the valid flag
 	_valid = true;
 	if (r != 0)
 		warn_println("isense cal: the new table is in use, but not saved");

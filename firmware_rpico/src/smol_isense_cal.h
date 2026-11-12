@@ -55,27 +55,17 @@ typedef struct {
 } smol_isense_cal_t;
 
 /**
- * Core 0 writes the image only while _valid is false. Core 1 may read E while smol_isense_cal_valid() is true.
+ * Core 0 writes the image only while the valid flag is false. Core 1 may read E while smol_isense_cal_valid() is true.
+ * The 3 functions below are in RAM (__not_in_flash_func), so that core 1 can call them.
  */
 extern smol_isense_cal_t smol_isense_cal_image;
 bool smol_isense_cal_valid(void);
-
+// true if cc is in the knot range of the table (no extrapolation)
+bool smol_isense_cal_in_range(uint32_t cc);
 /**
- * Table value in mA for channel p (0..2), sample j (0, 1) at compare value cc. Outside the knot range, the value of the nearest end knot.
- * Inline, so that core 1 can use it from RAM. Call it only when smol_isense_cal_valid() is true.
+ * Table value in mA for channel p (0..2), sample j (0, 1) at compare value cc. Outside the knot range, the value of the nearest end knot. Call it only when smol_isense_cal_valid() is true.
  */
-static inline int32_t smol_isense_cal_e_ma(uint32_t p, uint32_t j, uint32_t cc) {
-	const smol_isense_cal_t* c = &smol_isense_cal_image;
-	const int16_t* e = c->e_ma[p][j];
-	int32_t d = (int32_t)cc - (int32_t)c->h.lo_cc;
-	if (d <= 0)
-		return e[0];
-	uint32_t i = (uint32_t)d >> SMOL_ISENSE_CAL_STEP_SHIFT;
-	if (i >= (uint32_t)c->h.n_knots - 1u)
-		return e[c->h.n_knots - 1u];
-	int32_t f = d & (int32_t)(SMOL_ISENSE_CAL_STEP_CC - 1u);
-	return e[i] + (((e[i + 1u] - e[i]) * f) >> SMOL_ISENSE_CAL_STEP_SHIFT);
-}
+int32_t smol_isense_cal_e_ma(uint32_t p, uint32_t j, uint32_t cc);
 
 /**
  * Input of the table fit: for point i (cc = lo_cc + i), the mean amplifier error and the standard deviation of one loop, in A, relative to the references above.

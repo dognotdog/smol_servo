@@ -114,6 +114,56 @@ uint32_t smol_adc_block_index(void) {
 
 static uint32_t _prev_irq_t_clocks = 0;
 
+/**
+ * Diagnostic of the FIFO threshold IRQ timing, in system clocks: start (its timer read) and end (after the test delay), relative to the last bridge PWM wrap timestamp. Core 1 writes them, core 0 sets _irq_stat_reset.
+ * The IRQ comes approx. 14 us after a wrap, thus the last wrap is the one of its own PWM period.
+ */
+typedef struct {
+	uint32_t min, max;
+	uint64_t sum;
+} _irq_stat_t;
+static volatile bool _irq_stat_reset = true;
+static volatile uint32_t _irq_n;
+static _irq_stat_t _irq_start, _irq_end;
+// test delay at the end of the IRQ handler, system clocks (smol_adc_set_irq_tail_delay)
+static volatile uint32_t _irq_tail_delay_clocks = 0;
+
+static void __not_in_flash_func(_irq_stat_add)(_irq_stat_t* s, uint32_t v) {
+	if (v < s->min)
+		s->min = v;
+	if (v > s->max)
+		s->max = v;
+	s->sum += v;
+}
+
+void smol_adc_irq_time_reset(void) {
+	_irq_stat_reset = true;
+}
+
+int smol_adc_set_irq_tail_delay(uint32_t clocks) {
+	if (clocks > SMOL_ADC_IRQ_TAIL_DELAY_MAX_CLOCKS)
+		return -1;
+	_irq_tail_delay_clocks = clocks;
+	_irq_stat_reset = true;
+	return 0;
+}
+
+uint32_t smol_adc_irq_tail_delay(void) {
+	return _irq_tail_delay_clocks;
+}
+
+void smol_adc_print_irq_timing(void) {
+	uint32_t n = _irq_n;
+	if (n == 0) {
+		info_println("ADC IRQ: tail delay %" PRIu32 " clocks, no IRQs", _irq_tail_delay_clocks);
+		return;
+	}
+	float k = 1e6f / (float)SMOL_SERVO_LOOP_FREQ_HZ / (float)SMOL_SERVO_LOOP_PERIOD_CLOCKS;
+	info_println("ADC IRQ: tail delay %" PRIu32 " clocks, after the wrap: start min %.3f mean %.3f max %.3f us, end min %.3f mean %.3f max %.3f us (%" PRIu32 " IRQs)", _irq_tail_delay_clocks,
+		k * (float)_irq_start.min, k * (float)((double)_irq_start.sum / (double)n), k * (float)_irq_start.max,
+		k * (float)_irq_end.min, k * (float)((double)_irq_end.sum / (double)n), k * (float)_irq_end.max, n);
+}
+
 void __not_in_flash_func(smol_adc_fifo_threshold_irq_handler)(void) {
 #ifdef DEBUG_ADC_FIFO_THRES_WITH_GPIO
 	gpio_out_put_fast(DEBUG_ADC_FIFO_THRES_WITH_GPIO, 1);
@@ -133,6 +183,8 @@ void __not_in_flash_func(smol_adc_fifo_threshold_irq_handler)(void) {
 	uint32_t ringbuf_complete_index = _ringbuf_index;
 
 	uint32_t t_clocks = smol_time32(timer1_hw);
+	// diagnostic: the wrap of this PWM period (read now, before the test delay can pass the next wrap)
+	uint32_t t_wrap = smol_servo_loop_wrap_clocks();
 	uint32_t dt = t_clocks - _prev_irq_t_clocks;
 	// Block of ADC reads has completed.
 	// 1. Gather ADC reads
@@ -220,6 +272,20 @@ void __not_in_flash_func(smol_adc_fifo_threshold_irq_handler)(void) {
 	_block_index = next_block_index;
 	_ringbuf_index = next_ringbuf_index;
 	_prev_irq_t_clocks = t_clocks;
+
+	uint32_t tail = _irq_tail_delay_clocks;
+	if (tail > 0)
+		busy_wait_at_least_cycles(tail);
+	uint32_t t_end = smol_time32(timer1_hw);
+	if (_irq_stat_reset) {
+		_irq_start = (_irq_stat_t){.min = UINT32_MAX, .max = 0, .sum = 0};
+		_irq_end = (_irq_stat_t){.min = UINT32_MAX, .max = 0, .sum = 0};
+		_irq_n = 0;
+		_irq_stat_reset = false;
+	}
+	_irq_stat_add(&_irq_start, t_clocks - t_wrap);
+	_irq_stat_add(&_irq_end, t_end - t_wrap);
+	_irq_n += 1;
 
 #ifdef DEBUG_ADC_FIFO_THRES_WITH_GPIO
 	gpio_out_put_fast(DEBUG_ADC_FIFO_THRES_WITH_GPIO, 0);

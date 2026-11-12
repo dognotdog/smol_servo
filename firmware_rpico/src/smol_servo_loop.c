@@ -54,12 +54,14 @@ static volatile uint32_t _fault_phase = 0;
 static volatile float _fault_a = 0.0f;
 
 // states that switch the bridge
-static __force_inline bool _switches_bridge(smol_loop_state_t state) {
+static bool __not_in_flash_func(_switches_bridge)(smol_loop_state_t state) {
 	return (state == SMOL_LOOP_MOTOR_ID) || (state == SMOL_LOOP_CONTROL) || (state == SMOL_LOOP_PWM_TEST);
 }
 
 // outputs for the next loop. Zero: all half bridges off.
 static smol_bridge_out_t _bridge_out;
+// _bridge_out as PWM CC buffer words (smol_pwm_prepare at the loop end). Zero: all half bridges off.
+static smol_bridge_cc_t _bridge_cc;
 
 // current sense calibration. Core 0 writes it only while no bridge state runs (a bridge state needs a valid calibration).
 static float _cal_zero_v[SMOL_SERVO_PHASES][2];
@@ -67,6 +69,50 @@ static float _cal_amps_per_volt = 0.0f;
 static volatile bool _cal_valid = false;
 
 static bool _loop_started = false;
+
+// test delay at the loop end, in system clocks (smol_servo_loop_set_end_delay). Core 0 writes it, core 1 reads it.
+static volatile uint32_t _end_delay_clocks = 0;
+// loop end after the wrap timestamp, in system clocks, in MOTOR_ID. Core 1 writes them, core 0 sets _end_stat_reset.
+static volatile bool _end_stat_reset = true;
+static volatile uint32_t _end_min, _end_max, _end_n;
+static volatile uint64_t _end_sum;
+
+/**
+ * Current sense offset table (smol_isense_cal.h) in MOTOR_ID, not in the calibration sweep (id_cal measures the table).
+ * The table value depends on the cc of the PWM period of the sample. The ADC samples phase k in bridge PWM period k of the last 3 periods before the loop IRQ, and the output latency is 5 periods (notes/servo-loop-design.md 3.1, 3.3). Thus in loop m:
+ * - phase 0 is sampled in the period of output (m - 3, k 1), phase 1 in (m - 3, k 2), phase 2 in (m - 2, k 0). Sample 1 (TOP) uses the cc of this period.
+ * - sample 0 (counter 0) uses the cc of the period before (the rising edge is in that period): (m - 3, k p) for phase p.
+ * The pulse test agrees: a pulse in period k 1 of the output for segment s shows in the samples of segment s + 2, in phase 0 at TOP and in phase 1 at counter 0 of the next period.
+ * _cc_hist[0] is the output of loop m - 1, [1] of m - 2, [2] of m - 3. ISENSE_CC_OFF: the half bridge is off (no table value, the terminal floats).
+ */
+#define ISENSE_CC_OFF (0xffffu)
+static uint16_t _cc_hist[3][SMOL_SERVO_PWM_PER_LOOP][SMOL_SERVO_PHASES];
+static const uint8_t __not_in_flash("loop") _s1_hist[SMOL_SERVO_PHASES] = {2, 2, 1};
+static const uint8_t __not_in_flash("loop") _s1_k[SMOL_SERVO_PHASES] = {1, 2, 0};
+
+// table value in A for phase p, sample j of this loop, or 0 if the half bridge is off or the cc is outside the table
+static float __not_in_flash_func(_isense_table_a)(size_t p, size_t j) {
+	uint16_t cc1 = _cc_hist[_s1_hist[p]][_s1_k[p]][p];
+	uint16_t cc0 = _cc_hist[2][p][p];
+	if ((cc1 == ISENSE_CC_OFF) || (cc0 == ISENSE_CC_OFF))
+		return 0.0f;
+	uint16_t cc = (j == 0) ? cc0 : cc1;
+	if (!smol_isense_cal_in_range(cc))
+		return 0.0f;
+	return 1e-3f * (float)smol_isense_cal_e_ma((uint32_t)p, (uint32_t)j, cc);
+}
+
+static void __not_in_flash_func(_cc_hist_push)(const smol_bridge_cc_t* cc) {
+	for (size_t k = 0; k < SMOL_SERVO_PWM_PER_LOOP; ++k) {
+		for (size_t p = 0; p < SMOL_SERVO_PHASES; ++p) {
+			uint32_t w = cc->word[k][p];
+			_cc_hist[2][k][p] = _cc_hist[1][k][p];
+			_cc_hist[1][k][p] = _cc_hist[0][k][p];
+			// enable cc in the high half: zero if the half bridge is off
+			_cc_hist[0][k][p] = (w >> 16) ? (uint16_t)(w & 0xffffu) : ISENSE_CC_OFF;
+		}
+	}
+}
 
 /**
  * Current sense zero calibration (state ZERO_CAL).
@@ -116,7 +162,7 @@ static const float __not_in_flash("loop") _pwm_test_duty[SMOL_SERVO_PWM_PER_LOOP
  * Overcurrent check with the calibration from core 0. Positive current flows into the motor terminal.
  * A switching spike can affect one of the 2 samples of a phase, so the check uses the smaller of the 2 magnitudes.
  */
-static __force_inline bool _overcurrent(const float isense_values[SMOL_SERVO_PHASES][2]) {
+static bool __not_in_flash_func(_overcurrent)(const float isense_values[SMOL_SERVO_PHASES][2]) {
 	if (!_cal_valid)
 		return false;
 	for (size_t p = 0; p < SMOL_SERVO_PHASES; ++p) {
@@ -154,7 +200,7 @@ void __not_in_flash_func(smol_servo_loop_irq_handler)(void) {
 	 * Thus, we have a 5 PWM cycle latency from sampling sensor inputs to applying PWM signals.
 	 */
 
-	smol_pwm_fill(&_bridge_out, 2);
+	smol_pwm_fill(&_bridge_cc, 2);
 
 	/**
 	 * There are a few things to sample at the beginning of the loop to have available.
@@ -177,7 +223,7 @@ void __not_in_flash_func(smol_servo_loop_irq_handler)(void) {
 
 	/**
 	 * This is our core servo loop. We need to figure out what the next set of 3 PWM cycles should look like.
-	 * The state (calibration, identification, control) calculates _bridge_out. The next loop writes it to the PWM with smol_pwm_fill().
+	 * The state (calibration, identification, control) calculates _bridge_out. The end of this loop converts it to _bridge_cc (smol_pwm_prepare), and the next loop copies that to the PWM with smol_pwm_fill().
 	 */
 	smol_loop_state_t req = _req_state;
 	if (req != _req_taken) {
@@ -196,9 +242,14 @@ void __not_in_flash_func(smol_servo_loop_irq_handler)(void) {
 			break;
 		case SMOL_LOOP_MOTOR_ID: {
 			float amps[SMOL_SERVO_PHASES][2];
-			for (size_t p = 0; p < SMOL_SERVO_PHASES; ++p)
-				for (size_t j = 0; j < 2; ++j)
+			bool table = smol_isense_cal_valid() && smol_motor_id_uses_isense_cal();
+			for (size_t p = 0; p < SMOL_SERVO_PHASES; ++p) {
+				for (size_t j = 0; j < 2; ++j) {
 					amps[p][j] = (isense_values[p][j] - _cal_zero_v[p][j]) * _cal_amps_per_volt;
+					if (table)
+						amps[p][j] -= _isense_table_a(p, j);
+				}
+			}
 			smol_motor_id_step_t r = smol_motor_id_step(amps, &_bridge_out);
 			if (r != SMOL_MOTOR_ID_RUN) {
 				// an abort switches the bridge off at once, a normal end in the next loop
@@ -241,6 +292,30 @@ void __not_in_flash_func(smol_servo_loop_irq_handler)(void) {
 		_state = SMOL_LOOP_FAULT;
 	}
 
+	// after all changes of _bridge_out: the CC words for the fill of the next loop, and the cc for the current sense table
+	smol_pwm_prepare(&_bridge_out, &_bridge_cc);
+	_cc_hist_push(&_bridge_cc);
+
+	uint32_t end_delay = _end_delay_clocks;
+	if (end_delay > 0)
+		busy_wait_at_least_cycles(end_delay);
+	if (_end_stat_reset) {
+		_end_min = UINT32_MAX;
+		_end_max = 0;
+		_end_n = 0;
+		_end_sum = 0;
+		_end_stat_reset = false;
+	}
+	if (state == SMOL_LOOP_MOTOR_ID) {
+		uint32_t dt_end = smol_time32(timer1_hw) - now_clocks;
+		if (dt_end < _end_min)
+			_end_min = dt_end;
+		if (dt_end > _end_max)
+			_end_max = dt_end;
+		_end_sum += dt_end;
+		_end_n += 1;
+	}
+
 	// for sanity checking, we could check if the IRQ is pending again by the end of the function. If it is, we've taken too long and cannot keep up with the hardware trigger rate.
 	assert_fast(0 == irq_get_pending_fast(_loop_irq_number));
 	// assert(0 == NVIC_GetPendingIRQ(_loop_irq_number));
@@ -249,6 +324,34 @@ void __not_in_flash_func(smol_servo_loop_irq_handler)(void) {
 #endif
 }
 
+
+int smol_servo_loop_set_end_delay(uint32_t clocks) {
+	if (clocks > SMOL_SERVO_LOOP_END_DELAY_MAX_CLOCKS)
+		return -1;
+	_end_delay_clocks = clocks;
+	_end_stat_reset = true;
+	smol_adc_irq_time_reset();
+	return 0;
+}
+
+void smol_servo_loop_print_end_delay(void) {
+	uint32_t n = _end_n;
+	if (n == 0) {
+		info_println("loop end delay %" PRIu32 " clocks, no MOTOR_ID loops", _end_delay_clocks);
+		return;
+	}
+	float k = 1e6f / (float)SMOL_SERVO_LOOP_FREQ_HZ / (float)SMOL_SERVO_LOOP_PERIOD_CLOCKS;
+	info_println("loop end delay %" PRIu32 " clocks, loop end after the wrap: min %.3f mean %.3f max %.3f us (%" PRIu32 " loops)", _end_delay_clocks, k * (float)_end_min, k * (float)((double)_end_sum / (double)n), k * (float)_end_max, n);
+	smol_adc_print_irq_timing();
+}
+
+uint32_t __not_in_flash_func(smol_servo_loop_wrap_clocks)(void) {
+	return *(volatile uint32_t*)&_timer1_sample_dma_buf[0];
+}
+
+uint32_t smol_servo_loop_end_delay(void) {
+	return _end_delay_clocks;
+}
 
 void smol_irq_init(void) {
 	assert(get_core_num() == 1);

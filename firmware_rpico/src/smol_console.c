@@ -27,6 +27,35 @@ static void _process_command(char* cmd, size_t cmd_len, char* args, size_t args_
 		smol_motor_id_auto_cancel();
 		smol_servo_loop_request_state(SMOL_LOOP_OFF);
 	}
+	else if (0 == strcmp("adc_irq_delay", cmd)) {
+		// adc_irq_delay: print the ADC IRQ timing, adc_irq_delay <clocks>: set the test delay at the end of the ADC IRQ
+		if (args[0] != 0) {
+			char* end = NULL;
+			unsigned long v = strtoul(args, &end, 10);
+			if ((end == args) || (0 != smol_adc_set_irq_tail_delay((uint32_t)v))) {
+				warn_println("usage: adc_irq_delay [clocks 0..%u]", (unsigned)SMOL_ADC_IRQ_TAIL_DELAY_MAX_CLOCKS);
+				return;
+			}
+			info_println("ADC IRQ tail delay set to %" PRIu32 " clocks", smol_adc_irq_tail_delay());
+			return;
+		}
+		smol_adc_print_irq_timing();
+	}
+	else if (0 == strcmp("loop_end_delay", cmd)) {
+		// loop_end_delay: print, loop_end_delay <clocks>: set the test delay at the loop end
+		if (args[0] != 0) {
+			char* end = NULL;
+			unsigned long v = strtoul(args, &end, 10);
+			if ((end == args) || (0 != smol_servo_loop_set_end_delay((uint32_t)v))) {
+				warn_println("usage: loop_end_delay [clocks 0..%u]", (unsigned)SMOL_SERVO_LOOP_END_DELAY_MAX_CLOCKS);
+				return;
+			}
+			// core 1 clears the statistics in its next loop, so print only the new delay
+			info_println("loop end delay set to %" PRIu32 " clocks", smol_servo_loop_end_delay());
+			return;
+		}
+		smol_servo_loop_print_end_delay();
+	}
 	else if (0 == strcmp("state", cmd)) {
 		// state: print, state <name>: request a loop state
 		if (args[0] == 0) {

@@ -92,7 +92,12 @@ static _smol_servo_pwm_ram_vars_t _ram = {
 // CC value for "always high": the output is high while COUNT < CC, and COUNT goes up to TOP
 #define BRIDGE_PWM_CC_FULL (BRIDGE_PWM_TOP + 1)
 
-static inline uint16_t __not_in_flash_func(_duty_to_cc)(float duty) {
+_Static_assert(BRIDGE_PWM_CC_FULL == SMOL_BRIDGE_PWM_CC_FULL, "SMOL_BRIDGE_PWM_CC_FULL must be the PWM CC_FULL");
+
+/**
+ * smol_pwm_prepare() calls this function at the end of the loop.
+ */
+uint16_t __not_in_flash_func(smol_duty_to_cc)(float duty) {
 	// no libm: fminf/fmaxf are in flash
 	float cc = duty * (float)BRIDGE_PWM_CC_FULL + 0.5f;
 	if (!(cc > 0.0f))	// also NaN
@@ -103,22 +108,34 @@ static inline uint16_t __not_in_flash_func(_duty_to_cc)(float duty) {
 }
 
 /**
- * Write the half bridge outputs of one loop into the CC buffers of the PWM wrap IRQ.
- * out->duty[k] and out->enable[k] go to buffer index (starting_phase + k) % 3. The servo loop calls this at its start with starting_phase 2, see smol_servo_loop_irq_handler().
- * The R slice (brake resistor) is not changed.
+ * Convert the half bridge outputs of one loop into the CC buffer words. The servo loop calls this at its end (the slow part: 9 float conversions, approx. 2 us).
  */
-void __not_in_flash_func(smol_pwm_fill)(const smol_bridge_out_t* out, size_t starting_phase);
-void smol_pwm_fill(const smol_bridge_out_t* out, size_t starting_phase) {
+void __not_in_flash_func(smol_pwm_prepare)(const smol_bridge_out_t* out, smol_bridge_cc_t* cc);
+void smol_pwm_prepare(const smol_bridge_out_t* out, smol_bridge_cc_t* cc) {
 	for (size_t k = 0; k < SMOL_SERVO_PWM_PER_LOOP; ++k) {
-		size_t index = (starting_phase + k) % SMOL_SERVO_PWM_PER_LOOP;
 		for (size_t p = 0; p < SMOL_SERVO_PHASES; ++p) {
 			bool en = out->enable[k][p];
-			uint16_t cc_pwm = en ? _duty_to_cc(out->duty[k][p]) : 0;
-			uint16_t cc_en = en ? BRIDGE_PWM_CC_FULL : 0;
-			// one 32-bit store, so that the PWM IRQ cannot read a new PWM value with an old enable value
-			uint32_t both = ((uint32_t)cc_en << 16) | cc_pwm;
-			*(volatile uint32_t*)&_ram.pwm_cc_loop_bufs[p][index][0] = both;
+			uint32_t cc_pwm = en ? smol_duty_to_cc(out->duty[k][p]) : 0;
+			uint32_t cc_en = en ? BRIDGE_PWM_CC_FULL : 0;
+			cc->word[k][p] = (cc_en << 16) | cc_pwm;
 		}
+	}
+}
+
+/**
+ * Write the CC buffer words of one loop into the CC buffers of the PWM wrap IRQ: only copies.
+ * cc->word[k] goes to buffer index (starting_phase + k) % 3. The servo loop calls this at its start with starting_phase 2, see smol_servo_loop_irq_handler().
+ * The R slice (brake resistor) is not changed.
+ */
+void __not_in_flash_func(smol_pwm_fill)(const smol_bridge_cc_t* cc, size_t starting_phase);
+void smol_pwm_fill(const smol_bridge_cc_t* cc, size_t starting_phase) {
+	size_t index = starting_phase % SMOL_SERVO_PWM_PER_LOOP;
+	for (size_t k = 0; k < SMOL_SERVO_PWM_PER_LOOP; ++k) {
+		for (size_t p = 0; p < SMOL_SERVO_PHASES; ++p) {
+			// one 32-bit store, so that the PWM IRQ cannot read a new PWM value with an old enable value
+			*(volatile uint32_t*)&_ram.pwm_cc_loop_bufs[p][index][0] = cc->word[k][p];
+		}
+		index = (index + 1 < SMOL_SERVO_PWM_PER_LOOP) ? index + 1 : 0;
 	}
 }
 

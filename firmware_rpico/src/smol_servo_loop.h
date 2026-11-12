@@ -46,8 +46,22 @@ typedef struct {
 	bool enable[SMOL_SERVO_PWM_PER_LOOP][SMOL_SERVO_PHASES];
 } smol_bridge_out_t;
 
-// all half bridges off. Forced inline: an out-of-line copy would be in flash, and core 1 cannot call it. No memset.
-static __force_inline void smol_bridge_out_off(smol_bridge_out_t* out) {
+/**
+ * The PWM CC buffer words of one loop, from smol_pwm_prepare(): (enable cc << 16) | pwm cc for each PWM period k and half bridge p. Zero: the half bridge is off.
+ * The loop calculates them at its end, so that smol_pwm_fill() at the start of the next loop only copies them.
+ */
+typedef struct {
+	uint32_t word[SMOL_SERVO_PWM_PER_LOOP][SMOL_SERVO_PHASES];
+} smol_bridge_cc_t;
+
+// PWM compare value for duty 1 (phase-correct: CC_FULL is half the period, the output is high while COUNT < CC)
+#define SMOL_BRIDGE_PWM_CC_FULL (SMOL_SERVO_BRIDGE_PWM_PERIOD_CLOCKS / 2)
+
+// compare value of a duty, the same rounding as the PWM (smol_servo_pwm.c, in RAM)
+uint16_t smol_duty_to_cc(float duty);
+
+// all half bridges off. In RAM (__not_in_flash_func), so that core 1 can call an out-of-line copy. No memset.
+static inline void __not_in_flash_func(smol_bridge_out_off)(smol_bridge_out_t* out) {
 	for (size_t k = 0; k < SMOL_SERVO_PWM_PER_LOOP; ++k) {
 		for (size_t p = 0; p < SMOL_SERVO_PHASES; ++p) {
 			out->duty[k][p] = 0.0f;
@@ -66,3 +80,12 @@ smol_loop_state_t smol_servo_loop_state(void);
 // checks the preconditions, then requests the state from core 1. Returns 0 on success.
 int smol_servo_loop_request_state(smol_loop_state_t state);
 void smol_servo_loop_print_state(void);
+/**
+ * Test of the ADC sample timing: busy wait in system clocks at the end of the loop (0..SMOL_SERVO_LOOP_END_DELAY_MAX_CLOCKS), so that the loop end moves later. Core 0. Returns 0 on success.
+ */
+int smol_servo_loop_set_end_delay(uint32_t clocks);
+uint32_t smol_servo_loop_end_delay(void);
+// timer 1 (system clock) timestamp of the last bridge PWM wrap (DMA), in RAM for the IRQs
+uint32_t smol_servo_loop_wrap_clocks(void);
+// Core 0: print the delay and the time of the loop end after the PWM wrap of the loop signal (min, mean, max in MOTOR_ID since the last set)
+void smol_servo_loop_print_end_delay(void);
